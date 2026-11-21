@@ -1,0 +1,6 @@
+{
+  "ignore": [
+    ".agents/skills/**",
+    ".claude/**"
+  ]
+}

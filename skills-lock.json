@@ -1,0 +1,47 @@
+{
+  "version": 2,
+  "skills": {
+    "code-review": {
+      "source": "Factory-AI/skills",
+      "commit": "21a74dec467a1424e3e067712d004cd987d6a0ce",
+      "sourceType": "github",
+      "skillPath": "skills/code-review/SKILL.md",
+      "computedHash": "03ed68030e1927335991f3290dac4e766f6d78bcca1f077a3fb9ad65aaf666f5"
+    },
+    "deslop": {
+      "source": "cursor/plugins",
+      "commit": "792440e8a560a4a3f63748cdee70491ecd412982",
+      "sourceType": "github",
+      "skillPath": "cursor-team-kit/skills/deslop/SKILL.md",
+      "computedHash": "104e1041830c5ad58da3805289a77dbba4eee7dd96d4547b3eaeecbd761618d8"
+    },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "commit": "b49177d32788f2dc585c42831d845dacf1ebed2c",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "08bd5bf141cb507f46bd8347890cd985865606f15adf88295ed3a73bc9ad5d96"
+    },
+    "security-review": {
+      "source": "Factory-AI/skills",
+      "commit": "21a74dec467a1424e3e067712d004cd987d6a0ce",
+      "sourceType": "github",
+      "skillPath": "skills/security-review/SKILL.md",
+      "computedHash": "7dde3db7d567e6c62ed8290cec27943dc1f47a991dfc4a50a946e99a84add0b2"
+    },
+    "threat-model-generation": {
+      "source": "Factory-AI/skills",
+      "commit": "21a74dec467a1424e3e067712d004cd987d6a0ce",
+      "sourceType": "github",
+      "skillPath": "skills/threat-model-generation/SKILL.md",
+      "computedHash": "9e124570660ec3d45d9350daecb71eccfa0387209b1171a36810cc0f952fb99a"
+    },
+    "web-design-guidelines": {
+      "source": "vercel-labs/agent-skills",
+      "commit": "5a37a6329fbad3666c3207392a6a7c0110e92efb",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "5994e4cfd86144903d2ba750f862b9e36af15e3297aac983679e347b99f6cb71"
+    }
+  }
+}
