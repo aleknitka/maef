@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/maef-logo.png" alt="MAEF — Modular Agent Execution Framework" width="860">
+</p>
+
 # MAEF — Modular Agent Execution Framework
 
 **Status: architecture + runnable registry/studio bootstrap (v0.1.0).** Not an operational agent executor yet.
