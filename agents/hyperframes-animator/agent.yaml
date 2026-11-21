@@ -1,0 +1,18 @@
+schema_version: maef.dev/v1alpha1
+id: hyperframes-animator
+version: 0.1.0
+display_name: Hyperframes Animator
+description: Generate and validate editable motion graphics compositions (example definition; execution not yet wired).
+capabilities: [motion-graphics, animation, video]
+instructions: SYSTEM.md
+skills: [SKILL.md]
+mcp_servers: []
+runtime:
+  kind: openai-compatible
+  model_profile: local-default
+  sandbox_profile: restricted-local
+budget:
+  max_cost_usd: 0.75
+  max_duration_seconds: 600
+  max_turns: 25
+outputs: [composition, mp4, validation-report]

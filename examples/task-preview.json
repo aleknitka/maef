@@ -1,0 +1,5 @@
+{
+  "agent_id": "hyperframes-animator",
+  "instruction": "Create a 12-second intro animation. Return editable source and video when execution is implemented.",
+  "budget": {"max_cost_usd": 0.25, "max_duration_seconds": 180, "max_turns": 10}
+}

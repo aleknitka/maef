@@ -1,0 +1,18 @@
+schema_version: maef.dev/v1alpha1
+id: research-analyst
+version: 0.1.0
+display_name: Research Analyst
+description: Research specialist example with evidence and citation requirements.
+capabilities: [research, synthesis, citations]
+instructions: SYSTEM.md
+skills: []
+mcp_servers: []
+runtime:
+  kind: openai-compatible
+  model_profile: local-default
+  sandbox_profile: restricted-local
+budget:
+  max_cost_usd: 1.00
+  max_duration_seconds: 900
+  max_turns: 30
+outputs: [report-markdown, sources-json]
