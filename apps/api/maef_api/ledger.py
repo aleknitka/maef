@@ -23,7 +23,7 @@ from .artifacts import (
 )
 from .definitions import PinnedDefinition
 from .leases import FencingError, Lease, SequenceGap, TaskPayload
-from .models import Budget, RunDetail, RunRecord
+from .models import Budget, ExecutionEvent, RunDetail, RunRecord
 
 MIGRATIONS = [
     """
@@ -104,14 +104,25 @@ MIGRATIONS = [
     );
     CREATE INDEX run_artifacts_digest ON run_artifacts(digest);
     """,
+    # Cooperative cancellation: the worker sees the flag on its next heartbeat or report.
+    """
+    ALTER TABLE runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
+    """,
 ]
 
 TERMINAL = ("succeeded", "failed", "cancelled")
 # Statuses a worker may move a run to through report(); terminal states only via finish().
 WORKER_STATUSES = ("running",)
 # Event types only the ledger itself may write.
-RESERVED_PREFIXES = ("task.", "lease.", "artifact.")
+RESERVED_PREFIXES = ("task.", "lease.", "artifact.", "cancel.")
 
+
+class UnknownRun(Exception):
+    pass
+
+
+class AlreadyTerminal(Exception):
+    """The run has already finished; there is nothing left to cancel."""
 
 
 class AdmissionError(Exception):
@@ -132,7 +143,8 @@ def worst_case_tokens(budget: Budget, max_output_tokens: int, prompt_bytes: int)
 
 
 def _record(row: sqlite3.Row) -> dict:
-    record = {**dict(row), "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"])}
+    record = {**dict(row), "dirty": bool(row["dirty"]), "cancel_requested": bool(row["cancel_requested"]),
+              "effective_budget": json.loads(row["effective_budget"])}
     record.pop("task", None)  # the stored task carries the pinned definition; never listed
     return record
 
@@ -220,6 +232,43 @@ class Ledger:
                 for e in conn.execute("SELECT * FROM run_events WHERE run_id=? ORDER BY seq", (run_id,))
             ]
         return RunDetail.model_validate({**_record(row), "events": events})
+
+    def status(self, run_id: str) -> str | None:
+        """The run's status, or None for an unknown run. Cheap: one indexed read."""
+        with self.connect() as conn:
+            row = conn.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+        return row["status"] if row else None
+
+    def is_terminal(self, run_id: str) -> bool:
+        return self.status(run_id) in TERMINAL
+
+    def events_after(self, run_id: str, after_seq: int, limit: int = 500) -> "list[ExecutionEvent]":  # `list` is shadowed by Ledger.list
+        """Events with seq > after_seq, oldest first (seq is gapless, so this is a resumable cursor)."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT run_id, seq, type, ts, payload FROM run_events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?",
+                (run_id, after_seq, limit)).fetchall()
+        return [ExecutionEvent(**{**dict(r), "payload": json.loads(r["payload"])}) for r in rows]
+
+    def request_cancel(self, run_id: str) -> str:
+        """Ask a run to stop. Returns "cancelled" (it was queued and is now settled with 0 tokens) or
+        "requested" (a worker holds it; it learns on its next heartbeat or report). Idempotent while
+        the run is live. Raises UnknownRun, or AlreadyTerminal once the run has finished."""
+        with self._transaction() as conn:
+            row = conn.execute("SELECT status, cancel_requested FROM runs WHERE id=?", (run_id,)).fetchone()
+            if row is None:
+                raise UnknownRun(run_id)
+            if row["status"] in TERMINAL:
+                raise AlreadyTerminal(run_id)
+            if row["status"] == "admitted":
+                conn.execute("UPDATE runs SET cancel_requested=1 WHERE id=?", (run_id,))
+                _append(conn, run_id, "cancel.requested", {})
+                _settle(conn, run_id, 0, "cancelled", "cancelled_by_user")
+                return "cancelled"
+            if not row["cancel_requested"]:
+                conn.execute("UPDATE runs SET cancel_requested=1 WHERE id=?", (run_id,))
+                _append(conn, run_id, "cancel.requested", {})
+            return "requested"
 
     def admit(
         self,
@@ -339,17 +388,20 @@ class Ledger:
             _append(conn, row["id"], "lease.granted", {"worker_id": worker_id, "fencing_token": token})
         return Lease(run_id=row["id"], fencing_token=token, expires_at=expires, task=TaskPayload.model_validate_json(row["task"]))
 
-    def heartbeat(self, run_id: str, token: int, lease_seconds: float, now: float) -> None:
-        """Extend the lease. An already-expired lease cannot be revived: the sweep settles it."""
+    def heartbeat(self, run_id: str, token: int, lease_seconds: float, now: float) -> bool:
+        """Extend the lease and return whether cancellation was requested. An already-expired lease
+        cannot be revived: the sweep settles it."""
         with self._transaction() as conn:
             lease = _check_lease(conn, run_id, token)
             if lease["expires_at"] < now:
                 raise FencingError("lease expired")
             conn.execute("UPDATE leases SET expires_at=? WHERE run_id=?", (now + lease_seconds, run_id))
+            return bool(lease["cancel_requested"])
 
     def report(self, run_id: str, token: int, wseq: int, type: str, payload: dict | None = None,
                status: str | None = None) -> bool:
-        """Append a worker event exactly once. True if appended, False for a duplicate (wseq already seen)."""
+        """Append a worker event exactly once (a duplicate wseq is ignored) and return whether
+        cancellation was requested."""
         if type.startswith(RESERVED_PREFIXES):
             raise ValueError(f"Event type is reserved: {type}")
         if status is not None and status not in WORKER_STATUSES:
@@ -358,14 +410,14 @@ class Ledger:
             lease = _check_lease(conn, run_id, token)
             last = lease["last_wseq"]
             if wseq <= last:
-                return False
+                return bool(lease["cancel_requested"])
             if wseq != last + 1:
                 raise SequenceGap(f"expected wseq {last + 1}, got {wseq}")
             if status:
                 conn.execute("UPDATE runs SET status=? WHERE id=?", (status, run_id))
             _append(conn, run_id, type, payload)
             conn.execute("UPDATE leases SET last_wseq=? WHERE run_id=?", (wseq, run_id))
-        return True
+            return bool(lease["cancel_requested"])
 
     def finish(self, run_id: str, token: int, *, tokens_used: int, status: str, terminal_reason: str) -> None:
         """Settle the run on behalf of the lease holder. A second finish is a FencingError.
@@ -400,7 +452,7 @@ class Ledger:
 
 def _check_lease(conn: sqlite3.Connection, run_id: str, token: int) -> sqlite3.Row:
     row = conn.execute(
-        "SELECT l.*, r.status FROM leases l JOIN runs r ON r.id = l.run_id WHERE l.run_id=?", (run_id,)).fetchone()
+        "SELECT l.*, r.status, r.cancel_requested FROM leases l JOIN runs r ON r.id = l.run_id WHERE l.run_id=?", (run_id,)).fetchone()
     if row is None or row["fencing_token"] != token or row["status"] in TERMINAL:
         raise FencingError(f"Stale or unknown lease for run {run_id}")
     return row

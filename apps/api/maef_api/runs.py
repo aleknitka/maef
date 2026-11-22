@@ -5,11 +5,12 @@ import time
 from collections.abc import Callable
 
 from .definitions import Definitions, ResolveError
-from .ledger import AdmissionError, Ledger
+from .ledger import AdmissionError, AlreadyTerminal, Ledger, UnknownRun
 from .mcp import ADMISSION_ALLOWANCE_BYTES
 from .models import (
     SUPPORTED_DIALECTS,
     Budget,
+    ExecutionEvent,
     RunDetail,
     RunPreview,
     RunRecord,
@@ -35,6 +36,14 @@ class DefinitionConflict(RunsError):
 
 
 class UnsupportedDialect(RunsError):
+    pass
+
+
+class RunNotFound(RunsError):
+    pass
+
+
+class RunAlreadyTerminal(RunsError):
     pass
 
 
@@ -124,6 +133,21 @@ class Runs:
 
     def get(self, run_id: str) -> RunDetail | None:
         return self.ledger.get(run_id)
+
+    def status(self, run_id: str) -> str | None:
+        return self.ledger.status(run_id)
+
+    def events_after(self, run_id: str, after_seq: int, limit: int = 500) -> list[ExecutionEvent]:
+        return self.ledger.events_after(run_id, after_seq, limit)
+
+    def cancel(self, run_id: str) -> str:
+        """"cancelled" (queued run settled now) or "requested" (a worker will stop it)."""
+        try:
+            return self.ledger.request_cancel(run_id)
+        except UnknownRun:
+            raise RunNotFound(run_id) from None
+        except AlreadyTerminal:
+            raise RunAlreadyTerminal(run_id) from None
 
     def list(self) -> list[RunRecord]:
         return self.ledger.list()

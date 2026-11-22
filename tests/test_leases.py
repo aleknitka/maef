@@ -94,8 +94,8 @@ def test_report_is_idempotent_per_wseq(store):
     channel = LocalChannel(store)
     run_id = admit(store)
     lease = channel.claim('w1')
-    assert channel.report(lease, 1, 'model.request', {'turn': 1}) is True
-    assert channel.report(lease, 1, 'model.request', {'turn': 1}) is False
+    assert channel.report(lease, 1, 'model.request', {'turn': 1}) is False  # returns cancel_requested
+    assert channel.report(lease, 1, 'model.request', {'turn': 1}) is False  # duplicate wseq is ignored
     assert types(store, run_id).count('model.request') == 1
 
 

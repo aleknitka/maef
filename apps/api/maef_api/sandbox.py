@@ -16,6 +16,7 @@ import secrets
 import shutil
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
@@ -30,6 +31,7 @@ ALLOW_UNPINNED_ENV = "MAEF_ALLOW_UNPINNED_IMAGES"
 RUNTIME_ENV = "MAEF_OCI_RUNTIME"
 _PROVISION_TIMEOUT = 300.0
 _CLI_TIMEOUT = 30.0
+_CANCEL_POLL_SECONDS = 0.25
 
 
 class SandboxError(Exception):
@@ -46,6 +48,7 @@ class ExecResult:
     stdout: bytes
     stderr: bytes
     timed_out: bool = False
+    cancelled: bool = False
 
 
 class Process(Protocol):
@@ -68,7 +71,10 @@ Network = Literal["none", "open"]
 
 
 class Session(Protocol):
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float) -> ExecResult: ...
+    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
+             cancel: threading.Event | None = None) -> ExecResult:
+        """Best effort: once `cancel` is set the exec is killed like a timeout and `cancelled` is True."""
+        ...
 
     def spawn(self, argv: list[str], *, env: dict[str, str]) -> Process:
         """Start a long-lived process with stdin/stdout pipes. `env` values never appear in argv."""
@@ -190,9 +196,12 @@ class _OciSession:
     def __init__(self, sandbox: OciCliSandbox, name: str):
         self._sb, self.name, self._down = sandbox, name, False
 
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float) -> ExecResult:
+    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
+             cancel: threading.Event | None = None) -> ExecResult:
         if not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError("invalid_argv")
+        if cancel is not None:
+            return self._exec_cancellable(argv, stdin, timeout, cancel)
         try:
             done = self._sb._run(["exec", "-i", "-w", WORKSPACE, self.name, *argv],
                                  timeout=max(timeout, 0.1), stdin=stdin or b"")
@@ -204,6 +213,40 @@ class _OciSession:
         except OSError:
             raise SandboxError("exec_failed") from None
         return ExecResult(done.returncode, _cap(done.stdout), _cap(done.stderr))
+
+    def _exec_cancellable(self, argv: list[str], stdin: bytes | None, timeout: float,
+                          cancel: threading.Event) -> ExecResult:
+        """Like exec, but waits in short slices so `cancel` can interrupt it."""
+        if cancel.is_set():
+            return ExecResult(-1, b"", b"", cancelled=True)
+        cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, self.name, *argv]
+        try:
+            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        except OSError:
+            raise SandboxError("exec_failed") from None
+        deadline = time.monotonic() + max(timeout, 0.1)
+        data = stdin or b""
+        while True:
+            try:
+                out, err = popen.communicate(input=data, timeout=_CANCEL_POLL_SECONDS)
+                return ExecResult(popen.returncode, _cap(out), _cap(err))
+            except subprocess.TimeoutExpired as exc:
+                data = None  # communicate() resumes; stdin was already handed over
+                timed_out, cancelled = time.monotonic() >= deadline, cancel.is_set()
+                if not (timed_out or cancelled):
+                    continue
+                popen.kill()
+                self._kill_all()
+                try:
+                    out, err = popen.communicate(timeout=5)
+                except (subprocess.SubprocessError, OSError):
+                    out, err = exc.stdout, exc.stderr
+                return ExecResult(-1, _cap(out if isinstance(out, bytes) else None),
+                                  _cap(err if isinstance(err, bytes) else None),
+                                  timed_out=timed_out and not cancelled, cancelled=cancelled)
+            except OSError:
+                popen.kill()
+                raise SandboxError("exec_failed") from None
 
     def spawn(self, argv: list[str], *, env: dict[str, str]) -> Process:
         if not argv or not all(isinstance(a, str) for a in argv):
@@ -348,11 +391,15 @@ class FakeSession:
             raise SandboxError("spawn_failed")
         return self.spawn_factory(list(argv), dict(env))
 
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float) -> ExecResult:
+    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
+             cancel: threading.Event | None = None) -> ExecResult:
         self.execs.append(list(argv))
         self.timeouts.append(timeout)
+        if cancel is not None and cancel.is_set():
+            return ExecResult(-1, b"", b"", cancelled=True)
         result = self.handler(argv, stdin)
-        return ExecResult(result.exit_code, _cap(result.stdout), _cap(result.stderr), result.timed_out)
+        return ExecResult(result.exit_code, _cap(result.stdout), _cap(result.stderr), result.timed_out,
+                          result.cancelled)
 
     def put(self, path: str, data: bytes) -> None:
         self.files[workspace_path(path)] = data

@@ -37,6 +37,7 @@ class PreparedRun:
     instruction: str
     tools: ToolSet | None = None  # None: no tools
     outputs: Callable[[], Collected] | None = None  # sandbox file collection; None: no sandbox session
+    cancelled: Callable[[], bool] | None = None  # True once the user asked to cancel; polled between steps
 
 
 class SinkFailure(Exception):
@@ -118,7 +119,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     tools = run.tools or BuiltinTools([], {})
     specs = tools.specs()
     server_of = getattr(tools, "server_of", None) or (lambda name: None)
-    guard = BudgetGuard(run.budget, run.reserved_tokens, profile.max_output_tokens, clock)
+    guard = BudgetGuard(run.budget, run.reserved_tokens, profile.max_output_tokens, clock, run.cancelled)
     in_tokens = out_tokens = 0
     artifacts: list[ArtifactRef] = []
     status, reason = "failed", "internal_error"
@@ -129,7 +130,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
             prompt_bytes = _prompt_bytes(pinned.instructions, messages, specs)
             stop = guard.check(prompt_bytes)
             if stop:
-                reason = stop
+                status, reason = ("cancelled", "cancelled_by_user") if stop == "cancelled" else ("failed", stop)
                 break
             turn = guard.turns + 1
             sink.append("model.request", {
@@ -155,6 +156,8 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                     reason = "malformed_response"
                     break
                 for call in response.tool_calls:
+                    if guard.cancelled():
+                        break  # skip the remaining calls; the next guard check ends the run
                     server = {"server": s} if (s := server_of(call.name)) else {}
                     sink.append("tool.call", {
                         "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments), **server})

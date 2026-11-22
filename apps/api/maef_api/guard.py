@@ -5,16 +5,19 @@ worst case for a call is tokens_used + prompt_bytes + max_output_tokens, which m
 reservation made at admission.
 """
 import time
+from collections.abc import Callable
 
 from .models import Budget
 
 
 class BudgetGuard:
-    def __init__(self, budget: Budget, reserved_tokens: int, max_output_tokens: int, clock=time.monotonic):
+    def __init__(self, budget: Budget, reserved_tokens: int, max_output_tokens: int, clock=time.monotonic,
+                 cancelled: Callable[[], bool] | None = None):
         self._budget = budget
         self._reserved = reserved_tokens
         self._max_output = max_output_tokens
         self._clock = clock
+        self._cancelled = cancelled
         self._start = clock()
         self._tokens = 0
         self._turns = 0
@@ -27,11 +30,16 @@ class BudgetGuard:
     def turns(self) -> int:
         return self._turns
 
+    def cancelled(self) -> bool:
+        return self._cancelled is not None and self._cancelled()
+
     def remaining_seconds(self) -> float:
         return float(self._budget.max_duration_seconds) - (self._clock() - self._start)
 
     def check(self, prompt_bytes: int) -> str | None:
         """A stop reason, or None when another model call fits the budget."""
+        if self.cancelled():
+            return "cancelled"
         if self._turns >= self._budget.max_turns:
             return "turns_exhausted"
         if self.remaining_seconds() <= 0:

@@ -221,6 +221,7 @@ class RunRecord(BaseModel):
     terminal_reason: str | None
     created_at: str
     finished_at: str | None
+    cancel_requested: bool = False
 
 class RunDetail(RunRecord):
     events: list[ExecutionEvent]

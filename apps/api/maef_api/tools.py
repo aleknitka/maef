@@ -1,5 +1,6 @@
 """Tools a model may call. Read-only built-ins only; results never raise and are size-capped."""
 import json
+import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -69,13 +70,14 @@ class BuiltinTools:
     def __init__(self, names: list[str], files: Mapping[str, bytes],
                  clock: Callable[[], datetime] = lambda: datetime.now(UTC),
                  session: Session | None = None,
-                 exec_timeout: Callable[[], float] = lambda: DEFAULT_EXEC_TIMEOUT):
+                 exec_timeout: Callable[[], float] = lambda: DEFAULT_EXEC_TIMEOUT,
+                 cancel: threading.Event | None = None):
         """`files` are the pinned instructions and skills (agent-relative path -> bytes); read_agent_file
         serves only these, so a run sees exactly what was digested and never touches the filesystem."""
         builtin_specs(names)  # validates
         if session is None and any(n in SANDBOXED_TOOLS for n in names):
             raise ValueError("Sandboxed tools require a sandbox session")
-        self._session, self._exec_timeout = session, exec_timeout
+        self._session, self._exec_timeout, self._cancel = session, exec_timeout, cancel
         self._names = list(dict.fromkeys(names))
         self._clock = clock
         self._files = dict(files)
@@ -113,13 +115,16 @@ class BuiltinTools:
         if timeout <= 0:
             return ToolResult("duration_exhausted", True)
         try:
-            res = self._session.exec(argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout)
+            extra = {"cancel": self._cancel} if self._cancel is not None else {}
+            res = self._session.exec(argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout, **extra)
         except (SandboxError, ValueError):
             return ToolResult("sandbox_error", True)
         # Each stream is capped so the JSON stays valid after the overall result cap.
         body = {"exit_code": res.exit_code, "stdout": res.stdout[:_STREAM_CAP].decode("utf-8", errors="replace"),
                 "stderr": res.stderr[:_STREAM_CAP].decode("utf-8", errors="replace"), "timed_out": res.timed_out}
-        return ToolResult(json.dumps(body), res.timed_out)
+        if res.cancelled:
+            body["cancelled"] = True
+        return ToolResult(json.dumps(body), res.timed_out or res.cancelled)
 
     def _read_agent_file(self, arguments: dict) -> ToolResult:
         path = arguments.get("path") if isinstance(arguments, dict) else None

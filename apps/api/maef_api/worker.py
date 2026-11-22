@@ -58,8 +58,9 @@ class ChannelSink:
     idempotent. Any failure that retrying cannot fix becomes SinkFailure."""
 
     def __init__(self, channel: WorkerChannel, lease: Lease, abandoned: threading.Event | None = None,
-                 sleep=time.sleep):
+                 sleep=time.sleep, cancel: threading.Event | None = None):
         self._channel, self._lease, self._abandoned, self._sleep = channel, lease, abandoned, sleep
+        self._cancel = cancel
         self._wseq = 0
 
     def _send(self, call: Callable[[], object]) -> object:
@@ -77,8 +78,10 @@ class ChannelSink:
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         wseq = self._wseq + 1
-        self._send(lambda: self._channel.report(self._lease, wseq, type, payload, status))
+        cancel_requested = self._send(lambda: self._channel.report(self._lease, wseq, type, payload, status))
         self._wseq = wseq
+        if cancel_requested and self._cancel is not None:
+            self._cancel.set()
 
     def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
         return self._send(lambda: self._channel.upload(self._lease, name=name, mime=mime, data=data))
@@ -137,11 +140,13 @@ class _Heartbeat(threading.Thread):
         self._channel, self._lease, self._interval = channel, lease, interval
         self._stop_event = threading.Event()
         self.lost = threading.Event()
+        self.cancelled = threading.Event()  # set once the control plane reports a cancel request
 
     def run(self) -> None:
         while not self._stop_event.wait(self._interval):
             try:
-                self._channel.heartbeat(self._lease)
+                if self._channel.heartbeat(self._lease):
+                    self.cancelled.set()
             except FencingError:
                 self.lost.set()
                 return
@@ -170,17 +175,17 @@ class Worker:
         heartbeat = _Heartbeat(self._channel, lease, self._heartbeat_seconds)
         heartbeat.start()
         try:
-            self._run(lease, heartbeat.lost)
+            self._run(lease, heartbeat.lost, heartbeat.cancelled)
         except SinkFailure as exc:
             log.error("run %s abandoned: %s", lease.run_id, exc)
         finally:
             heartbeat.stop()
         return True
 
-    def _run(self, lease: Lease, abandoned: threading.Event) -> None:
+    def _run(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event) -> None:
         task = lease.task
         pinned = task.pinned
-        sink = ChannelSink(self._channel, lease, abandoned)
+        sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
 
         def reject(reason: str, **detail) -> None:
             # Nothing ran, so nothing is charged and the whole reservation is released.
@@ -204,7 +209,7 @@ class Worker:
                 if needs_sandbox:
                     session = self._sandbox.provision(pinned.sandbox, lease.run_id)
                 tools = BuiltinTools(pinned.agent.tools, pinned.files, session=session,
-                                     exec_timeout=lambda: deadline - self._clock())
+                                     exec_timeout=lambda: deadline - self._clock(), cancel=cancel)
             except SandboxError:
                 return reject("sandbox_unavailable")
             except Exception as exc:  # noqa: BLE001  # class name only; messages may carry secrets
@@ -238,7 +243,7 @@ class Worker:
                 steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
             run_sink = _TeardownSink(sink, steps) if steps else sink
             outputs = None if session is None else (lambda: collect_outputs(session))
-            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs)
+            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs, cancel.is_set)
             execute(run_sink, run, adapter, self._clock)
         finally:
             for handle in mcp:

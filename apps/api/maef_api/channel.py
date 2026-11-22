@@ -29,12 +29,13 @@ from .models import is_loopback_host
 class WorkerChannel(Protocol):
     def claim(self, worker_id: str) -> Lease | None: ...
 
-    def heartbeat(self, lease: Lease) -> None:
-        """Raises FencingError when the lease is no longer this worker's."""
+    def heartbeat(self, lease: Lease) -> bool:
+        """Returns whether cancellation was requested. Raises FencingError when the lease is no longer this worker's."""
 
     def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
                status: str | None = None) -> bool:
-        """Raises FencingError or SequenceGap; False means a duplicate that was ignored."""
+        """Returns whether cancellation was requested. Raises FencingError or SequenceGap; a duplicate
+        wseq is ignored."""
 
     def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
         """Raises FencingError, ChannelError (retryable) or ArtifactRejected (not retryable)."""
@@ -55,8 +56,8 @@ class LocalChannel:
     def claim(self, worker_id: str) -> Lease | None:
         return self._ledger.claim(worker_id, self._lease_seconds, self._clock())
 
-    def heartbeat(self, lease: Lease) -> None:
-        self._ledger.heartbeat(lease.run_id, lease.fencing_token, self._lease_seconds, self._clock())
+    def heartbeat(self, lease: Lease) -> bool:
+        return self._ledger.heartbeat(lease.run_id, lease.fencing_token, self._lease_seconds, self._clock())
 
     def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
                status: str | None = None) -> bool:
@@ -124,17 +125,20 @@ class HttpChannel:
         except ValueError:
             raise ChannelError("bad_response") from None
 
-    def heartbeat(self, lease: Lease) -> None:
-        self._post(f"runs/{lease.run_id}/heartbeat", {"fencing_token": lease.fencing_token})
+    def heartbeat(self, lease: Lease) -> bool:
+        return self._cancel_flag(self._post(f"runs/{lease.run_id}/heartbeat", {"fencing_token": lease.fencing_token}))
+
+    @staticmethod
+    def _cancel_flag(raw: bytes | None) -> bool:
+        try:
+            return bool(raw and json.loads(raw).get("cancel_requested"))
+        except (ValueError, AttributeError):
+            raise ChannelError("bad_response") from None
 
     def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
                status: str | None = None) -> bool:
-        raw = self._post(f"runs/{lease.run_id}/events", {
-            "fencing_token": lease.fencing_token, "wseq": wseq, "type": type, "payload": payload or {}, "status": status})
-        try:
-            return bool(raw and json.loads(raw).get("appended"))
-        except (ValueError, AttributeError):
-            raise ChannelError("bad_response") from None
+        return self._cancel_flag(self._post(f"runs/{lease.run_id}/events", {
+            "fencing_token": lease.fencing_token, "wseq": wseq, "type": type, "payload": payload or {}, "status": status}))
 
     def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
         raw = self._send(

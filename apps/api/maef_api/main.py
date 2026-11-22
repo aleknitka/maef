@@ -1,14 +1,18 @@
+import asyncio
 import hmac
+import json
 import logging
 import os
 import threading
 import time
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Annotated, Literal
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -45,6 +49,8 @@ from .runs import (
     AgentNotFound,
     DefinitionConflict,
     ExecutionDisabled,
+    RunAlreadyTerminal,
+    RunNotFound,
     Runs,
     UnsupportedDialect,
 )
@@ -75,7 +81,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="MAEF Control Plane", version="0.1.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
+app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Last-Event-ID"])
 registry = AgentRegistry()
 model_profiles = ModelProfileRegistry()
 
@@ -154,6 +160,73 @@ def get_run(run_id: str):
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+@dataclass
+class SseSettings:
+    """Timing for GET /runs/{id}/events; a module-level object so tests can shrink it."""
+    poll_seconds: float = 0.5
+    keepalive_seconds: float = 15.0
+    max_seconds: float = 3600.0
+    batch: int = 500
+
+
+sse = SseSettings()
+TERMINAL_EVENTS = ("task.succeeded", "task.failed", "task.cancelled")
+
+
+def _poll_events(run_id: str, after: int) -> tuple[list, bool]:
+    """Status is read before the events, so a run seen terminal has all its events in the batch
+    that follows (the terminal event is the last one written)."""
+    terminal = runs.status(run_id) in ("succeeded", "failed", "cancelled")
+    return runs.events_after(run_id, after, sse.batch), terminal
+
+
+def _frame(event) -> str:
+    data = json.dumps({"seq": event.seq, "type": event.type, "ts": event.ts, "payload": event.payload},
+                      separators=(",", ":"))
+    return f"id: {event.seq}\nevent: {event.type}\ndata: {data}\n\n"
+
+
+@app.get("/api/v1/runs/{run_id}/events")
+async def stream_run_events(run_id: str, request: Request, after: Annotated[int, Query(ge=0)] = 0,
+                            last_event_id: Annotated[str | None, Header()] = None):
+    if await run_in_threadpool(runs.status, run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    cursor = int(last_event_id) if last_event_id and last_event_id.strip().isdigit() else after
+
+    async def generate():
+        nonlocal cursor
+        started = last_write = time.monotonic()
+        while time.monotonic() - started < sse.max_seconds:
+            if await request.is_disconnected():
+                return
+            events, terminal = await run_in_threadpool(_poll_events, run_id, cursor)
+            for event in events:
+                yield _frame(event)
+                cursor = event.seq
+                last_write = time.monotonic()
+                if event.type in TERMINAL_EVENTS:
+                    return
+            if terminal and not events:
+                return
+            if len(events) >= sse.batch:
+                continue
+            if time.monotonic() - last_write >= sse.keepalive_seconds:
+                yield ": keepalive\n\n"
+                last_write = time.monotonic()
+            await asyncio.sleep(sse.poll_seconds)
+
+    return StreamingResponse(generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+@app.post("/api/v1/runs/{run_id}/cancel", status_code=202)
+def cancel_run(run_id: str):
+    try:
+        return {"outcome": runs.cancel(run_id)}
+    except RunNotFound:
+        raise HTTPException(status_code=404, detail="Run not found")
+    except RunAlreadyTerminal:
+        raise HTTPException(status_code=409, detail={"code": "already_terminal", "message": "Run already finished."})
 
 @app.get("/api/v1/runs/{run_id}/artifacts", response_model=list[ArtifactRef])
 def list_run_artifacts(run_id: str):
@@ -242,22 +315,22 @@ def worker_claim(body: ClaimRequest):
 @app.post("/api/v1/worker/runs/{run_id}/heartbeat", dependencies=[Depends(require_worker)])
 def worker_heartbeat(run_id: str, body: HeartbeatRequest):
     try:
-        runs.ledger.heartbeat(run_id, body.fencing_token, lease_seconds(), time.time())
+        cancel_requested = runs.ledger.heartbeat(run_id, body.fencing_token, lease_seconds(), time.time())
     except FencingError as exc:
         raise _conflict("fencing", exc)
-    return {"ok": True}
+    return {"ok": True, "cancel_requested": cancel_requested}
 
 @app.post("/api/v1/worker/runs/{run_id}/events", dependencies=[Depends(require_worker)])
 def worker_events(run_id: str, body: EventRequest):
     try:
-        appended = runs.ledger.report(run_id, body.fencing_token, body.wseq, body.type, body.payload, body.status)
+        cancel_requested = runs.ledger.report(run_id, body.fencing_token, body.wseq, body.type, body.payload, body.status)
     except FencingError as exc:
         raise _conflict("fencing", exc)
     except SequenceGap as exc:
         raise _conflict("sequence_gap", exc)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return {"appended": appended}
+    return {"cancel_requested": cancel_requested}
 
 @app.post("/api/v1/worker/runs/{run_id}/finish", dependencies=[Depends(require_worker)])
 def worker_finish(run_id: str, body: FinishRequest):
