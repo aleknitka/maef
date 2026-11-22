@@ -1,6 +1,6 @@
-import shutil
 
 import pytest
+from conftest import copy_research_analyst
 from maef_api.definitions import Definitions, ResolveError
 from maef_api.models import Budget
 from maef_api.registry import AgentRegistry, ModelProfileRegistry
@@ -10,7 +10,7 @@ from test_api import PROFILE
 @pytest.fixture
 def env(tmp_path):
     agents = tmp_path / 'agents'
-    shutil.copytree(AgentRegistry().root / 'research-analyst', agents / 'research-analyst')
+    copy_research_analyst(agents)
     profiles = tmp_path / 'profiles'; profiles.mkdir()
     (profiles / 'local-default.yaml').write_text(PROFILE.format(id='local-default', extra=''))
     return agents, profiles

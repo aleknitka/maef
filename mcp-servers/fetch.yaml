@@ -1,0 +1,16 @@
+schema_version: maef.dev/v1alpha1
+id: fetch
+version: 0.1.0
+transport: stdio
+# Reference MCP fetch server. Tag-only: the worker refuses it unless MAEF_ALLOW_UNPINNED_IMAGES=1.
+# TODO pin me: replace with docker.io/mcp/fetch@sha256:<64 hex>
+# (look it up with `podman image inspect --format '{{.Digest}}' docker.io/mcp/fetch:latest`).
+image: docker.io/mcp/fetch:latest
+# The image's default entrypoint (`mcp-server-fetch`); MAEF execs the command in a sandboxed container.
+command: ["mcp-server-fetch"]
+env: {}
+secrets: {}
+# Fetching web pages needs the network; the agent must set permissions.network_open.
+network: open
+permission: read-only
+max_tools: 8

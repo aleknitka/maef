@@ -6,7 +6,9 @@ description: Research specialist example with evidence and citation requirements
 capabilities: [research, synthesis, citations]
 instructions: SYSTEM.md
 skills: []
-mcp_servers: []
+mcp_servers: ["fetch@0.1.0"]
+permissions:
+  network_open: true
 runtime:
   model_profile: local-default
   sandbox_profile: restricted-local

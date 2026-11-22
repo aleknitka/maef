@@ -1,8 +1,8 @@
-import shutil
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from conftest import copy_research_analyst
 from maef_api.definitions import Definitions, ResolveError
 from maef_api.registry import AgentRegistry, ModelProfileRegistry
 from maef_api.tools import MAX_RESULT_BYTES, BuiltinTools, ToolResult
@@ -80,7 +80,7 @@ def test_invoke_turns_clock_failure_into_error_result():
 @pytest.fixture
 def agent_dir(tmp_path):
     agents = tmp_path / 'agents'
-    shutil.copytree(AgentRegistry().root / 'research-analyst', agents / 'research-analyst')
+    copy_research_analyst(agents)
     profiles = tmp_path / 'profiles'
     profiles.mkdir()
     (profiles / 'local-default.yaml').write_text(PROFILE.format(id='local-default', extra=''))

@@ -77,6 +77,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     pinned, profile = run.pinned, run.pinned.profile
     tools = run.tools or BuiltinTools([], {})
     specs = tools.specs()
+    server_of = getattr(tools, "server_of", None) or (lambda name: None)
     guard = BudgetGuard(run.budget, run.reserved_tokens, profile.max_output_tokens, clock)
     in_tokens = out_tokens = 0
     status, reason = "failed", "internal_error"
@@ -113,12 +114,13 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                     reason = "malformed_response"
                     break
                 for call in response.tool_calls:
+                    server = {"server": s} if (s := server_of(call.name)) else {}
                     sink.append("tool.call", {
-                        "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments)})
+                        "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments), **server})
                     result = _invoke(tools, call)
                     sink.append("tool.result", {
                         "turn": turn, "name": call.name, "result_bytes": len(result.content.encode()),
-                        "is_error": result.is_error})
+                        "is_error": result.is_error, **server})
                     messages.append(Message("tool", result.content, tool_call_id=call.id, is_error=result.is_error))
                 continue
 

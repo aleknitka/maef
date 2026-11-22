@@ -10,8 +10,18 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .models import AgentDefinition, ModelEndpointProfile, SandboxProfile
-from .registry import AgentRegistry, ModelProfileRegistry, SandboxProfileRegistry
+from .models import (
+    AgentDefinition,
+    McpServerManifest,
+    ModelEndpointProfile,
+    SandboxProfile,
+)
+from .registry import (
+    AgentRegistry,
+    McpServerRegistry,
+    ModelProfileRegistry,
+    SandboxProfileRegistry,
+)
 from .tools import BUILTIN_TOOL_NAMES, SANDBOXED_TOOLS
 
 
@@ -39,6 +49,10 @@ class PinnedDefinition(BaseModel):
     # The sandbox profile pinned the same way; None when the agent uses no sandboxed tools and none was found.
     sandbox: SandboxProfile | None = None
     sandbox_digest: str | None = None
+    # Pinned MCP server manifests, in the agent's order, and their exact bytes by server id
+    # (digested, so a worker can re-verify them).
+    mcp_servers: list[McpServerManifest] = Field(default_factory=list)
+    mcp_bytes: dict[str, bytes] = Field(default_factory=dict)
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -58,18 +72,69 @@ def _digest(parts: list[tuple[str, bytes]]) -> str:
     return h.hexdigest()
 
 
-def compute_definition_digest(agent_yaml: bytes, files: Mapping[str, bytes]) -> str:
-    """The digest recorded at admission: agent.yaml first, then `files` in pinned order.
-    Workers recompute it over the bytes they were handed."""
-    return _digest([("agent.yaml", agent_yaml), *files.items()])
+def compute_definition_digest(agent_yaml: bytes, files: Mapping[str, bytes],
+                              mcp_bytes: Mapping[str, bytes] | None = None) -> str:
+    """The digest recorded at admission: agent.yaml first, then `files` in pinned order, then each
+    MCP manifest (as `mcp-servers/<id>.yaml`, sorted by id; none adds nothing, so definitions
+    without MCP servers keep their earlier digests). Workers recompute it over the bytes they were handed."""
+    mcp = [(f"mcp-servers/{sid}.yaml", data) for sid, data in sorted((mcp_bytes or {}).items())]
+    return _digest([("agent.yaml", agent_yaml), *files.items(), *mcp])
+
+
+def parse_mcp_ref(ref: str) -> tuple[str, str]:
+    """"<id>@<version>" -> (id, version); ValueError otherwise."""
+    server_id, sep, version = ref.partition("@")
+    if not sep or not server_id or not version or "@" in version:
+        raise ValueError(f"MCP server reference must be <id>@<version>: {ref}")
+    return server_id, version
+
+
+def mcp_ref_problem(agent: AgentDefinition, manifests: list[McpServerManifest]) -> str | None:
+    """Why `manifests` do not satisfy the agent's references and permissions, or None."""
+    try:
+        refs = [parse_mcp_ref(r) for r in agent.mcp_servers]
+    except ValueError:
+        return "invalid_mcp_reference"
+    if refs != [(m.id, m.version) for m in manifests]:
+        return "mcp_reference_mismatch"
+    if any(m.network == "open" for m in manifests) and not agent.permissions.network_open:
+        return "network_not_permitted"
+    return None
 
 
 class Definitions:
     def __init__(self, agents: AgentRegistry, profiles: ModelProfileRegistry,
-                 sandboxes: SandboxProfileRegistry | None = None):
+                 sandboxes: SandboxProfileRegistry | None = None, mcps: McpServerRegistry | None = None):
         self.agents = agents
         self.profiles = profiles
         self.sandboxes = sandboxes
+        self.mcps = mcps
+
+    def _pin_mcp(self, agent: AgentDefinition) -> tuple[list[McpServerManifest], dict[str, bytes]]:
+        manifests: list[McpServerManifest] = []
+        raw: dict[str, bytes] = {}
+        for ref in agent.mcp_servers:
+            try:
+                server_id, version = parse_mcp_ref(ref)
+            except ValueError as exc:
+                raise ResolveError(str(exc)) from None
+            if server_id in raw:
+                raise ResolveError(f"MCP server listed twice: {server_id}")
+            try:
+                loaded = self.mcps.load(server_id) if self.mcps is not None else None
+            except (OSError, ValueError, yaml.YAMLError):  # unreadable, bad YAML or invalid manifest (pydantic errors are ValueErrors)
+                raise ResolveError(f"MCP server manifest unreadable or invalid: {server_id}") from None
+            if loaded is None:
+                raise ResolveError(f"MCP server not found: {server_id}")
+            manifest, data = loaded
+            if manifest.version != version:
+                raise ResolveError(f"MCP server {server_id} is version {manifest.version}, agent requires {version}")
+            manifests.append(manifest)
+            raw[server_id] = data
+        problem = mcp_ref_problem(agent, manifests)
+        if problem == "network_not_permitted":
+            raise ResolveError("MCP server needs open network but the agent does not set permissions.network_open")
+        return manifests, raw
 
     def _pin_sandbox(self, profile_id: str, required: bool) -> tuple[SandboxProfile | None, str | None]:
         try:
@@ -118,6 +183,8 @@ class Definitions:
         sandbox, sandbox_digest = self._pin_sandbox(
             agent.runtime.sandbox_profile, required=any(t in SANDBOXED_TOOLS for t in agent.tools))
 
+        mcp_manifests, mcp_raw = self._pin_mcp(agent)
+
         status = _git(base, "status", "--porcelain", "--", ".")
         files = {n: d for n, d in parts if n != "agent.yaml"}
         agent_yaml = dict(parts)["agent.yaml"]
@@ -129,8 +196,10 @@ class Definitions:
             definition_bytes=agent_yaml,
             git_rev=_git(base, "rev-parse", "HEAD"),
             dirty=status is None or status != "",  # unknown git state counts as dirty
-            definition_digest=compute_definition_digest(agent_yaml, files),
+            definition_digest=compute_definition_digest(agent_yaml, files, mcp_raw),
             profile_digest=hashlib.sha256(profile_bytes).hexdigest(),
             sandbox=sandbox,
             sandbox_digest=sandbox_digest,
+            mcp_servers=mcp_manifests,
+            mcp_bytes=mcp_raw,
         )

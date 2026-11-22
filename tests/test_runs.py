@@ -1,7 +1,7 @@
-import shutil
 from types import SimpleNamespace
 
 import pytest
+from conftest import copy_research_analyst
 from maef_api.adapters.base import ModelResponse
 from maef_api.channel import LocalChannel
 from maef_api.definitions import Definitions
@@ -32,7 +32,7 @@ class FakeAdapter:
 @pytest.fixture
 def env(tmp_path):
     agents = tmp_path / 'agents'
-    shutil.copytree(AgentRegistry().root / 'research-analyst', agents / 'research-analyst')
+    copy_research_analyst(agents)
     profiles = tmp_path / 'profiles'; profiles.mkdir()
     (profiles / 'local-default.yaml').write_text(PROFILE.format(id='local-default', extra=''))
     ledger = Ledger(tmp_path / 'l.db')

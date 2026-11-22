@@ -116,6 +116,39 @@ class SandboxProfile(BaseModel):
     require_rootless: bool = True
     user: str = Field(default="65534:65534", pattern=r"^[0-9]+(:[0-9]+)?$")
 
+_ENV_NAME = r"^[A-Za-z_][A-Za-z0-9_]{0,63}$"
+# Names that would change how the worker's own container CLI behaves, since secrets travel to it
+# through its process environment (`exec -e NAME`).
+_PROTECTED_ENV = frozenset({"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "PWD", "IFS", "ENV"})
+_PROTECTED_ENV_PREFIXES = ("LD_", "DYLD_", "DOCKER_", "CONTAINER", "PODMAN_", "XDG_", "DBUS_", "BASH_")
+
+class McpServerManifest(BaseModel):
+    """MCP server manifest (`mcp-servers/<id>.yaml`): a stdio server that runs in its own container.
+    `env` holds non-secret values only; `secrets` maps ENV_NAME to a credential_ref that the worker
+    resolves at run time (never stored or logged). Tag-only images are checked at provisioning."""
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal["maef.dev/v1alpha1"]
+    id: str = Field(pattern=PROFILE_ID_PATTERN)
+    version: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+-]*$")
+    transport: Literal["stdio"]
+    image: str = Field(min_length=1, max_length=300, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/:@-]*$")
+    command: list[Annotated[str, Field(min_length=1, max_length=1024)]] = Field(min_length=1, max_length=64)
+    env: dict[str, Annotated[str, Field(max_length=4096)]] = Field(default_factory=dict)
+    secrets: dict[str, Annotated[str, Field(pattern=r"^env:[A-Z][A-Z0-9_]{1,63}$")]] = Field(default_factory=dict)
+    network: Literal["none", "open"]
+    permission: Literal["read-only", "side-effects"]
+    max_tools: int = Field(default=32, ge=1, le=256)
+
+    @model_validator(mode="after")
+    def _env_names(self):
+        for name in (*self.env, *self.secrets):
+            if (not re.fullmatch(_ENV_NAME, name) or name in _PROTECTED_ENV
+                    or name.startswith(_PROTECTED_ENV_PREFIXES)):
+                raise ValueError(f"environment variable name not allowed: {name}")
+        if set(self.env) & set(self.secrets):
+            raise ValueError("a name cannot be in both env and secrets")
+        return self
+
 class Budget(BaseModel):
     # Total model tokens (input + output) a run may use. Integers: exact and provider-neutral.
     max_tokens: int = Field(default=100_000, ge=1, le=100_000_000)
@@ -125,6 +158,11 @@ class Budget(BaseModel):
 class Runtime(BaseModel):
     model_profile: str = "local-default"
     sandbox_profile: str = "restricted-local"
+
+class AgentPermissions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    # Lets MCP servers whose manifest says `network: open` run. Default: no network anywhere.
+    network_open: bool = False
 
 class AgentDefinition(BaseModel):
     schema_version: Literal["maef.dev/v1alpha1"]
@@ -137,7 +175,9 @@ class AgentDefinition(BaseModel):
     skills: list[str] = Field(default_factory=list)
     # Built-in tool names (see tools.BUILTIN_TOOL_NAMES), validated when the definition is pinned.
     tools: list[str] = Field(default_factory=list)
+    # "<id>@<version>" references to mcp-servers/<id>.yaml; the version must match exactly.
     mcp_servers: list[str] = Field(default_factory=list)
+    permissions: AgentPermissions = Field(default_factory=AgentPermissions)
     runtime: Runtime = Field(default_factory=Runtime)
     budget: Budget = Field(default_factory=Budget)
     outputs: list[str] = Field(default_factory=list)

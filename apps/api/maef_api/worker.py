@@ -10,18 +10,23 @@ import socket
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
+
+import yaml
+from pydantic import ValidationError
 
 from .adapters.anthropic import AnthropicAdapter
 from .adapters.base import ModelAdapter
 from .adapters.bedrock import BedrockAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .channel import HttpChannel, WorkerChannel
-from .credentials import Credentials, Secret
-from .definitions import compute_definition_digest
+from .credentials import CredentialError, Credentials, Secret
+from .definitions import compute_definition_digest, mcp_ref_problem
 from .harness import PreparedRun, SinkFailure, execute
 from .leases import ChannelError, FencingError, Lease, SequenceGap
-from .models import ModelEndpointProfile, is_pinned_image
-from .sandbox import Sandbox, SandboxError, detect_sandbox
+from .mcp import CompositeToolSet, McpError, McpToolSet, sandbox_profile_for
+from .models import McpServerManifest, ModelEndpointProfile, is_pinned_image
+from .sandbox import Sandbox, SandboxError, Session, detect_sandbox
 from .tools import SANDBOXED_TOOLS, BuiltinTools
 
 log = logging.getLogger("maef.worker")
@@ -80,11 +85,12 @@ class ChannelSink:
 
 
 class _TeardownSink:
-    """Wraps a sink so the session is torn down, and `sandbox.torn_down` recorded, before the
-    terminal event (nothing can be appended once the run is terminal)."""
+    """Wraps a sink so MCP servers and the sandbox session are torn down, with `mcp.stopped` and
+    `sandbox.torn_down` recorded, before the terminal event (nothing can be appended once the run
+    is terminal)."""
 
-    def __init__(self, inner: ChannelSink, session, profile_id: str):
-        self._inner, self._session, self._profile_id, self._done = inner, session, profile_id, False
+    def __init__(self, inner: ChannelSink, steps: list[Callable[[ChannelSink], None]]):
+        self._inner, self._steps, self._done = inner, steps, False
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         self._inner.append(type, payload, status=status)
@@ -92,12 +98,30 @@ class _TeardownSink:
     def teardown(self) -> None:
         if not self._done:
             self._done = True
-            self._session.teardown()
-            self._inner.append("sandbox.torn_down", {"profile": self._profile_id})
+            for step in self._steps:
+                step(self._inner)
 
     def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
         self.teardown()
         self._inner.complete(tokens_used=tokens_used, status=status, terminal_reason=terminal_reason)
+
+
+class _StartupFailure(Exception):
+    def __init__(self, reason: str, **detail):
+        super().__init__(reason)
+        self.reason, self.detail = reason, detail
+
+
+@dataclass
+class _McpHandle:
+    manifest: McpServerManifest
+    session: Session
+    tools: McpToolSet | None = None
+
+    def stop(self) -> None:
+        if self.tools is not None:
+            self.tools.close()
+        self.session.teardown()
 
 
 class _Heartbeat(threading.Thread):
@@ -124,10 +148,12 @@ class _Heartbeat(threading.Thread):
 
 class Worker:
     def __init__(self, channel: WorkerChannel, adapter_factory: AdapterFactory, *, worker_id: str,
-                 heartbeat_seconds: float = 15, clock=time.monotonic, sandbox: Sandbox | None = None):
+                 heartbeat_seconds: float = 15, clock=time.monotonic, sandbox: Sandbox | None = None,
+                 credentials: Credentials | None = None):
         self._channel, self._adapter_factory = channel, adapter_factory
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
         self._sandbox = sandbox
+        self._credentials = credentials or Credentials()
 
     def run_once(self) -> bool:
         """Claim and run at most one lease. Returns whether a lease was run."""
@@ -154,13 +180,17 @@ class Worker:
             sink.append("run.rejected", {"reason": reason, **detail}, status="running")
             sink.complete(tokens_used=0, status="failed", terminal_reason=reason)
 
-        if compute_definition_digest(pinned.definition_bytes, pinned.files) != pinned.definition_digest:
+        if (compute_definition_digest(pinned.definition_bytes, pinned.files, pinned.mcp_bytes)
+                != pinned.definition_digest or not self._mcp_consistent(pinned)):
             return reject("definition_mismatch")
+        if mcp_ref_problem(pinned.agent, pinned.mcp_servers) == "network_not_permitted":
+            return reject("network_not_permitted")
         needs_sandbox = any(t in SANDBOXED_TOOLS for t in pinned.agent.tools)
         if needs_sandbox and (self._sandbox is None or pinned.sandbox is None):
             return reject("sandbox_unavailable")
         deadline = self._clock() + task.budget.max_duration_seconds
         session = None
+        mcp: list[_McpHandle] = []
         try:
             try:
                 adapter = self._adapter_factory(pinned.profile)
@@ -172,16 +202,94 @@ class Worker:
                 return reject("sandbox_unavailable")
             except Exception as exc:  # noqa: BLE001  # class name only; messages may carry secrets
                 return reject(f"setup_error:{type(exc).__name__}")
+            try:
+                mcp_sets = self._start_mcp(lease, pinned, mcp, lambda: deadline - self._clock())
+                if mcp_sets:
+                    tools = CompositeToolSet([tools, *mcp_sets])
+            except _StartupFailure as failure:
+                return reject(failure.reason, **failure.detail)
+            network_open = pinned.agent.permissions.network_open
             if session is not None:
                 sink.append("sandbox.provisioned", {
-                    **self._sandbox.info(), "profile": pinned.sandbox.id,
-                    "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image)})
-            run_sink = _TeardownSink(sink, session, pinned.sandbox.id) if session is not None else sink
+                    **self._sandbox.info(), "profile": pinned.sandbox.id, "network": "none",
+                    "network_open": network_open, "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image)})
+            for handle in mcp:
+                manifest = handle.manifest
+                sink.append("sandbox.provisioned", {
+                    **self._sandbox.info(), "profile": manifest.id, "server": manifest.id, "network": manifest.network,
+                    "network_open": network_open, "unpinned_image_allowed": not is_pinned_image(manifest.image)})
+                sink.append("mcp.started", {
+                    "server": manifest.id, "version": manifest.version,
+                    "tool_count": len(handle.tools.specs()), "network": manifest.network})
+                if handle.tools.truncated:
+                    sink.append("mcp.tools_truncated", {
+                        "server": manifest.id, "listed": handle.tools.listed, "max_tools": manifest.max_tools})
+            steps: list[Callable[[ChannelSink], None]] = []
+            for handle in mcp:
+                steps.append(lambda s, h=handle: (h.stop(), s.append("mcp.stopped", {"server": h.manifest.id})))
+            if session is not None:
+                steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
+            run_sink = _TeardownSink(sink, steps) if steps else sink
             run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools)
             execute(run_sink, run, adapter, self._clock)
         finally:
+            for handle in mcp:
+                handle.stop()  # idempotent; covers abandoned runs, startup failures and exceptions
             if session is not None:
-                session.teardown()  # idempotent; covers abandoned runs and exceptions
+                session.teardown()
+
+    @staticmethod
+    def _mcp_consistent(pinned) -> bool:
+        """The manifests the worker will run are exactly the pinned bytes, referenced by the agent."""
+        try:
+            parsed = [McpServerManifest.model_validate(yaml.safe_load(pinned.mcp_bytes[m.id].decode("utf-8")))
+                      for m in pinned.mcp_servers]
+        except (KeyError, UnicodeDecodeError, yaml.YAMLError, ValidationError):
+            return False
+        return (parsed == pinned.mcp_servers and set(pinned.mcp_bytes) == {m.id for m in pinned.mcp_servers}
+                and mcp_ref_problem(pinned.agent, pinned.mcp_servers) in (None, "network_not_permitted"))
+
+    def _start_mcp(self, lease: Lease, pinned, handles: list[_McpHandle],
+                   remaining: Callable[[], float]) -> list[McpToolSet]:
+        """Resolve secrets, then provision, spawn and initialise each server. Handles are appended as
+        soon as a container exists so the caller can tear down a partial start."""
+        if not pinned.mcp_servers:
+            return []
+        resolved: dict[str, dict[str, str]] = {}
+        for manifest in pinned.mcp_servers:  # before any container exists or any model call
+            env = dict(manifest.env)
+            for name, ref in manifest.secrets.items():
+                try:
+                    secret = self._credentials.resolve(ref)
+                except CredentialError:
+                    raise _StartupFailure(f"credential_missing:{name}") from None
+                if secret is None:
+                    raise _StartupFailure(f"credential_missing:{name}")
+                env[name] = secret.reveal()
+            resolved[manifest.id] = env
+        sets: list[McpToolSet] = []
+        for manifest in pinned.mcp_servers:
+            unavailable = f"mcp_unavailable:{manifest.id}"
+            if self._sandbox is None:
+                raise _StartupFailure(unavailable, code="sandbox_unavailable")
+            try:
+                session = self._sandbox.provision(
+                    sandbox_profile_for(manifest, pinned.sandbox), f"{lease.run_id}-{manifest.id}",
+                    network=manifest.network)
+            except SandboxError as exc:
+                raise _StartupFailure(unavailable, code=str(exc)) from None
+            handle = _McpHandle(manifest, session)
+            handles.append(handle)
+            try:
+                process = session.spawn(manifest.command, env=resolved[manifest.id])
+                handle.tools = McpToolSet(manifest.id, process, max_tools=manifest.max_tools,
+                                          timeout=remaining)
+                handle.tools.start()
+            except Exception as exc:  # noqa: BLE001  # codes and class names only; messages may echo secrets
+                code = str(exc) if isinstance(exc, SandboxError | McpError) else type(exc).__name__
+                raise _StartupFailure(unavailable, code=code) from None
+            sets.append(handle.tools)
+        return sets
 
     def serve(self, stop: threading.Event, poll_seconds: float = 2) -> None:
         """Run leases until `stop` is set; an in-flight run is finished first."""

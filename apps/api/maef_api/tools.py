@@ -58,7 +58,7 @@ class ToolSet(Protocol):
         ...
 
 
-def _cap(text: str) -> str:
+def cap_text(text: str) -> str:
     data = text.encode()
     if len(data) <= MAX_RESULT_BYTES:
         return text
@@ -83,6 +83,9 @@ class BuiltinTools:
     def specs(self) -> list[ToolSpec]:
         return [_SPECS[n] for n in self._names]
 
+    def server_of(self, name: str) -> str | None:
+        return None
+
     def invoke(self, name: str, arguments: dict) -> ToolResult:
         try:
             if name not in self._names:
@@ -93,7 +96,7 @@ class BuiltinTools:
                 result = self._run_command(arguments)
             else:
                 result = self._read_agent_file(arguments)
-            return ToolResult(_cap(result.content), result.is_error)
+            return ToolResult(cap_text(result.content), result.is_error)
         except Exception:  # noqa: BLE001  # the contract is never to raise
             return ToolResult("tool_failed", True)
 

@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 from .definitions import Definitions, ResolveError
 from .ledger import AdmissionError, Ledger
+from .mcp import ADMISSION_ALLOWANCE_BYTES
 from .models import (
     SUPPORTED_DIALECTS,
     Budget,
@@ -110,7 +111,9 @@ class Runs:
         try:
             run_id = self.ledger.admit(
                 pinned, budget,
-                prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(specs),
+                # MCP tool specs are unknown until the servers run: a fixed allowance per server stands in.
+                prompt_bytes=(len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(specs)
+                              + ADMISSION_ALLOWANCE_BYTES * len(pinned.mcp_servers)),
                 instruction=req.instruction,
                 allow_dirty=self._allow_dirty(),
             )
