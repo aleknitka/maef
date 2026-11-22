@@ -29,6 +29,13 @@
       "skillPath": ".agents/skills/impeccable/SKILL.md",
       "computedHash": "08bd5bf141cb507f46bd8347890cd985865606f15adf88295ed3a73bc9ad5d96"
     },
+    "opentui": {
+      "source": "opentui.com",
+      "sourceUrl": "https://opentui.com",
+      "sourceType": "well-known",
+      "computedHash": "fa1e01efdb8315d70c4205c6995321ed0184dc9757184b88271bbabd5ddf7e82",
+      "wellKnownDigest": "sha256:34652747cdb3d663824b47009cf5880e139eba2f3ac699f7f5123b11bd334246"
+    },
     "security-review": {
       "source": "Factory-AI/skills",
       "commit": "21a74dec467a1424e3e067712d004cd987d6a0ce",
