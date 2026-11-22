@@ -51,7 +51,8 @@ def sandbox_profile_for(manifest: McpServerManifest, base: SandboxProfile | None
         schema_version="maef.dev/v1alpha1", id=manifest.id, image=manifest.image,
         cpus=base.cpus if base else 1.0, memory_mb=base.memory_mb if base else 256,
         pids_limit=base.pids_limit if base else 128, workspace_mb=base.workspace_mb if base else 64,
-        require_rootless=base.require_rootless if base else True, user=base.user if base else "65534:65534")
+        require_rootless=True if manifest.user == "0:0" else (base.require_rootless if base else True),
+        user=manifest.user or (base.user if base else "65534:65534"))
 
 
 class _Rpc:

@@ -17,7 +17,6 @@ pytestmark = [pytest.mark.oci, pytest.mark.skipif(SANDBOX is None, reason='no po
 
 @pytest.fixture
 def session(monkeypatch):
-    monkeypatch.setenv('MAEF_ALLOW_UNPINNED_IMAGES', '1')
     profile = SandboxProfileRegistry().get_profile('restricted-local')
     if not SANDBOX.info()['rootless']:
         profile = profile.model_copy(update={'require_rootless': False})  # CI runtime is rootful

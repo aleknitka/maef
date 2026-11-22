@@ -114,7 +114,7 @@ def test_api_and_argument_errors_are_short_tool_errors(live_api):
 def test_list_agents_exposes_no_instructions_or_mcp_details(live_api):
     text = text_of(call(MaefClient(live_api.transport), 'list_agents'))
     assert AGENT in text
-    for leaked in ('Distinguish evidence', 'fetch@0.1.0', 'SYSTEM.md', 'env:', 'aws:', 'credential'):
+    for leaked in ('Distinguish evidence', 'fetch@0.2.0', 'SYSTEM.md', 'env:', 'aws:', 'credential'):
         assert leaked not in text
 
 

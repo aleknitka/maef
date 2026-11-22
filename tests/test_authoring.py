@@ -220,12 +220,12 @@ def test_lint_missing_instructions(repo):
 
 
 def test_lint_mcp_version_mismatch(repo):
-    rewrite(repo / AGENT_FILE, lambda t: t.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.2.0"]'))
-    assert has_error(lint_repo(repo), AGENT_FILE, "MCP server fetch is version 0.1.0, agent requires 0.2.0")
+    rewrite(repo / AGENT_FILE, lambda t: t.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.9.0"]'))
+    assert has_error(lint_repo(repo), AGENT_FILE, "MCP server fetch is version 0.2.0, agent requires 0.9.0")
 
 
 def test_lint_network_open_server_without_permission(repo):
-    rewrite(repo / AGENT_FILE, lambda t: t.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.1.0"]'))
+    rewrite(repo / AGENT_FILE, lambda t: t.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.2.0"]'))
     assert has_error(lint_repo(repo), AGENT_FILE, "needs open network")
 
 
@@ -297,7 +297,7 @@ def test_write_size_limit(store):
 def test_review_reports_diff_and_permission_changes(repo, store):
     base = (repo / AGENT_FILE).read_text()
     draft = store.create(AGENT)
-    new = (base.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.1.0"]')
+    new = (base.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.2.0"]')
            .replace("max_tokens: 200000", "max_tokens: 300000")
            + "tools: [current_time]\npermissions:\n  network_open: true\n")
     store.write(draft.id, AGENT_FILE, new)
@@ -306,8 +306,8 @@ def test_review_reports_diff_and_permission_changes(repo, store):
     assert review.files == [AGENT_FILE]
     p = review.permissions
     assert p.tools_added == ["current_time"]
-    assert p.mcp_servers_added == ["fetch@0.1.0"]
-    assert p.mcp_network_open_added == ["fetch@0.1.0"]
+    assert p.mcp_servers_added == ["fetch@0.2.0"]
+    assert p.mcp_network_open_added == ["fetch@0.2.0"]
     assert p.network_open.before is False and p.network_open.after is True
     assert [c.field for c in p.budget_increases] == ["budget.max_tokens"]
     assert review.publishable is True

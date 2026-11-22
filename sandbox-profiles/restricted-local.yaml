@@ -1,9 +1,9 @@
 schema_version: maef.dev/v1alpha1
 id: restricted-local
-# Dev default. Tag-only: the worker refuses it unless MAEF_ALLOW_UNPINNED_IMAGES=1.
-# For production pin by digest, e.g. docker.io/library/busybox@sha256:<64 hex>
-# (look it up with `podman image inspect --format '{{.Digest}}' <image>`).
-image: docker.io/library/busybox:1.37
+# busybox 1.37, pinned to the multi-arch manifest-list digest (amd64 + arm64), so it works on
+# Linux/WSL2 and Apple Silicon. To re-pin: `podman image inspect --format '{{json .RepoDigests}}' <image>`
+# and use the digest that `podman image ls --digests` shows for the tag (the list, not one platform).
+image: docker.io/library/busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
 cpus: 1.0
 memory_mb: 256
 pids_limit: 128

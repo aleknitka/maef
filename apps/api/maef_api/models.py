@@ -158,6 +158,10 @@ class McpServerManifest(BaseModel):
     network: Literal["none", "open"]
     permission: Literal["read-only", "side-effects"]
     max_tools: int = Field(default=32, ge=1, le=256)
+    # Container user. Defaults to nobody. "0:0" is for images that only work as root (e.g. the
+    # interpreter lives under /root); it is honoured only on a rootless runtime, where container root
+    # is the unprivileged host user, and always with every capability dropped and no-new-privileges.
+    user: str | None = Field(default=None, pattern=r"^\d{1,10}:\d{1,10}$")
 
     @model_validator(mode="after")
     def _env_names(self):

@@ -435,3 +435,16 @@ def test_each_mcp_server_adds_an_allowance_per_turn_to_admission(tmp_path):
     without = admitted_worst_case(tmp_path / 'none', refs=())
     with_one = admitted_worst_case(tmp_path / 'one', refs=('fetch@0.1.0',))
     assert with_one - without == Budget().max_turns * ADMISSION_ALLOWANCE_BYTES
+
+
+def test_root_user_manifest_always_requires_rootless_runtime():
+    from maef_api.mcp import sandbox_profile_for
+    from maef_api.models import McpServerManifest, SandboxProfile
+    base = SandboxProfile(schema_version='maef.dev/v1alpha1', id='b', image='x@sha256:' + 'a' * 64, cpus=1.0,
+                          memory_mb=128, pids_limit=64, workspace_mb=16, require_rootless=False)
+    manifest = McpServerManifest(schema_version='maef.dev/v1alpha1', id='r', version='1', transport='stdio',
+                                 image='y@sha256:' + 'b' * 64, command=['srv'], network='none',
+                                 permission='read-only', user='0:0')
+    profile = sandbox_profile_for(manifest, base)
+    assert (profile.user, profile.require_rootless) == ('0:0', True)
+    assert sandbox_profile_for(manifest.model_copy(update={'user': None}), base).user == base.user

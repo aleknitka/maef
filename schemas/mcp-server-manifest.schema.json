@@ -74,6 +74,19 @@
       "title": "Transport",
       "type": "string"
     },
+    "user": {
+      "anyOf": [
+        {
+          "pattern": "^\\d{1,10}:\\d{1,10}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "User"
+    },
     "version": {
       "maxLength": 64,
       "minLength": 1,

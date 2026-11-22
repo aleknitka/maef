@@ -53,7 +53,7 @@ def copy_research_analyst(dest):
     from maef_api.registry import AgentRegistry
     shutil.copytree(AgentRegistry().root / 'research-analyst', dest / 'research-analyst')
     path = dest / 'research-analyst' / 'agent.yaml'
-    text = path.read_text().replace('mcp_servers: ["fetch@0.1.0"]', 'mcp_servers: []')
+    text = path.read_text().replace('mcp_servers: ["fetch@0.2.0"]', 'mcp_servers: []')
     path.write_text(text.replace('permissions:\n  network_open: true\n', ''))
 
 

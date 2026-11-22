@@ -1,11 +1,9 @@
 schema_version: maef.dev/v1alpha1
 id: fetch
-version: 0.1.0
+version: 0.2.0
 transport: stdio
-# Reference MCP fetch server. Tag-only: the worker refuses it unless MAEF_ALLOW_UNPINNED_IMAGES=1.
-# TODO pin me: replace with docker.io/mcp/fetch@sha256:<64 hex>
-# (look it up with `podman image inspect --format '{{.Digest}}' docker.io/mcp/fetch:latest`).
-image: docker.io/mcp/fetch:latest
+# Reference MCP fetch server, pinned by digest (verified with rootless Podman on 2026-11-22).
+image: docker.io/mcp/fetch@sha256:1a7a0996a565a0b8ca5c41b42830d4e5f334d33f851596bbd9debb2beedb22d3
 # The image's default entrypoint (`mcp-server-fetch`); MAEF execs the command in a sandboxed container.
 command: ["mcp-server-fetch"]
 env: {}
@@ -14,3 +12,6 @@ secrets: {}
 network: open
 permission: read-only
 max_tools: 8
+# The image's Python interpreter lives under /root, so it cannot run as nobody. Root here is the
+# unprivileged host user under rootless Podman (required), with all capabilities dropped.
+user: "0:0"
