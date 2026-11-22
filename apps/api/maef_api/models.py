@@ -184,10 +184,17 @@ class AgentDefinition(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     outputs: list[str] = Field(default_factory=list)
 
+class BudgetOverride(BaseModel):
+    """A request's budget: each field may only tighten the agent's ceiling; omitted fields keep it."""
+    model_config = ConfigDict(extra="forbid")
+    max_tokens: int | None = Field(default=None, ge=1, le=100_000_000)
+    max_duration_seconds: int | None = Field(default=None, ge=1, le=86400)
+    max_turns: int | None = Field(default=None, ge=1, le=100000)
+
 class RunRequest(BaseModel):
     agent_id: str
     instruction: str = Field(min_length=1, max_length=20000)
-    budget: Budget | None = None
+    budget: BudgetOverride | None = None
 
 class RunPreview(BaseModel):
     agent_id: str

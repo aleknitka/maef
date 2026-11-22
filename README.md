@@ -94,6 +94,41 @@ A profile with `require_rootless: true` fails closed (`sandbox_unavailable`) on 
 
 Stdio MCP servers are declared in `mcp-servers/<id>.yaml` (image, command, non-secret `env`, `secrets` as `ENV_NAME: env:VAR`, `network`, `permission`) and attached with `mcp_servers: ["<id>@<version>"]` in `agent.yaml`. Each server runs in its own container next to the run and its tools appear to the model as `mcp__<id>__<tool>`; tool calls are traced (sizes only). Servers need `sleep infinity` in the image, like sandbox images, and a container runtime on the worker host. A server with `network: open` only runs if the agent sets `permissions: {network_open: true}`; there is no egress allowlist yet, so such a server can reach any host. `research-analyst` uses the reference `fetch` server; its image is tag-only, so start the worker with `MAEF_ALLOW_UNPINNED_IMAGES=1` until you pin it by digest.
 
+## Delegating from Claude Code / Codex
+
+A host coding agent hands bounded tasks to MAEF agents through the `maef` CLI or a small stdio MCP gateway. The host
+never loads the agents' tools, MCP servers, credentials or instructions; it only sees `list_agents`, `delegate`,
+`run_status`, `run_result` and `cancel_run`.
+
+```bash
+pip install -e .                       # installs the `maef` command
+# start the API and a worker as above, then:
+claude mcp add maef --env MAEF_API_URL=http://127.0.0.1:8000 -- maef mcp
+```
+
+Codex (`~/.codex/config.toml`):
+
+```toml
+[mcp_servers.maef]
+command = "maef"
+args = ["mcp"]
+env = { MAEF_API_URL = "http://127.0.0.1:8000" }
+```
+
+CLI (`MAEF_API_URL` defaults to `http://127.0.0.1:8000`; exit codes 0 ok, 1 run failed/cancelled, 2 usage/API error, 3 timeout):
+
+```bash
+maef agents
+maef preview research-analyst "Summarise RFC 9110 caching"
+maef run research-analyst "Summarise RFC 9110 caching" --max-tokens 50000 --wait --timeout 300   # events on stderr, result on stdout
+echo "long instruction" | maef run research-analyst - --json
+maef status $RUN_ID && maef events $RUN_ID --follow && maef cancel $RUN_ID
+maef artifacts $RUN_ID && maef get sha256:... -o out.bin [--force]
+maef result $RUN_ID
+```
+
+Agent output is untrusted: the gateway wraps it in `<maef-result run_id=... status=...>` and caps it at 100 KiB.
+
 ## Validate
 
 ```bash

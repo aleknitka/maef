@@ -10,6 +10,7 @@ from .mcp import ADMISSION_ALLOWANCE_BYTES
 from .models import (
     SUPPORTED_DIALECTS,
     Budget,
+    BudgetOverride,
     ExecutionEvent,
     RunDetail,
     RunPreview,
@@ -54,15 +55,15 @@ class AdmissionRejected(RunsError):
         self.message = message
 
 
-def effective_budget(ceiling: Budget, requested: Budget | None) -> Budget:
-    """A request may only tighten the agent's budget, never raise it."""
+def effective_budget(ceiling: Budget, requested: BudgetOverride | Budget | None) -> Budget:
+    """A request may only tighten the agent's budget, never raise it; omitted fields keep the ceiling."""
     if requested is None:
         return ceiling
-    return Budget(
-        max_tokens=min(ceiling.max_tokens, requested.max_tokens),
-        max_duration_seconds=min(ceiling.max_duration_seconds, requested.max_duration_seconds),
-        max_turns=min(ceiling.max_turns, requested.max_turns),
-    )
+    def tighten(name: str) -> int:
+        value = getattr(requested, name)
+        return getattr(ceiling, name) if value is None else min(getattr(ceiling, name), value)
+    return Budget(max_tokens=tighten("max_tokens"), max_duration_seconds=tighten("max_duration_seconds"),
+                  max_turns=tighten("max_turns"))
 
 
 class Runs:
