@@ -1,0 +1,97 @@
+{
+  "additionalProperties": false,
+  "description": "MCP server manifest (`mcp-servers/<id>.yaml`): a stdio server that runs in its own container.\n`env` holds non-secret values only; `secrets` maps ENV_NAME to a credential_ref that the worker\nresolves at run time (never stored or logged). Tag-only images are checked at provisioning.",
+  "properties": {
+    "command": {
+      "items": {
+        "maxLength": 1024,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 64,
+      "minItems": 1,
+      "title": "Command",
+      "type": "array"
+    },
+    "env": {
+      "additionalProperties": {
+        "maxLength": 4096,
+        "type": "string"
+      },
+      "title": "Env",
+      "type": "object"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "image": {
+      "maxLength": 300,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:@-]*$",
+      "title": "Image",
+      "type": "string"
+    },
+    "max_tools": {
+      "default": 32,
+      "maximum": 256,
+      "minimum": 1,
+      "title": "Max Tools",
+      "type": "integer"
+    },
+    "network": {
+      "enum": [
+        "none",
+        "open"
+      ],
+      "title": "Network",
+      "type": "string"
+    },
+    "permission": {
+      "enum": [
+        "read-only",
+        "side-effects"
+      ],
+      "title": "Permission",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "maef.dev/v1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "secrets": {
+      "additionalProperties": {
+        "pattern": "^env:[A-Z][A-Z0-9_]{1,63}$",
+        "type": "string"
+      },
+      "title": "Secrets",
+      "type": "object"
+    },
+    "transport": {
+      "const": "stdio",
+      "title": "Transport",
+      "type": "string"
+    },
+    "version": {
+      "maxLength": 64,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._+-]*$",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "transport",
+    "image",
+    "command",
+    "network",
+    "permission"
+  ],
+  "title": "McpServerManifest",
+  "type": "object"
+}

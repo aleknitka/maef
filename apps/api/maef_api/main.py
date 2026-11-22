@@ -28,6 +28,7 @@ from .artifacts import (
     default_artifact_store,
 )
 from .definitions import Definitions
+from .drafts import MAX_FILE_BYTES, DraftNotFound, DraftRejected, Drafts
 from .leases import FencingError, SequenceGap
 from .ledger import Ledger
 from .models import (
@@ -57,6 +58,7 @@ from .runs import (
     Runs,
     UnsupportedDialect,
 )
+from .schemas import schema_for
 
 SWEEP_SECONDS = 10
 
@@ -92,6 +94,10 @@ def execution_enabled() -> bool:
     # Off by default: the API must be opted in to spend money.
     return os.environ.get("MAEF_EXECUTION_ENABLED") == "1"
 
+def authoring_enabled() -> bool:
+    # Off by default: draft routes write to the repository and the API has no auth before step 11.
+    return os.environ.get("MAEF_AUTHORING_ENABLED") == "1"
+
 def allow_dirty() -> bool:
     return os.environ.get("MAEF_ALLOW_DIRTY") == "1"
 
@@ -103,6 +109,8 @@ runs = Runs(
     Definitions(registry, model_profiles, SandboxProfileRegistry(), McpServerRegistry()), ledger,
     execution_enabled=lambda: execution_enabled(), allow_dirty=lambda: allow_dirty(),
 )
+
+drafts = Drafts(ROOT)
 
 @app.get("/health")
 def health():
@@ -145,6 +153,95 @@ def agent_files(agent_id: str):
         if path.is_file():
             results.append({"path": relative, "content": path.read_text(encoding="utf-8")})
     return results
+
+@app.get("/api/v1/schemas/{name}")
+def get_schema(name: str):
+    schema = schema_for(name)
+    if schema is None:
+        raise HTTPException(status_code=404, detail="Schema not found")
+    return schema
+
+# --- Drafts: Git-backed definition authoring (MAEF_AUTHORING_ENABLED=1; no auth until step 11) ---
+
+def require_authoring() -> None:
+    if not authoring_enabled():
+        raise HTTPException(status_code=501, detail="Authoring disabled. Set MAEF_AUTHORING_ENABLED=1.")
+
+_DRAFT_STATUS = {"too_large": 413, "invalid_path": 400, "invalid_content": 400, "invalid_request": 400,
+                 "invalid_message": 400, "unknown_agent": 404}
+
+def _draft_error(exc: DraftRejected) -> HTTPException:
+    return HTTPException(status_code=_DRAFT_STATUS.get(exc.code, 409),
+                         detail={"code": exc.code, "message": exc.message})
+
+class DraftCreate(BaseModel):
+    agent_id: str | None = Field(default=None, max_length=63)
+    new_agent_id: str | None = Field(default=None, max_length=63)
+
+class DraftPublish(BaseModel):
+    message: str = Field(min_length=1, max_length=2000)
+
+@app.post("/api/v1/drafts", status_code=201, dependencies=[Depends(require_authoring)])
+def create_draft(body: DraftCreate):
+    try:
+        return drafts.create(body.agent_id, body.new_agent_id)
+    except DraftRejected as exc:
+        raise _draft_error(exc)
+
+@app.get("/api/v1/drafts", dependencies=[Depends(require_authoring)])
+def list_drafts():
+    return drafts.list()
+
+@app.put("/api/v1/drafts/{draft_id}/files/{path:path}", dependencies=[Depends(require_authoring)])
+async def write_draft_file(draft_id: str, path: str, request: Request):
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_FILE_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "too_large", "message": "File too large."})
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_FILE_BYTES:
+            raise HTTPException(status_code=413, detail={"code": "too_large", "message": "File too large."})
+        chunks.append(chunk)
+    try:
+        text = b"".join(chunks).decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail={"code": "invalid_content", "message": "Body must be UTF-8 text."})
+    try:
+        await run_in_threadpool(drafts.write, draft_id, path, text)
+    except DraftNotFound:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftRejected as exc:
+        raise _draft_error(exc)
+    return {"path": path, "bytes": size}
+
+@app.get("/api/v1/drafts/{draft_id}/review", dependencies=[Depends(require_authoring)])
+def review_draft(draft_id: str):
+    try:
+        return drafts.review(draft_id)
+    except DraftNotFound:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftRejected as exc:
+        raise _draft_error(exc)
+
+@app.post("/api/v1/drafts/{draft_id}/publish", dependencies=[Depends(require_authoring)])
+def publish_draft(draft_id: str, body: DraftPublish):
+    try:
+        return {"draft_id": draft_id, "revision": drafts.publish(draft_id, body.message)}
+    except DraftNotFound:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftRejected as exc:
+        raise _draft_error(exc)
+
+@app.delete("/api/v1/drafts/{draft_id}", dependencies=[Depends(require_authoring)])
+def discard_draft(draft_id: str):
+    try:
+        drafts.discard(draft_id)
+    except DraftNotFound:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftRejected as exc:
+        raise _draft_error(exc)
+    return {"discarded": draft_id}
 
 @app.post("/api/v1/runs/preview", response_model=RunPreview)
 def preview_run(request: RunRequest):

@@ -2,6 +2,7 @@
 2 usage or API error, 3 timeout."""
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -23,6 +24,7 @@ def _parser() -> argparse.ArgumentParser:
         s.add_argument("--max-turns", type=int)
         s.add_argument("--max-duration", type=int, metavar="SECONDS")
         if name == "run":
+            s.add_argument("--revision", metavar="SHA|REF", help="run the definition committed at this revision")
             s.add_argument("--wait", action="store_true", help="follow events and print the result")
             s.add_argument("--timeout", type=float, default=600, metavar="SECONDS")
     for name in ("status", "cancel", "artifacts", "result"):
@@ -47,6 +49,33 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=600, metavar="SECONDS")
     s.add_argument("--json", action="store_true")
     sub.add_parser("mcp", help="run the stdio MCP gateway")
+    s = sub.add_parser("lint", help="validate definition files (default: this repository)")
+    s.add_argument("paths", nargs="*", metavar="PATH")
+    s = sub.add_parser("schema", help="JSON Schemas of the definition formats")
+    schema_sub = s.add_subparsers(dest="schema_cmd", required=True)
+    s = schema_sub.add_parser("export", help="write schemas/*.schema.json")
+    s.add_argument("--check", action="store_true", help="exit 1 if committed files differ; write nothing")
+    s.add_argument("--dir", metavar="DIR", help="target directory (default: schemas/ in this repository)")
+    d = sub.add_parser("draft", help="Git-backed definition drafts (server: MAEF_AUTHORING_ENABLED=1)")
+    draft_sub = d.add_subparsers(dest="draft_cmd", required=True)
+    s = draft_sub.add_parser("new", help="start a draft of AGENT, or of a new agent with --new-agent")
+    s.add_argument("agent", nargs="?")
+    s.add_argument("--new-agent", metavar="ID")
+    s.add_argument("--json", action="store_true")
+    s = draft_sub.add_parser("write", help="replace a file from FILE or stdin ('-')")
+    s.add_argument("draft_id")
+    s.add_argument("path", help="repo-relative, e.g. agents/<agent>/SYSTEM.md")
+    s.add_argument("file", nargs="?", default="-")
+    s = draft_sub.add_parser("review", help="show the diff, permission changes and lint findings")
+    s.add_argument("draft_id")
+    s.add_argument("--json", action="store_true")
+    s = draft_sub.add_parser("publish", help="commit the draft on its branch (no merge, no push)")
+    s.add_argument("draft_id")
+    s.add_argument("-m", "--message", required=True)
+    s.add_argument("--json", action="store_true")
+    s = draft_sub.add_parser("discard")
+    s.add_argument("draft_id")
+    draft_sub.add_parser("list").add_argument("--json", action="store_true")
     return p
 
 
@@ -85,7 +114,7 @@ def _run(client: MaefClient, args) -> int:
         _out(args, preview, f"{preview['agent_id']}: {preview['model_profile']} / {preview['sandbox_profile']}, "
              f"budget {preview['effective_budget']}")
         return EXIT_OK
-    run = client.submit(args.agent, instruction, _budget(args))
+    run = client.submit(args.agent, instruction, _budget(args), args.revision)
     run_id = run["run_id"]
     if not args.wait:
         _out(args, run, f"{run_id} {run['status']}")
@@ -165,6 +194,95 @@ def _decide(client: MaefClient, args) -> int:
     return EXIT_OK
 
 
+def _lint(args) -> int:
+    from .lint import lint_repo
+    from .registry import ROOT
+    roots = ("agents", "sandbox-profiles", "mcp-servers", "model-profiles")
+    errors = 0
+    for raw in args.paths or [str(ROOT)]:
+        path = Path(raw).resolve()
+        top = next((p for p in (path, *path.parents) if any((p / r).is_dir() for r in roots)), None)
+        if top is None or not path.exists():
+            _err(f"{raw}: nothing to lint")
+            errors += 1
+            continue
+        for finding in lint_repo(top):
+            if (top / finding.path).resolve().is_relative_to(path) or path == top:
+                print(f"{os.path.relpath(top / finding.path)}: " + str(finding).partition(": ")[2])
+                errors += finding.severity == "error"
+    return EXIT_RUN_FAILED if errors else EXIT_OK
+
+
+def _schema_export(args) -> int:
+    from .schemas import SCHEMAS_DIR, check_schemas, write_schemas
+    directory = Path(args.dir) if args.dir else SCHEMAS_DIR
+    if args.check:
+        drift = check_schemas(directory)
+        for name in drift:
+            _err(f"{directory / (name + '.schema.json')}: out of date; run `maef schema export`")
+        return EXIT_RUN_FAILED if drift else EXIT_OK
+    for path in write_schemas(directory):
+        print(f"wrote {path}")
+    return EXIT_OK
+
+
+def _draft(client: MaefClient, args) -> int:
+    cmd = args.draft_cmd
+    if cmd == "new":
+        if bool(args.agent) == bool(args.new_agent):
+            _err("give AGENT or --new-agent ID")
+            return EXIT_ERROR
+        draft = client.draft_create(args.agent, args.new_agent)
+        _out(args, draft, f"{draft['id']} {draft['branch']}")
+    elif cmd == "write":
+        content = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+        client.draft_write(args.draft_id, args.path, content)
+        _err(f"wrote {args.path}")
+    elif cmd == "review":
+        review = client.draft_review(args.draft_id)
+        if args.json:
+            print(json.dumps(review, indent=2))
+        else:
+            print(review["diff"] or "(no changes)")
+            print(_permission_summary(review["permissions"]))
+            for f in review["findings"]:
+                print(f"{f['path']}: {'warning: ' if f['severity'] == 'warning' else ''}{f['message']}")
+            print("publishable" if review["publishable"] else "NOT publishable: fix lint errors")
+    elif cmd == "publish":
+        out = client.draft_publish(args.draft_id, args.message)
+        _out(args, out, out["revision"])
+    elif cmd == "discard":
+        client.draft_discard(args.draft_id)
+    elif cmd == "list":
+        drafts = client.draft_list()
+        _out(args, drafts, "\n".join(f"{d['id']}\t{d['agent_id']}\t{d['branch']}\t{d.get('published') or '-'}" for d in drafts))
+    return EXIT_OK
+
+
+def _permission_summary(p: dict) -> str:
+    lines = ["permission changes:" if _has_changes(p) else "permission changes: none"]
+    if p["new_agent"]:
+        lines.append("  new agent")
+    for label, key in (("tools added", "tools_added"), ("tools removed", "tools_removed"),
+                       ("mcp servers added", "mcp_servers_added"), ("mcp servers removed", "mcp_servers_removed"),
+                       ("mcp servers with open network added", "mcp_network_open_added")):
+        if p[key]:
+            lines.append(f"  {label}: {', '.join(p[key])}")
+    if p["network_open"]:
+        lines.append(f"  permissions.network_open: {p['network_open']['before']} -> {p['network_open']['after']}")
+    for c in p["budget_increases"] + p["runtime_changes"]:
+        lines.append(f"  {c['field']}: {c['before']} -> {c['after']}")
+    for ref, names in p["mcp_new_secrets"].items():
+        lines.append(f"  new secrets for {ref}: {', '.join(names)}")
+    return "\n".join(lines)
+
+
+def _has_changes(p: dict) -> bool:
+    return p["new_agent"] or any(p[k] for k in (
+        "tools_added", "tools_removed", "mcp_servers_added", "mcp_servers_removed", "network_open",
+        "budget_increases", "runtime_changes", "mcp_new_secrets", "mcp_network_open_added"))
+
+
 def _dispatch(client: MaefClient, args) -> int:
     cmd = args.cmd
     if cmd == "agents":
@@ -174,6 +292,8 @@ def _dispatch(client: MaefClient, args) -> int:
         return _run(client, args)
     elif cmd == "decide":
         return _decide(client, args)
+    elif cmd == "draft":
+        return _draft(client, args)
     elif cmd == "status":
         run = client.get_run(args.run_id)
         run.pop("events", None)
@@ -213,6 +333,10 @@ def main(argv: list[str] | None = None, client: MaefClient | None = None) -> int
     except SystemExit as exc:
         return EXIT_OK if exc.code in (0, None) else EXIT_ERROR
     try:
+        if args.cmd == "lint":
+            return _lint(args)
+        if args.cmd == "schema":
+            return _schema_export(args)
         if args.cmd == "mcp":
             from .gateway import Gateway
             return Gateway(client or MaefClient(HttpTransport()), sys.stdin.buffer, sys.stdout.buffer).serve()

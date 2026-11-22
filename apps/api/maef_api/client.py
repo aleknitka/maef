@@ -55,7 +55,9 @@ def error_from_response(status: int, body: bytes) -> MaefClientError:
 
 class Transport(Protocol):
     def request(self, method: str, path: str, *, json: dict | None = None,
-                headers: dict | None = None) -> tuple[int, dict, bytes]: ...
+                headers: dict | None = None, data: bytes | None = None) -> tuple[int, dict, bytes]:
+        """`data` is a raw text body (used only by draft_write); `json` and `data` are exclusive."""
+        ...
 
     def stream(self, path: str, headers: dict | None = None) -> Iterator[bytes]:
         """Yield response lines (without the trailing newline). Raises MaefClientError on a non-2xx status.
@@ -90,10 +92,11 @@ class HttpTransport:
             raise MaefClientError(0, "egress_denied", str(exc)) from None
         return opener.open(req, timeout=timeout)  # scheme validated in __init__
 
-    def request(self, method, path, *, json=None, headers=None):
-        data = None
+    def request(self, method, path, *, json=None, headers=None, data=None):
         hdrs = dict(headers or {})
-        if json is not None:
+        if data is not None:
+            hdrs["Content-Type"] = "text/plain; charset=utf-8"
+        elif json is not None:
             data = _dumps(json)
             hdrs["Content-Type"] = "application/json"
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=hdrs)
@@ -138,8 +141,10 @@ class AsgiTransport:
         from fastapi.testclient import TestClient
         self._client = TestClient(app)
 
-    def request(self, method, path, *, json=None, headers=None):
-        resp = self._client.request(method, path, json=json, headers=headers)
+    def request(self, method, path, *, json=None, headers=None, data=None):
+        if data is not None:
+            headers = {"Content-Type": "text/plain; charset=utf-8", **(headers or {})}
+        resp = self._client.request(method, path, json=json, headers=headers, content=data)
         return resp.status_code, dict(resp.headers), resp.content
 
     def stream(self, path, headers=None):
@@ -178,9 +183,42 @@ class MaefClient:
     def preview(self, agent_id: str, instruction: str, budget: dict | None = None) -> dict:
         return self._call("POST", "/api/v1/runs/preview", self._run_body(agent_id, instruction, budget))
 
-    def submit(self, agent_id: str, instruction: str, budget: dict | None = None) -> dict:
-        """-> {"run_id", "status"}"""
-        return self._call("POST", "/api/v1/runs", self._run_body(agent_id, instruction, budget))
+    def submit(self, agent_id: str, instruction: str, budget: dict | None = None,
+               agent_revision: str | None = None) -> dict:
+        """-> {"run_id", "status"}. `agent_revision` (commit sha, branch or tag) runs the committed definition."""
+        body = self._run_body(agent_id, instruction, budget)
+        if agent_revision:
+            body["agent_revision"] = agent_revision
+        return self._call("POST", "/api/v1/runs", body)
+
+    def schema(self, name: str) -> dict:
+        return self._call("GET", f"/api/v1/schemas/{quote(name, safe='')}")
+
+    # -- drafts (server needs MAEF_AUTHORING_ENABLED=1) --
+    def draft_create(self, agent_id: str | None = None, new_agent_id: str | None = None) -> dict:
+        body = {k: v for k, v in (("agent_id", agent_id), ("new_agent_id", new_agent_id)) if v}
+        return self._call("POST", "/api/v1/drafts", body)
+
+    def draft_list(self) -> list[dict]:
+        return self._call("GET", "/api/v1/drafts")
+
+    def draft_write(self, draft_id: str, path: str, content: str) -> dict:
+        """Replace one file (repo-relative, under agents/<agent>/) with `content`."""
+        url = f"/api/v1/drafts/{quote(draft_id, safe='')}/files/{quote(path, safe='/')}"
+        status, _, data = self._t.request("PUT", url, data=content.encode("utf-8"))
+        if status >= 300:
+            raise error_from_response(status, data)
+        return json.loads(data)
+
+    def draft_review(self, draft_id: str) -> dict:
+        return self._call("GET", f"/api/v1/drafts/{quote(draft_id, safe='')}/review")
+
+    def draft_publish(self, draft_id: str, message: str) -> dict:
+        """-> {"draft_id", "revision"}: the commit sha, runnable with `submit(..., agent_revision=sha)`."""
+        return self._call("POST", f"/api/v1/drafts/{quote(draft_id, safe='')}/publish", {"message": message})
+
+    def draft_discard(self, draft_id: str) -> dict:
+        return self._call("DELETE", f"/api/v1/drafts/{quote(draft_id, safe='')}")
 
     def decide(self, profile_id: str, state, questions: dict, max_tokens: int | None = None) -> dict:
         """Queue a decision run -> {"run_id", "status"}. `questions` maps name -> {type, instructions, criteria?}."""

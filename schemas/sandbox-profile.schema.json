@@ -1,0 +1,75 @@
+{
+  "additionalProperties": false,
+  "description": "Sandbox profile: the OCI image and resource limits a run's commands execute under.\nNever embeds credentials or mounts. Tag-only images are checked at provisioning time\n(they need MAEF_ALLOW_UNPINNED_IMAGES=1 in the worker environment).",
+  "properties": {
+    "cpus": {
+      "exclusiveMinimum": 0,
+      "maximum": 64,
+      "title": "Cpus",
+      "type": "number"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "image": {
+      "maxLength": 300,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._/:@-]*$",
+      "title": "Image",
+      "type": "string"
+    },
+    "memory_mb": {
+      "maximum": 262144,
+      "minimum": 16,
+      "title": "Memory Mb",
+      "type": "integer"
+    },
+    "network": {
+      "const": "none",
+      "default": "none",
+      "title": "Network",
+      "type": "string"
+    },
+    "pids_limit": {
+      "maximum": 65536,
+      "minimum": 8,
+      "title": "Pids Limit",
+      "type": "integer"
+    },
+    "require_rootless": {
+      "default": true,
+      "title": "Require Rootless",
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "maef.dev/v1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "user": {
+      "default": "65534:65534",
+      "pattern": "^[0-9]+(:[0-9]+)?$",
+      "title": "User",
+      "type": "string"
+    },
+    "workspace_mb": {
+      "maximum": 65536,
+      "minimum": 1,
+      "title": "Workspace Mb",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "image",
+    "cpus",
+    "memory_mb",
+    "pids_limit",
+    "workspace_mb"
+  ],
+  "title": "SandboxProfile",
+  "type": "object"
+}

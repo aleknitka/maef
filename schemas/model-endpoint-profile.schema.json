@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "AnthropicEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_private_network": {
+          "default": false,
+          "title": "Allow Private Network",
+          "type": "boolean"
+        },
+        "base_url": {
+          "default": "https://api.anthropic.com",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "kind": {
+          "const": "anthropic",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:/-]+$",
+          "title": "Model Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "kind"
+      ],
+      "title": "AnthropicEndpoint",
+      "type": "object"
+    },
+    "BedrockEndpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "amazon-bedrock",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_id": {
+          "pattern": "^[a-z0-9.:-]+$",
+          "title": "Model Id",
+          "type": "string"
+        },
+        "region": {
+          "pattern": "^[a-z]{2}(-[a-z]+)+-\\d$",
+          "title": "Region",
+          "type": "string"
+        },
+        "routing": {
+          "enum": [
+            "in-region",
+            "geo",
+            "global"
+          ],
+          "title": "Routing",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "region",
+        "model_id",
+        "routing"
+      ],
+      "title": "BedrockEndpoint",
+      "type": "object"
+    },
+    "DecisionsApiEndpoint": {
+      "additionalProperties": false,
+      "description": "decisions-api.dev: POST /v1/systemone (Jev and other decision models).",
+      "properties": {
+        "allow_private_network": {
+          "default": false,
+          "title": "Allow Private Network",
+          "type": "boolean"
+        },
+        "base_url": {
+          "default": "https://decisions-api.dev",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "kind": {
+          "const": "decisions-api",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:/-]+$",
+          "title": "Model Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "kind"
+      ],
+      "title": "DecisionsApiEndpoint",
+      "type": "object"
+    },
+    "ModelCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "input_modalities": {
+          "items": {
+            "enum": [
+              "text",
+              "image"
+            ],
+            "type": "string"
+          },
+          "title": "Input Modalities",
+          "type": "array"
+        },
+        "streaming": {
+          "default": false,
+          "title": "Streaming",
+          "type": "boolean"
+        }
+      },
+      "title": "ModelCapabilities",
+      "type": "object"
+    },
+    "OpenAICompatibleEndpoint": {
+      "additionalProperties": false,
+      "description": "OpenAI (https://api.openai.com/v1) or any local server speaking chat/completions.",
+      "properties": {
+        "allow_private_network": {
+          "default": false,
+          "title": "Allow Private Network",
+          "type": "boolean"
+        },
+        "base_url": {
+          "title": "Base Url",
+          "type": "string"
+        },
+        "kind": {
+          "const": "openai-compatible",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_id": {
+          "maxLength": 200,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:/-]+$",
+          "title": "Model Id",
+          "type": "string"
+        },
+        "token_param": {
+          "default": "max_tokens",
+          "enum": [
+            "max_tokens",
+            "max_completion_tokens"
+          ],
+          "title": "Token Param",
+          "type": "string"
+        }
+      },
+      "required": [
+        "base_url",
+        "model_id",
+        "kind"
+      ],
+      "title": "OpenAICompatibleEndpoint",
+      "type": "object"
+    },
+    "WorkersAiEndpoint": {
+      "additionalProperties": false,
+      "description": "Cloudflare Workers AI decision models (Clef): POST /accounts/{account_id}/ai/run/{model_id}.",
+      "properties": {
+        "account_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Account Id",
+          "type": "string"
+        },
+        "allow_private_network": {
+          "default": false,
+          "title": "Allow Private Network",
+          "type": "boolean"
+        },
+        "base_url": {
+          "default": "https://api.cloudflare.com/client/v4",
+          "title": "Base Url",
+          "type": "string"
+        },
+        "kind": {
+          "const": "cloudflare-workers-ai",
+          "title": "Kind",
+          "type": "string"
+        },
+        "model_id": {
+          "maxLength": 200,
+          "pattern": "^@cf/[a-z0-9._-]+/[a-z0-9._-]+$",
+          "title": "Model Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "model_id",
+        "kind",
+        "account_id"
+      ],
+      "title": "WorkersAiEndpoint",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Model endpoint profile (see docs/ARCHITECTURE.md). Never embeds credentials.",
+  "properties": {
+    "api_dialect": {
+      "enum": [
+        "bedrock-converse",
+        "openai-compatible",
+        "anthropic",
+        "cli-adapter",
+        "decisions-api",
+        "workers-ai-decision"
+      ],
+      "title": "Api Dialect",
+      "type": "string"
+    },
+    "capabilities": {
+      "$ref": "#/$defs/ModelCapabilities"
+    },
+    "credential_ref": {
+      "pattern": "^(aws:default-chain|none:local|env:[A-Z][A-Z0-9_]{1,63})$",
+      "title": "Credential Ref",
+      "type": "string"
+    },
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "endpoint": {
+      "discriminator": {
+        "mapping": {
+          "amazon-bedrock": "#/$defs/BedrockEndpoint",
+          "anthropic": "#/$defs/AnthropicEndpoint",
+          "cloudflare-workers-ai": "#/$defs/WorkersAiEndpoint",
+          "decisions-api": "#/$defs/DecisionsApiEndpoint",
+          "openai-compatible": "#/$defs/OpenAICompatibleEndpoint"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/BedrockEndpoint"
+        },
+        {
+          "$ref": "#/$defs/OpenAICompatibleEndpoint"
+        },
+        {
+          "$ref": "#/$defs/AnthropicEndpoint"
+        },
+        {
+          "$ref": "#/$defs/DecisionsApiEndpoint"
+        },
+        {
+          "$ref": "#/$defs/WorkersAiEndpoint"
+        }
+      ],
+      "title": "Endpoint"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "max_output_tokens": {
+      "default": 4096,
+      "maximum": 1000000,
+      "minimum": 1,
+      "title": "Max Output Tokens",
+      "type": "integer"
+    },
+    "max_retries": {
+      "default": 2,
+      "maximum": 10,
+      "minimum": 0,
+      "title": "Max Retries",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "maef.dev/v1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "timeout_seconds": {
+      "default": 300,
+      "maximum": 3600,
+      "minimum": 1,
+      "title": "Timeout Seconds",
+      "type": "integer"
+    },
+    "vendor": {
+      "title": "Vendor",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "display_name",
+    "vendor",
+    "api_dialect",
+    "endpoint",
+    "credential_ref"
+  ],
+  "title": "ModelEndpointProfile",
+  "type": "object"
+}

@@ -121,11 +121,14 @@ class Runs:
         """Admit a run and queue it for a worker; returns the queued run."""
         if not self._execution_enabled():
             raise ExecutionDisabled("Execution disabled. Set MAEF_EXECUTION_ENABLED=1 or use /api/v1/runs/preview.")
-        agent = self._agent(req.agent_id)
+        if req.agent_revision is None:
+            self._agent(req.agent_id)  # unknown agent: 404 before pinning
         try:
-            pinned = self.definitions.resolve(agent.id)
+            pinned = (self.definitions.resolve(req.agent_id) if req.agent_revision is None
+                      else self.definitions.resolve(req.agent_id, req.agent_revision))
         except ResolveError as exc:
             raise DefinitionConflict(str(exc)) from exc
+        agent = pinned.agent
         if pinned.profile.api_dialect not in self._supported_dialects:
             raise UnsupportedDialect(f"No adapter for dialect {pinned.profile.api_dialect}")
         try:

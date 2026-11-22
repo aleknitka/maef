@@ -213,6 +213,9 @@ class RunRequest(BaseModel):
     agent_id: str
     instruction: str = Field(min_length=1, max_length=20000)
     budget: BudgetOverride | None = None
+    # Run the definition as committed at this revision: a 40-hex commit sha, or a branch/tag name that is
+    # resolved to a sha when the run is submitted. Omitted: the working tree (dirty state applies).
+    agent_revision: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 
 class RunPreview(BaseModel):
     agent_id: str

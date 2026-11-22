@@ -155,6 +155,22 @@ maef decide jev-decisions-api --state @ticket.json --wait \
 
 Runs go through the same queue, worker and token ledger (`POST /api/v1/decisions`, the `decide` MCP gateway tool); answers are the `answers.json` artifact and are untrusted content. Wire formats, limits and known gaps: `docs/DECISION_MODELS.md`.
 
+## Authoring agents
+
+Definitions live in Git (ADR-0003); authoring never edits `main`. `maef lint` validates every definition file and `maef schema export --check` fails when `schemas/*.schema.json` lag the models. Drafts are opt-in because the API has no auth until step 11: start it with `MAEF_AUTHORING_ENABLED=1` on loopback only.
+
+```bash
+maef draft new research-analyst                   # branch maef/draft/research-analyst/<id> + worktree in runs/drafts/<id>
+maef draft write <id> agents/research-analyst/SYSTEM.md ./SYSTEM.md
+maef draft review <id>                            # prompt diff, permission diff (tools, MCP, network, budget, secrets), lint
+maef draft publish <id> -m "Tighten citation rules"   # commits on the draft branch; prints the sha; no merge, no push
+maef run research-analyst "..." --revision <sha> --wait    # run exactly that commit
+git merge maef/draft/research-analyst/<id>        # a human merges after review
+maef draft discard <id>
+```
+
+Only text files under `agents/<agent>/` (max 256 KiB) can be written; publish is refused while lint reports errors. Commits are authored as `MAEF Authoring <maef@localhost>` (`MAEF_AUTHORING_NAME`, `MAEF_AUTHORING_EMAIL`). `--revision` accepts a commit sha, branch or tag and runs the committed definition, never dirty.
+
 ## Validate
 
 ```bash

@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "AgentPermissions": {
+      "additionalProperties": false,
+      "properties": {
+        "network_open": {
+          "default": false,
+          "title": "Network Open",
+          "type": "boolean"
+        }
+      },
+      "title": "AgentPermissions",
+      "type": "object"
+    },
+    "Budget": {
+      "properties": {
+        "max_duration_seconds": {
+          "default": 300,
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Max Duration Seconds",
+          "type": "integer"
+        },
+        "max_tokens": {
+          "default": 100000,
+          "maximum": 100000000,
+          "minimum": 1,
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "max_turns": {
+          "default": 20,
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Turns",
+          "type": "integer"
+        }
+      },
+      "title": "Budget",
+      "type": "object"
+    },
+    "Runtime": {
+      "properties": {
+        "model_profile": {
+          "default": "local-default",
+          "title": "Model Profile",
+          "type": "string"
+        },
+        "sandbox_profile": {
+          "default": "restricted-local",
+          "title": "Sandbox Profile",
+          "type": "string"
+        }
+      },
+      "title": "Runtime",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "budget": {
+      "$ref": "#/$defs/Budget"
+    },
+    "capabilities": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "id": {
+      "pattern": "^[a-z][a-z0-9-]{1,62}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "instructions": {
+      "default": "SYSTEM.md",
+      "title": "Instructions",
+      "type": "string"
+    },
+    "mcp_servers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Mcp Servers",
+      "type": "array"
+    },
+    "outputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Outputs",
+      "type": "array"
+    },
+    "permissions": {
+      "$ref": "#/$defs/AgentPermissions"
+    },
+    "runtime": {
+      "$ref": "#/$defs/Runtime"
+    },
+    "schema_version": {
+      "const": "maef.dev/v1alpha1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "skills": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Skills",
+      "type": "array"
+    },
+    "tools": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tools",
+      "type": "array"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "id",
+    "version",
+    "display_name",
+    "description"
+  ],
+  "title": "AgentDefinition",
+  "type": "object"
+}
