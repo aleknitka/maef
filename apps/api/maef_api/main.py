@@ -44,6 +44,8 @@ from .definitions import Definitions
 from .drafts import MAX_FILE_BYTES, DraftNotFound, DraftRejected, Drafts
 from .leases import FencingError, SequenceGap
 from .ledger import Ledger
+from .metrics import CONTENT_TYPE as METRICS_CONTENT_TYPE
+from .metrics import render_prometheus
 from .models import (
     AgentDefinition,
     ModelEndpointProfile,
@@ -53,6 +55,7 @@ from .models import (
     RunRequest,
     is_loopback_host,
 )
+from .otel import OtlpExportError, export_pending, exporter_from_env
 from .registry import (
     ROOT,
     AgentRegistry,
@@ -75,6 +78,7 @@ from .runs import (
 from .schemas import schema_for
 
 SWEEP_SECONDS = 10
+OTLP_EXPORT_SECONDS = 15
 
 
 @asynccontextmanager
@@ -95,11 +99,28 @@ async def lifespan(_: FastAPI):
 
     thread = threading.Thread(target=sweep, name="maef-lease-sweep", daemon=True)
     thread.start()
+    threads = [thread]
+    try:
+        exporter = exporter_from_env()
+    except OtlpExportError as exc:
+        exporter = None
+        logging.getLogger("maef.api").warning("MAEF_OTLP_ENDPOINT ignored: %s", exc)
+    if exporter is not None:
+        def export() -> None:
+            while not stop.wait(OTLP_EXPORT_SECONDS):
+                try:
+                    export_pending(ledger, exporter)
+                except Exception as exc:  # noqa: BLE001  # never affects runs; the next tick retries
+                    logging.getLogger("maef.api").warning("otlp export tick failed: %s", type(exc).__name__)
+
+        threads.append(threading.Thread(target=export, name="maef-otlp-export", daemon=True))
+        threads[-1].start()
     try:
         yield
     finally:
         stop.set()
-        thread.join(timeout=5)
+        for t in threads:
+            t.join(timeout=5)
 
 
 app = FastAPI(title="MAEF Control Plane", version="0.1.0", lifespan=lifespan)
@@ -199,6 +220,10 @@ def health():
 @app.get("/api/v1/audit", dependencies=[admin_access])
 def get_audit(after: Annotated[int, Query(ge=0)] = 0, limit: Annotated[int, Query(ge=1, le=1000)] = 100):
     return ledger.audit_after(after, limit)
+
+@app.get("/api/v1/metrics", response_class=Response, dependencies=[read_access])
+def get_metrics():
+    return Response(content=render_prometheus(ledger.metrics()), media_type=METRICS_CONTENT_TYPE)
 
 @app.get("/api/v1/agents", response_model=list[AgentDefinition], dependencies=[read_access])
 def list_agents():

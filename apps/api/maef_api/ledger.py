@@ -143,6 +143,13 @@ MIGRATIONS = [
     CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
         BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
     """,
+    # Runs already pushed to the OTLP collector (step 14); export is once per terminal run.
+    """
+    CREATE TABLE otel_exports (
+        run_id TEXT PRIMARY KEY REFERENCES runs(id),
+        exported_at TEXT NOT NULL
+    );
+    """,
 ]
 
 TERMINAL = ("succeeded", "failed", "cancelled")
@@ -493,6 +500,45 @@ class Ledger:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM audit_log WHERE seq>? ORDER BY seq LIMIT ?", (after, limit)).fetchall()
         return [dict(r) for r in rows]
+
+    # --- observability (step 14) ---
+
+    def unexported_runs(self, limit: int = 20) -> "list[str]":  # `list` is shadowed by Ledger.list
+        """Terminal runs not yet exported over OTLP, oldest first."""
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM runs WHERE status IN ('succeeded', 'failed', 'cancelled') "
+                "AND id NOT IN (SELECT run_id FROM otel_exports) ORDER BY finished_at, rowid LIMIT ?", (limit,)).fetchall()
+        return [r["id"] for r in rows]
+
+    def mark_exported(self, run_id: str) -> None:
+        with self._transaction() as conn:
+            conn.execute("INSERT OR IGNORE INTO otel_exports (run_id, exported_at) VALUES (?, ?)", (run_id, now()))
+
+    def metrics(self) -> dict:
+        """Aggregates for GET /api/v1/metrics, computed in SQL (events are never loaded into Python)."""
+        with self.connect() as conn:
+            one = lambda sql: conn.execute(sql).fetchone()
+            usage = one("SELECT COALESCE(SUM(json_extract(payload, '$.input_tokens')), 0) AS i, "
+                        "COALESCE(SUM(json_extract(payload, '$.output_tokens')), 0) AS o "
+                        "FROM run_events WHERE type='usage.recorded'")
+            duration = one("SELECT COUNT(*) AS n, COALESCE(SUM((julianday(finished_at) - julianday(created_at)) * 86400.0), 0) AS s "
+                           "FROM runs WHERE finished_at IS NOT NULL")
+            return {
+                "runs": {(r["status"], r["kind"]): r["n"] for r in conn.execute(
+                    "SELECT status, kind, COUNT(*) AS n FROM runs GROUP BY status, kind")},
+                "tokens": {"input": usage["i"], "output": usage["o"]},
+                "tokens_reserved_open": one("SELECT COALESCE(SUM(reserved_tokens), 0) FROM reservations WHERE settled_tokens IS NULL")[0],
+                "duration_count": duration["n"], "duration_sum": max(duration["s"], 0.0),
+                "exhaustions": {r["terminal_reason"].removesuffix("_exhausted"): r["n"] for r in conn.execute(
+                    "SELECT terminal_reason, COUNT(*) AS n FROM runs WHERE terminal_reason IN "
+                    "('tokens_exhausted', 'turns_exhausted', 'duration_exhausted') GROUP BY terminal_reason")},
+                "worker_lost": one("SELECT COUNT(*) FROM runs WHERE terminal_reason='worker_lost'")[0],
+                "tool_calls": {bool(r["e"]): r["n"] for r in conn.execute(
+                    "SELECT COALESCE(json_extract(payload, '$.is_error'), 0) AS e, COUNT(*) AS n "
+                    "FROM run_events WHERE type='tool.result' GROUP BY e")},
+                "artifact_bytes": one("SELECT COALESCE(SUM(size), 0) FROM run_artifacts")[0],
+            }
 
     # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
 

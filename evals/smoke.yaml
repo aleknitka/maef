@@ -1,0 +1,19 @@
+# Example eval suite: `maef eval run smoke [--revision REV ...]` (needs a running API, worker and execution enabled).
+schema_version: maef.dev/v1alpha1
+id: smoke
+tasks:
+  - id: greet
+    agent_id: research-analyst
+    instruction: Reply with one short sentence confirming you are ready. Do not use any tools.
+    budget: {max_tokens: 20000, max_turns: 3}
+    checks:
+      - status: succeeded
+      - max_tokens: 20000
+  - id: arithmetic
+    agent_id: research-analyst
+    instruction: What is 17 plus 25? Answer with the number only and do not use any tools.
+    budget: {max_tokens: 20000, max_turns: 3}
+    checks:
+      - status: succeeded
+      - contains: "42"
+      - max_tokens: 20000

@@ -6,7 +6,9 @@ import os
 import sys
 from pathlib import Path
 
+from . import evals, otel
 from .client import TERMINAL_STATUSES, HttpTransport, MaefClient, MaefClientError
+from .registry import ROOT
 
 EXIT_OK, EXIT_RUN_FAILED, EXIT_ERROR, EXIT_TIMEOUT = 0, 1, 2, 3
 
@@ -49,6 +51,23 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=600, metavar="SECONDS")
     s.add_argument("--json", action="store_true")
     sub.add_parser("mcp", help="run the stdio MCP gateway")
+    o = sub.add_parser("otel", help="OpenTelemetry export of finished runs").add_subparsers(dest="otel_cmd", required=True)
+    s = o.add_parser("export", help="send finished runs to an OTLP/HTTP collector as traces (idempotent)")
+    s.add_argument("--endpoint", metavar="URL", default=os.environ.get("MAEF_OTLP_ENDPOINT"),
+                   help="collector base URL (default: MAEF_OTLP_ENDPOINT); posts to URL/v1/traces")
+    s.add_argument("--headers-ref", metavar="env:NAME", default=os.environ.get("MAEF_OTLP_HEADERS_REF"),
+                   help="credential ref whose value is Name=value,Name2=value2")
+    s.add_argument("--allow-private", action="store_true", help="allow a private-network endpoint")
+    s.add_argument("--since", metavar="ISO", help="only runs created at or after this timestamp")
+    s.add_argument("--run", metavar="ID", help="export only this run")
+    s.add_argument("--json", action="store_true")
+    e = sub.add_parser("eval", help="golden-task evals").add_subparsers(dest="eval_cmd", required=True)
+    s = e.add_parser("run", help="run a suite (evals/<name>.yaml or a path), optionally across revisions")
+    s.add_argument("suite")
+    s.add_argument("--revision", action="append", metavar="SHA|REF", help="repeat to compare revisions")
+    s.add_argument("--timeout", type=float, default=600, metavar="SECONDS", help="per task")
+    s.add_argument("--json", action="store_true")
+    s.add_argument("--out", metavar="FILE", help="write the markdown report here")
     a = sub.add_parser("admin", help="bootstrap tokens and worker credentials (local, uses MAEF_DB directly)")
     admin_sub = a.add_subparsers(dest="admin_cmd", required=True)
     t = admin_sub.add_parser("token", help="API tokens").add_subparsers(dest="action", required=True)
@@ -346,6 +365,61 @@ def _admin(args) -> int:
     return EXIT_OK
 
 
+def _otel(client: MaefClient, args) -> int:
+    from .models import RunDetail
+    if not args.endpoint:
+        _err("no endpoint: pass --endpoint or set MAEF_OTLP_ENDPOINT")
+        return EXIT_ERROR
+    try:
+        exporter = otel.OtlpHttpExporter(args.endpoint, args.headers_ref, allow_private=args.allow_private)
+        if args.run:
+            run_ids = [args.run]
+        else:
+            run_ids = [r["id"] for r in client.list_runs()
+                       if r["status"] in TERMINAL_STATUSES and (not args.since or r["created_at"] >= args.since)]
+        exported = 0
+        for run_id in run_ids:
+            run = RunDetail.model_validate(client.get_run(run_id))
+            if run.status not in TERMINAL_STATUSES:
+                _err(f"skipping {run_id}: still {run.status}")
+                continue
+            exporter.export(otel.run_to_spans(run))
+            exported += 1
+    except otel.OtlpExportError as exc:
+        _err(f"error: export failed: {exc}")
+        return EXIT_ERROR
+    _out(args, {"exported": exported}, f"exported {exported} run(s)")
+    return EXIT_OK
+
+
+def _eval(client: MaefClient, args) -> int:
+    path = Path(args.suite)
+    if not path.is_file():
+        path = ROOT / "evals" / f"{args.suite}.yaml"
+    try:
+        suite = evals.load_suite(path)
+    except (OSError, ValueError) as exc:
+        _err(f"error: cannot load suite {args.suite}: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}")
+        return EXIT_ERROR
+    results = []
+    for revision in args.revision or [None]:
+        _err(f"suite {suite.id} @ {revision or 'working tree'}")
+        results.append(evals.run_suite(
+            client, suite, revision=revision, timeout_seconds=args.timeout,
+            on_task=lambda t: _err(f"  {t.task_id}: {'pass' if t.passed else 'FAIL'} ({t.status}, {t.tokens_used} tokens)")))
+    comparison = evals.compare(results)
+    report = comparison.to_markdown()
+    if args.out:
+        Path(args.out).write_text(report, encoding="utf-8")
+        _err(f"wrote {args.out}")
+    if args.json:
+        print(json.dumps({"comparison": comparison.model_dump(mode="json"),
+                          "results": [{**r.model_dump(mode="json"), "pass_rate": r.pass_rate} for r in results]}))
+    else:
+        print(report)
+    return EXIT_RUN_FAILED if results[-1].failed_tasks else EXIT_OK
+
+
 def _dispatch(client: MaefClient, args) -> int:
     cmd = args.cmd
     if cmd == "agents":
@@ -355,6 +429,10 @@ def _dispatch(client: MaefClient, args) -> int:
         return _run(client, args)
     elif cmd == "decide":
         return _decide(client, args)
+    elif cmd == "otel":
+        return _otel(client, args)
+    elif cmd == "eval":
+        return _eval(client, args)
     elif cmd == "draft":
         return _draft(client, args)
     elif cmd == "status":

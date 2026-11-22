@@ -135,7 +135,7 @@ Client: `MaefClient.draft_create/draft_list/draft_write/draft_review/draft_publi
 | Route | Scope |
 |---|---|
 | `GET /health` | none (reports `auth_required`) |
-| `GET /api/v1/agents[/{id}[/files]]`, `model-profiles[/{id}]`, `schemas/{name}`, `runs`, `runs/{id}`, `runs/{id}/events`, `runs/{id}/artifacts`, `artifacts/{digest}`; `POST runs/preview` | `read` |
+| `GET /api/v1/metrics`, `GET /api/v1/agents[/{id}[/files]]`, `model-profiles[/{id}]`, `schemas/{name}`, `runs`, `runs/{id}`, `runs/{id}/events`, `runs/{id}/artifacts`, `artifacts/{digest}`; `POST runs/preview` | `read` |
 | `POST /api/v1/runs`, `POST runs/{id}/cancel` | `runs:write` (audited) |
 | `POST /api/v1/decisions` | `decisions:write` (audited) |
 | `/api/v1/drafts` (list, review: GET; create, file write, publish, discard: audited) | `authoring` |
@@ -149,3 +149,37 @@ Client: `MaefClient.draft_create/draft_list/draft_write/draft_review/draft_publi
 **Audit:** `audit_log(seq, ts, principal, action, target, outcome, client)`, append-only (UPDATE/DELETE triggers). `principal` is `token:<id>`, `worker:<id>`, `dev-unauthenticated`, `anonymous` or `local-cli` (bootstrap CLI). `action` is `METHOD /route/{template}` (CLI: `token.create|revoke`, `worker.create|revoke`); `target` the concrete path or `token:<id>`/`worker:<id>`; `outcome` `allowed`, `denied:401`, `denied:403` or `ok`/`not_found` (CLI). Recorded: every run submit/cancel, decision, draft create/write/publish/discard, worker lease grant and finish, every 401/403, and the CLI admin actions. Not recorded: bodies, tokens, idle claims, heartbeats, worker events (those are run events). `GET /api/v1/audit` returns rows after `seq`, oldest first (limit 1-1000). A mutating request whose audit row cannot be written is refused (500).
 
 **Auth refinements:** `MAEF_AUTH_DISABLED=1` applies only to loopback requests that send no `Authorization` header at all (a presented token must be valid) and never grants `admin`. Audit rows written by the auth dependency have outcome `authorized` (checked before the handler runs); run-creating routes add a `run.created` row whose target is the new run id.
+
+## Observability and evals (implemented, BACKEND_PLAN step 14)
+**Span mapping (`otel.run_to_spans`).** Trace id = sha256(`maef:trace:<run_id>`)[:32]; span id = sha256(`maef:span:<run_id>:<key>`)[:16] with key `root` or the starting event's `seq`. Resource `service.name=maef`, scope `maef.ledger`; semconv recorded as `maef.semconv`.
+
+| Span | Name | Start / end events | Attributes |
+|---|---|---|---|
+| root | `maef.run` | `task.created` / terminal `task.*` (last event if still live) | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `maef.run_id`, `maef.run.kind`, `maef.run.status`, `maef.agent_revision`, `maef.dirty`, `maef.terminal_reason`, `maef.tokens_used`, `maef.tokens_reserved`. Status: succeeded OK, failed ERROR (message = terminal reason), cancelled UNSET |
+| model turn (CLIENT) | `chat <profile>` | `model.request` / last of `model.response`, `usage.recorded` for the turn | `gen_ai.operation.name=chat`, `gen_ai.request.model` (profile id), `gen_ai.request.max_tokens`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*`, `maef.turn`, `maef.stop_reason`, `maef.prompt_bytes`, `maef.tools_offered`, `maef.tool_calls` |
+| tool call | `execute_tool <name>` (child of its turn) | `tool.call` / `tool.result` (paired per turn and name, in order) | `gen_ai.tool.name`, `maef.tool.server`, `maef.tool.is_error`, `maef.tool.argument_bytes`, `maef.tool.result_bytes`; status ERROR when `is_error` |
+| sandbox | `maef.sandbox` | `sandbox.provisioned` / `sandbox.torn_down` | `maef.sandbox.profile`, `.network`, `.network_open` |
+| MCP server | `maef.mcp <server>` | server's `sandbox.provisioned` / `mcp.stopped` | `maef.mcp.server`, `.version`, `.tool_count`, `.network`, `maef.sandbox.network_open` |
+
+A call with no result, or a sandbox/MCP span never closed, ends at the last event. Never add prompt, argument or result content to a span.
+
+**Export.** `OtlpHttpExporter(endpoint, headers_ref=None)` posts the OTLP/HTTP JSON `resourceSpans` body to `{endpoint}/v1/traces`. Config: `MAEF_OTLP_ENDPOINT`, `MAEF_OTLP_HEADERS_REF`, `MAEF_OTLP_ALLOW_PRIVATE=1`; ledger table `otel_exports(run_id, exported_at)`.
+
+**Metrics (`GET /api/v1/metrics`, Prometheus text 0.0.4, scope `read`).** `maef_runs_total{status,kind}`, `maef_tokens_used_total{kind=input|output}`, `maef_tokens_reserved_open`, `maef_run_duration_seconds_count|_sum` (summary, finished runs, created to finished), `maef_budget_exhaustions_total{reason=tokens|turns|duration}`, `maef_worker_lost_total`, `maef_tool_calls_total{is_error}`, `maef_artifact_bytes_total`.
+
+**Eval suite (`evals/<suite>.yaml`, models in `evals.py`, extra fields rejected).**
+```yaml
+schema_version: maef.dev/v1alpha1
+id: smoke
+tasks:
+  - id: greet
+    agent_id: research-analyst
+    instruction: ...
+    budget: {max_tokens: 20000, max_turns: 3}   # optional BudgetOverride
+    checks:                                      # each item sets exactly one key
+      - status: succeeded
+      - contains: "text"          # also not_contains, regex
+      - max_tokens: 20000         # tokens_used <= N
+      - json_path_equals: {path: answers.ticket_route.value, value: route}   # answers.json, else result text as JSON
+```
+`maef eval run SUITE [--revision REV ...] [--timeout S] [--json] [--out report.md]` runs the suite per revision (SUITE is a path or a name under `evals/`), prints a markdown comparison (pass rate, total and mean tokens, per-task token deltas against the first revision) and exits 1 when any task failed in the last revision.

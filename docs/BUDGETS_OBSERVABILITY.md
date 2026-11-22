@@ -31,3 +31,10 @@ Use OpenTelemetry GenAI semantic conventions where stable and pin semantic conve
 
 ## Visibility
 Studio should support structured timelines, live stream of task events (SSE initially), run comparison, cost breakdown, logs with redaction and direct links to artefacts. An audit trail must survive worker deletion.
+
+## Implemented (BACKEND_PLAN step 14)
+- **Traces:** `otel.run_to_spans(run)` maps a run's ledger events to OpenTelemetry-shaped spans (mapping in `packages/contracts/CONTRACTS.md`). Ids are sha256 truncations of run id and event seq, so re-export is idempotent. Spans carry identifiers, sizes and token counts only, never prompt, argument or result content (the events do not contain any).
+- **Export:** `maef otel export --endpoint URL [--since ISO] [--run ID]` (reads through `MaefClient`, so it needs a `read` token) and an optional background exporter in the API: with `MAEF_OTLP_ENDPOINT` set, a daemon thread exports each terminal run once (`otel_exports` ledger table); failures are logged and retried on the next 15 s tick and never affect runs. OTLP/HTTP JSON only, through the egress policy: loopback only for a loopback endpoint, private networks only with `MAEF_OTLP_ALLOW_PRIVATE=1` / `--allow-private`. Auth headers come from a credential ref (`MAEF_OTLP_HEADERS_REF=env:NAME`, value `Name=value,Name2=value2`).
+- **Metrics:** `GET /api/v1/metrics` (scope `read`), Prometheus text, computed by one `Ledger.metrics()` SQL pass.
+- **Evals:** `evals/<suite>.yaml`, `maef eval run`, comparison of agent revisions on pass rate and tokens.
+- **Not implemented:** latency histograms (queue wait, model latency), cache/reasoning token counts, per-agent-revision metric labels, OTel metrics export, a cost (USD) view. The model span's `gen_ai.request.model` is the model *profile id* (events do not record the provider model id).

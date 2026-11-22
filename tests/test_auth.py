@@ -32,6 +32,7 @@ RUN_BODY = {"agent_id": "research-analyst", "instruction": "Hi"}
 # packages/contracts/CONTRACTS.md; `/api/v1/worker/*` is covered by its own tests.
 ROUTES = [
     ("GET", "/api/v1/audit", "/api/v1/audit", SCOPE_ADMIN, {}),
+    ("GET", "/api/v1/metrics", "/api/v1/metrics", SCOPE_READ, {}),
     ("GET", "/api/v1/agents", "/api/v1/agents", SCOPE_READ, {}),
     ("GET", "/api/v1/agents/{agent_id}", "/api/v1/agents/research-analyst", SCOPE_READ, {}),
     ("GET", "/api/v1/agents/{agent_id}/files", "/api/v1/agents/research-analyst/files", SCOPE_READ, {}),

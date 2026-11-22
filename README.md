@@ -179,6 +179,12 @@ maef draft discard <id>
 
 Only text files under `agents/<agent>/` (max 256 KiB) can be written; publish is refused while lint reports errors. Commits are authored as `MAEF Authoring <maef@localhost>` (`MAEF_AUTHORING_NAME`, `MAEF_AUTHORING_EMAIL`). `--revision` accepts a commit sha, branch or tag and runs the committed definition, never dirty.
 
+## Observability and evals
+
+Every run is a trace: `maef otel export --endpoint http://127.0.0.1:4318 [--since ISO] [--run ID]` sends finished runs to any OTLP/HTTP collector (spans per model turn, tool call, sandbox and MCP server; no prompt or tool content). Set `MAEF_OTLP_ENDPOINT` on the API to export each run automatically once it finishes (`MAEF_OTLP_HEADERS_REF=env:NAME` for auth headers, `MAEF_OTLP_ALLOW_PRIVATE=1` for a private-network collector). `GET /api/v1/metrics` (scope `read`) serves Prometheus text: runs, tokens, open reservations, durations, budget exhaustions, lost workers, tool calls, artifact bytes.
+
+Golden tasks live in `evals/<suite>.yaml`. `maef eval run smoke --revision <sha-a> --revision <sha-b>` runs the suite on each committed agent revision and prints a markdown table of pass rate and tokens (exit 1 if the last revision fails a task). Formats: `packages/contracts/CONTRACTS.md`.
+
 ## Validate
 
 ```bash
