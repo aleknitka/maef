@@ -5,7 +5,9 @@ from decimal import Decimal
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from .adapters.anthropic import AnthropicAdapter
 from .adapters.bedrock import BedrockAdapter
+from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .admission import AdmissionError, admit, to_micro
 from .harness import PreparedRun
 from .models import (
@@ -41,6 +43,10 @@ def execution_enabled() -> bool:
 def adapter_factory(profile: ModelEndpointProfile):
     if profile.api_dialect == "bedrock-converse":
         return BedrockAdapter(profile)
+    if profile.api_dialect == "openai-compatible":
+        return OpenAICompatibleAdapter(profile)
+    if profile.api_dialect == "anthropic":
+        return AnthropicAdapter(profile)
     raise HTTPException(status_code=501, detail=f"No adapter for dialect {profile.api_dialect}")
 
 @app.get("/health")

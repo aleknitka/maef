@@ -1,8 +1,10 @@
 from datetime import date
 from decimal import Decimal
-from typing import Literal
+from ipaddress import ip_address
+from typing import Annotated, Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"
 
@@ -14,6 +16,43 @@ class BedrockEndpoint(BaseModel):
     model_id: str = Field(pattern=r"^[a-z0-9.:-]+$")
     # Where requests may be served: the selected Region only, a geography, or anywhere.
     routing: Literal["in-region", "geo", "global"]
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+class _HttpEndpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    base_url: str
+    model_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
+
+    @field_validator("base_url")
+    @classmethod
+    def _safe_url(cls, v: str) -> str:
+        u = urlparse(v)
+        if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
+            raise ValueError("base_url must be http(s)://host[:port][/path] with no credentials or query")
+        # Plain http is only for loopback, so prompts and API keys never cross a network unencrypted.
+        if u.scheme == "http" and not _is_loopback(u.hostname):
+            raise ValueError("http base_url is only allowed for loopback hosts; use https")
+        return v.rstrip("/")
+
+class OpenAICompatibleEndpoint(_HttpEndpoint):
+    """OpenAI (https://api.openai.com/v1) or any local server speaking chat/completions."""
+    kind: Literal["openai-compatible"]
+    # OpenAI's newer models reject max_tokens; many local servers only know max_tokens.
+    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+
+class AnthropicEndpoint(_HttpEndpoint):
+    kind: Literal["anthropic"]
+    base_url: str = "https://api.anthropic.com"
+
+Endpoint = Annotated[BedrockEndpoint | OpenAICompatibleEndpoint | AnthropicEndpoint, Field(discriminator="kind")]
+_KIND_DIALECT = {"amazon-bedrock": "bedrock-converse", "openai-compatible": "openai-compatible", "anthropic": "anthropic"}
 
 class ModelCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -29,9 +68,9 @@ class ModelEndpointProfile(BaseModel):
     display_name: str
     vendor: str
     api_dialect: Literal["bedrock-converse", "openai-compatible", "anthropic", "cli-adapter"]
-    endpoint: BedrockEndpoint
-    # A reference to where credentials come from, not a secret value.
-    credential_ref: str = Field(pattern=r"^[a-z]+:[a-z0-9-]+$")
+    endpoint: Endpoint
+    # Where credentials come from, never a secret value: aws:default-chain, env:NAME, none:local.
+    credential_ref: str = Field(pattern=r"^(aws:default-chain|none:local|env:[A-Z][A-Z0-9_]{1,63})$")
     capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
     timeout_seconds: int = Field(default=300, ge=1, le=3600)
     max_retries: int = Field(default=2, ge=0, le=10)
@@ -39,6 +78,12 @@ class ModelEndpointProfile(BaseModel):
     max_output_tokens: int = Field(default=4096, ge=1, le=1_000_000)
     # None means unpriced: budget admission must fail closed (ADR-0004).
     price_schedule_id: str | None = Field(default=None, pattern=PROFILE_ID_PATTERN)
+
+    @model_validator(mode="after")
+    def _dialect_matches_endpoint(self):
+        if _KIND_DIALECT[self.endpoint.kind] != self.api_dialect:
+            raise ValueError(f"api_dialect {self.api_dialect} does not match endpoint kind {self.endpoint.kind}")
+        return self
 
 class PriceSchedule(BaseModel):
     """Token prices in USD per million tokens. Committed to Git: prices are not secrets."""

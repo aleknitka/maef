@@ -38,3 +38,6 @@ SQLite ledger (`runs/maef.db`, override with `MAEF_DB`). `run_events` is append-
 
 ## Execution (implemented, interim)
 `POST /api/v1/runs` returns 202 `{run_id}` when `MAEF_EXECUTION_ENABLED=1` (otherwise 501), runs in a local thread pool, never in the request. One tool-less Bedrock Converse call with the profile's `max_output_tokens`, timeout and retries. Events: `run.started`, `model.request` (sizes only), `model.response`, `usage.recorded`, `run.output`, `run.manifest`, then the terminal `task.*` event. Startup sweep fails orphaned runs as `worker_lost` and charges their full reservation. In-process execution is an interim exception to ADR-0002 that ends when tools arrive.
+
+## Endpoint kinds (implemented)
+`endpoint.kind`: `amazon-bedrock`, `openai-compatible` (OpenAI or any local chat/completions server; `base_url`, `token_param`) and `anthropic` (Messages API). `api_dialect` must match the kind. `base_url` must be https, or http on loopback only, with no embedded credentials. `credential_ref` is `aws:default-chain`, `none:local` or `env:NAME`; the key is read from the environment at call time and never stored or logged. HTTP errors record status and class only, never bodies. A missing `usage` block fails the call, since cost cannot be computed. Other endpoint kinds plug in by adding a kind and an adapter.

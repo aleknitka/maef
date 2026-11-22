@@ -80,7 +80,7 @@ def execute(store: Store, run: PreparedRun, adapter: ModelAdapter, clock=time.mo
                 reason = "output_truncated"
             else:
                 reason = f"unsupported_stop_reason:{response.stop_reason}"
-    except Exception as exc:  # recorded by class name only; messages may echo prompts
+    except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
         status, reason = "failed", f"model_error:{type(exc).__name__}"
 
     # Cost is what the provider reported. A call that errored reported nothing, so it is
