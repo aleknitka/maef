@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .adapters.anthropic import AnthropicAdapter
 from .adapters.bedrock import BedrockAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
+from .credentials import Credentials
 from .definitions import Definitions
 from .ledger import Ledger
 from .models import (
@@ -39,13 +40,15 @@ def execution_enabled() -> bool:
 def allow_dirty() -> bool:
     return os.environ.get("MAEF_ALLOW_DIRTY") == "1"
 
+credentials = Credentials()
+
 def adapter_factory(profile: ModelEndpointProfile):
     if profile.api_dialect == "bedrock-converse":
         return BedrockAdapter(profile)
     if profile.api_dialect == "openai-compatible":
-        return OpenAICompatibleAdapter(profile)
+        return OpenAICompatibleAdapter(profile, credentials)
     if profile.api_dialect == "anthropic":
-        return AnthropicAdapter(profile)
+        return AnthropicAdapter(profile, credentials)
     raise UnsupportedDialect(f"No adapter for dialect {profile.api_dialect}")
 
 # Ledger lives under the gitignored runs/ directory unless overridden.

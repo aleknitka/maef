@@ -28,16 +28,27 @@ class _HttpEndpoint(BaseModel):
     base_url: str
     model_id: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._:/-]+$")
 
+    # Explicit opt-in for LAN hosts (LM Studio/Ollama on another box, or the Windows host seen from WSL2).
+    allow_private_network: bool = False
+
     @field_validator("base_url")
     @classmethod
     def _safe_url(cls, v: str) -> str:
         u = urlparse(v)
         if u.scheme not in ("http", "https") or not u.hostname or u.username or u.password or u.query or u.fragment:
             raise ValueError("base_url must be http(s)://host[:port][/path] with no credentials or query")
-        # Plain http is only for loopback, so prompts and API keys never cross a network unencrypted.
-        if u.scheme == "http" and not _is_loopback(u.hostname):
-            raise ValueError("http base_url is only allowed for loopback hosts; use https")
         return v.rstrip("/")
+
+    @model_validator(mode="after")
+    def _http_only_for_local(self):
+        # Plain http is only for loopback or an opted-in private network, so prompts and keys never cross the internet unencrypted.
+        if self.base_url.startswith("http://") and not (self.is_loopback or self.allow_private_network):
+            raise ValueError("http base_url requires a loopback host or allow_private_network; use https")
+        return self
+
+    @property
+    def is_loopback(self) -> bool:
+        return _is_loopback(urlparse(self.base_url).hostname)
 
 class OpenAICompatibleEndpoint(_HttpEndpoint):
     """OpenAI (https://api.openai.com/v1) or any local server speaking chat/completions."""
