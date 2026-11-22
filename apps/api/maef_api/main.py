@@ -1,11 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .models import AgentDefinition, RunRequest, RunPreview, Budget
-from .registry import AgentRegistry
+from .models import AgentDefinition, ModelEndpointProfile, RunRequest, RunPreview, Budget
+from .registry import AgentRegistry, ModelProfileRegistry
 
 app = FastAPI(title="MAEF Control Plane", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 registry = AgentRegistry()
+model_profiles = ModelProfileRegistry()
 
 @app.get("/health")
 def health():
@@ -21,6 +22,17 @@ def get_agent(agent_id: str):
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     return agent
+
+@app.get("/api/v1/model-profiles", response_model=list[ModelEndpointProfile])
+def list_model_profiles():
+    return model_profiles.list_profiles()
+
+@app.get("/api/v1/model-profiles/{profile_id}", response_model=ModelEndpointProfile)
+def get_model_profile(profile_id: str):
+    profile = model_profiles.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Model profile not found")
+    return profile
 
 @app.get("/api/v1/agents/{agent_id}/files")
 def agent_files(agent_id: str):
