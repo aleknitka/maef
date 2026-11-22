@@ -67,8 +67,8 @@ def pinned(files=None):
 
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / 'worker.db')
+def store(ledger_target):
+    s = Ledger(ledger_target('worker.db'))
     s.ensure_account('default', 1_000_000)
     return s
 

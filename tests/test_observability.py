@@ -51,8 +51,8 @@ class Scripted:
 
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / "obs.db")
+def store(ledger_target):
+    s = Ledger(ledger_target("obs.db"))
     s.ensure_account("default", 5_000_000)
     return s
 

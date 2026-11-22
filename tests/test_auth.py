@@ -4,7 +4,6 @@ conftest seeds an admin token and every TestClient sends it, so these tests remo
 (`anon`) or replace it (`bearer`, `with_auth`) explicitly.
 """
 import hashlib
-import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
@@ -80,8 +79,8 @@ def audit_rows(store) -> list[dict]:
 
 
 @pytest.fixture
-def store(tmp_path, monkeypatch):
-    ledger = Ledger(tmp_path / "auth.db")
+def store(ledger_target, monkeypatch):
+    ledger = Ledger(ledger_target("auth.db"))
     ledger.ensure_account("default", 1_000_000)
     monkeypatch.setattr(main, "ledger", ledger)
     return ledger
@@ -106,6 +105,8 @@ def test_token_prefixes_and_only_hashes_stored(tmp_path, store):
     _, token = issue_api_token(store, "ci", (SCOPE_READ,))
     worker_token = issue_worker_credential(store, "w-prefix")
     assert token.startswith("maef_") and worker_token.startswith("maefw_")
+    if store.backend != "sqlite":
+        pytest.skip("inspects the SQLite database files")
     blob = b"".join(p.read_bytes() for p in tmp_path.glob("auth.db*"))  # includes the WAL file
     for secret in (token, worker_token):
         assert secret.encode() not in blob
@@ -308,9 +309,9 @@ def test_audit_rows_never_contain_tokens_or_bodies(live_api):
 def test_audit_table_is_append_only(store):
     store.audit("p", "a", "t", "ok", "c")
     with store.connect() as conn:
-        with pytest.raises(sqlite3.DatabaseError):
+        with pytest.raises(store.database_error):
             conn.execute("UPDATE audit_log SET outcome='changed'")
-        with pytest.raises(sqlite3.DatabaseError):
+        with pytest.raises(store.database_error):
             conn.execute("DELETE FROM audit_log")
 
 
@@ -333,7 +334,7 @@ def test_get_audit_requires_admin_and_pages(store):
 # --- Admin CLI -------------------------------------------------------------------------------------
 
 def test_cli_token_create_list_revoke(store, monkeypatch, capsys):
-    monkeypatch.setenv("MAEF_DB", str(store.path))
+    monkeypatch.setenv("MAEF_DB", store.url)
     assert cli.main(["admin", "token", "create", "--name", "ops", "--scopes", "read"]) == 0
     out, err = capsys.readouterr()
     token = out.strip()
@@ -356,7 +357,7 @@ def test_cli_token_create_list_revoke(store, monkeypatch, capsys):
 
 def test_cli_worker_create_list_revoke(worker_api, monkeypatch, capsys):
     store = worker_api
-    monkeypatch.setenv("MAEF_DB", str(store.path))
+    monkeypatch.setenv("MAEF_DB", store.url)
     assert cli.main(["admin", "worker", "create", "--id", "wcli"]) == 0
     out, err = capsys.readouterr()
     token = out.strip()

@@ -32,8 +32,8 @@ DIGEST_OF_HELLO = 'sha256:' + hashlib.sha256(b'hello').hexdigest()
 
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / 'artifacts.db')
+def store(ledger_target):
+    s = Ledger(ledger_target('artifacts.db'))
     s.ensure_account('default', 1_000_000)
     return s
 
@@ -439,14 +439,14 @@ def test_unknown_digest_is_404(http):
     assert client.get('/api/v1/artifacts/not-a-digest').status_code == 404
 
 
-def test_retry_of_recorded_upload_is_noop_at_run_limit(tmp_path, monkeypatch):
+def test_retry_of_recorded_upload_is_noop_at_run_limit(ledger_target, monkeypatch):
     import maef_api.ledger as ledger_mod
     from maef_api.artifacts import ArtifactIntake, InMemoryArtifactStore
     from maef_api.ledger import Ledger
     from maef_api.models import Budget
     from test_ledger import definition
     monkeypatch.setattr(ledger_mod, 'MAX_RUN_ARTIFACTS', 1)
-    ledger = Ledger(tmp_path / 'l.db'); ledger.ensure_account('default', 10_000_000)
+    ledger = Ledger(ledger_target('l.db')); ledger.ensure_account('default', 10_000_000)
     run_id = ledger.admit(definition(), Budget(max_turns=1), prompt_bytes=10, instruction='x')
     intake = ArtifactIntake(ledger, InMemoryArtifactStore())
     first = intake.accept(run_id, token=None, name='a.txt', mime='text/plain', data=b'hi')

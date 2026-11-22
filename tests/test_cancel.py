@@ -28,8 +28,8 @@ PINNED_IMAGE = 'docker.io/library/busybox@sha256:' + 'a' * 64
 
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / 'cancel.db')
+def store(ledger_target):
+    s = Ledger(ledger_target('cancel.db'))
     s.ensure_account('default', 1_000_000)
     return s
 

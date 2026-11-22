@@ -1,7 +1,7 @@
 # Architecture — MAEF
 
 ## Executive decision
-Implement a modular monolith control plane in Python (FastAPI/Pydantic), TypeScript React Studio, and an independently deployed worker process. Treat worker messaging as a protocol rather than an in-process Python call. Begin with a single local worker; allow future ephemeral remote workers without changing agent definitions. Use SQLite for bootstrap and PostgreSQL before enabling concurrent remote execution.
+Implement a modular monolith control plane in Python (FastAPI/Pydantic), TypeScript React Studio, and an independently deployed worker process. Treat worker messaging as a protocol rather than an in-process Python call. Begin with a single local worker; allow future ephemeral remote workers without changing agent definitions. Use SQLite for bootstrap and PostgreSQL before enabling concurrent remote execution. The `Ledger` has two adapters behind one interface (SQLite, and PostgreSQL via the optional `postgres` extra; `MAEF_DB` is a path or a `postgresql://` URL); on Postgres the queue is durable and multi-claimer safe (`FOR UPDATE SKIP LOCKED`).
 
 ## Boundaries
 

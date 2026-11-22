@@ -1,4 +1,4 @@
-.PHONY: api worker studio tui test test-oci
+.PHONY: api worker studio tui test test-oci test-pg
 api:
 	uvicorn maef_api.main:app --app-dir apps/api --reload --host 127.0.0.1 --port 8000
 worker:
@@ -11,3 +11,5 @@ test:
 	pytest -q
 test-oci:
 	MAEF_ALLOW_UNPINNED_IMAGES=1 pytest -q -m oci tests/test_sandbox_oci.py
+test-pg:
+	pytest -q -m pg

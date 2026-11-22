@@ -144,7 +144,7 @@ def allow_dirty() -> bool:
     return os.environ.get("MAEF_ALLOW_DIRTY") == "1"
 
 # Ledger lives under the gitignored runs/ directory unless overridden.
-ledger = Ledger(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+ledger = Ledger.open(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
 ledger.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
 artifacts = default_artifact_store()
 runs = Runs(

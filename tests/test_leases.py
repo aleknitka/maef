@@ -9,8 +9,8 @@ BUDGET = Budget(max_tokens=400_000, max_turns=1)
 
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / 'leases.db')
+def store(ledger_target):
+    s = Ledger(ledger_target('leases.db'))
     s.ensure_account('default', 1_000_000)
     return s
 

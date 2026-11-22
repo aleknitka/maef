@@ -21,8 +21,8 @@ def definition(dirty=False, max_output_tokens=1000):
                             definition_digest='d', profile_digest='p')
 
 @pytest.fixture
-def store(tmp_path):
-    s = Ledger(tmp_path / 'ledger.db')
+def store(ledger_target):
+    s = Ledger(ledger_target('ledger.db'))
     s.ensure_account('default', 1_000_000)
     return s
 
@@ -65,8 +65,8 @@ def test_release_returns_everything(store):
     acct = store.account('default')
     assert (acct['reserved_tokens'], acct['spent_tokens']) == (0, 0)
 
-def test_concurrent_admission_exactly_one_fits(tmp_path):
-    store = Ledger(tmp_path / 'c.db')
+def test_concurrent_admission_exactly_one_fits(ledger_target):
+    store = Ledger(ledger_target('c.db'))
     store.ensure_account('default', 500_000)  # fits one 400k reservation, not two
     # large max_turns/outputs push the worst case above the cap, so each reserves 400k
     budget = Budget(max_tokens=400_000, max_turns=100)
@@ -86,9 +86,9 @@ def test_concurrent_admission_exactly_one_fits(tmp_path):
 def test_events_are_append_only(store):
     run_id = run(store)
     with store.connect() as conn:
-        with pytest.raises(sqlite3.DatabaseError, match='append-only'):
+        with pytest.raises(store.database_error, match='append-only'):
             conn.execute("UPDATE run_events SET type='x' WHERE run_id=?", (run_id,))
-        with pytest.raises(sqlite3.DatabaseError, match='append-only'):
+        with pytest.raises(store.database_error, match='append-only'):
             conn.execute("DELETE FROM run_events WHERE run_id=?", (run_id,))
 
 def test_failed_admission_leaves_no_partial_state(store):

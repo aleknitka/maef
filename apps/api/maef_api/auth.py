@@ -103,4 +103,4 @@ def verify_worker_token(ledger: Ledger, token: str | None) -> str | None:
 
 def local_ledger() -> Ledger:
     """The ledger the API uses (MAEF_DB), opened directly: the bootstrap CLI is the root of trust."""
-    return Ledger(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+    return Ledger.open(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))

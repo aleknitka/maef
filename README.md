@@ -16,7 +16,7 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 - One example agent definition and API tests.
 - Architecture, contracts, ADRs, security considerations and phased roadmap.
 
-**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
+**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a ledger (`MAEF_DB`: a SQLite path, default `runs/maef.db`, or a `postgresql://` URL, see "Running on Postgres"); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
 
 **Not implemented:** MCP over HTTP, MCP gateway server, actual spend enforcement, publishing, Git commit automation. Studio clearly labels previews as non-executions.
 
@@ -31,6 +31,8 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 ```
+
+**Running on Postgres.** Install the optional driver (`pip install -e '.[postgres]'`) and point every process (API, workers, `maef admin`) at one database: `MAEF_DB=postgresql://user:pass@host/db`. The schema is created on first start. Local throwaway server: `podman run -d --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=maef docker.io/library/postgres:17-alpine`, then `MAEF_DB=postgresql://postgres:maef@127.0.0.1/postgres`. `make test-pg` runs the ledger suite on Postgres (starts a podman container, or uses `MAEF_TEST_POSTGRES_URL`).
 
 Every `/api/v1/*` route needs a bearer token. Create tokens with the local bootstrap CLI (it opens the ledger, `MAEF_DB`, directly and prints each secret once):
 
