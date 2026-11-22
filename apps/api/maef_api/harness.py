@@ -6,14 +6,12 @@ token counts only. The model's answer is stored once, in the `run.output` event.
 """
 import time
 from dataclasses import dataclass
-from decimal import ROUND_CEILING
 
 from .adapters.base import ModelAdapter
 from .admission import settle
 from .models import (
     Budget,
     ModelEndpointProfile,
-    PriceSchedule,
     ResolvedDefinition,
     ResultManifest,
 )
@@ -26,15 +24,9 @@ class PreparedRun:
     definition: ResolvedDefinition
     profile: ModelEndpointProfile
     budget: Budget
-    reserved_micro: int
+    reserved_tokens: int
     system_prompt: str
     instruction: str
-
-
-def call_cost_micro(price: PriceSchedule, input_tokens: int, output_tokens: int) -> int:
-    # USD per million tokens x tokens = micro-USD
-    exact = price.input_usd_per_million_tokens * input_tokens + price.output_usd_per_million_tokens * output_tokens
-    return int(exact.to_integral_value(rounding=ROUND_CEILING))
 
 
 def _event(store: Store, run_id: str, type_: str, payload: dict, status: str | None = None) -> None:
@@ -47,17 +39,16 @@ def _event(store: Store, run_id: str, type_: str, payload: dict, status: str | N
 def execute(store: Store, run: PreparedRun, adapter: ModelAdapter, clock=time.monotonic) -> None:
     """Run one prepared run to a terminal state. Never raises: failures are recorded."""
     started = clock()
-    price = run.definition.price_schedule
-    cost = in_tokens = out_tokens = 0
+    in_tokens = out_tokens = 0
     status, reason = "failed", "internal_error"
     try:
         _event(store, run.run_id, "run.started", {}, status="running")
         prompt_bytes = len(run.system_prompt.encode()) + len(run.instruction.encode())
 
         # Worst case for this call must fit in the reservation (prompt bytes bound tokens).
-        worst = call_cost_micro(price, prompt_bytes, run.profile.max_output_tokens)
+        worst = prompt_bytes + run.profile.max_output_tokens
         remaining = float(run.budget.max_duration_seconds) - (clock() - started)
-        if worst > run.reserved_micro:
+        if worst > run.reserved_tokens:
             reason = "budget_exhausted"
         elif remaining <= 0:
             reason = "duration_exhausted"
@@ -70,9 +61,8 @@ def execute(store: Store, run: PreparedRun, adapter: ModelAdapter, clock=time.mo
                 timeout_seconds=min(float(run.profile.timeout_seconds), remaining),
             )
             in_tokens, out_tokens = response.input_tokens, response.output_tokens
-            cost = call_cost_micro(price, in_tokens, out_tokens)
             _event(store, run.run_id, "model.response", {"stop_reason": response.stop_reason})
-            _event(store, run.run_id, "usage.recorded", {"input_tokens": in_tokens, "output_tokens": out_tokens, "cost_micro_usd": cost})
+            _event(store, run.run_id, "usage.recorded", {"input_tokens": in_tokens, "output_tokens": out_tokens, "total_tokens": in_tokens + out_tokens})
             _event(store, run.run_id, "run.output", {"text": response.text})
             if response.stop_reason == "end_turn":
                 status, reason = "succeeded", "completed"
@@ -83,14 +73,14 @@ def execute(store: Store, run: PreparedRun, adapter: ModelAdapter, clock=time.mo
     except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
         status, reason = "failed", f"model_error:{type(exc).__name__}"
 
-    # Cost is what the provider reported. A call that errored reported nothing, so it is
-    # charged 0 and the reservation is released (known gap: a timeout may still bill upstream).
+    # Usage is what the provider reported. A call that errored reported nothing, so it is
+    # charged 0 and the reservation is released (known gap: a timeout may still consume upstream).
     # The manifest is written before settle(), whose task.* event is the terminal one.
     manifest = ResultManifest(
         run_id=run.run_id, status=status, agent_id=run.definition.agent_id,
         agent_revision=run.definition.git_rev, dirty=run.definition.dirty,
         definition_digest=run.definition.definition_digest, model_profile_revision=run.definition.profile_digest,
-        input_tokens=in_tokens, output_tokens=out_tokens, cost_micro_usd=cost, terminal_reason=reason,
+        input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=in_tokens + out_tokens, terminal_reason=reason,
     )
     _event(store, run.run_id, "run.manifest", manifest.model_dump(mode="json"))
-    settle(store, run.run_id, cost_micro=cost, status=status, terminal_reason=reason)
+    settle(store, run.run_id, tokens_used=in_tokens + out_tokens, status=status, terminal_reason=reason)

@@ -16,7 +16,7 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 - One example agent definition and API tests.
 - Architecture, contracts, ADRs, security considerations and phased roadmap.
 
-**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits a budget-reserved, tool-less Bedrock Converse call (needs the `bedrock` extra, a gitignored model profile with a committed price schedule, and a clean git tree or `MAEF_ALLOW_DIRTY=1`). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_USD` (default 5.00) caps total spend.
+**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits a budget-reserved, tool-less Bedrock Converse call (needs the `bedrock` extra, a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
 
 **Not implemented:** sandbox execution, tools, MCP client/server, remote workers, actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
 

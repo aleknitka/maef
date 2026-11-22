@@ -11,7 +11,7 @@ runtime:
   model_profile: local-default
   sandbox_profile: restricted-local
 budget:
-  max_cost_usd: 1.00
+  max_tokens: 200000
   max_duration_seconds: 900
   max_turns: 30
 outputs: [report-markdown, sources-json]

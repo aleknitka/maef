@@ -24,7 +24,7 @@ class OpenAICompatibleAdapter:
         )
         usage = reply.get("usage") or {}
         if "prompt_tokens" not in usage or "completion_tokens" not in usage:
-            # Cost cannot be computed without usage: fail rather than record a guess.
+            # Budgets cannot be metered without usage: fail rather than record a guess.
             raise ModelHTTPError(None, "missing_usage")
         choice = reply["choices"][0]
         finish = choice.get("finish_reason")

@@ -1,6 +1,6 @@
 """SQLite run ledger. Plain sqlite3; migrations are versioned with PRAGMA user_version.
 
-Money is stored as integer micro-USD, never REAL. run_events is append-only: triggers
+Usage is stored as integer tokens, never REAL. run_events is append-only: triggers
 reject UPDATE and DELETE, and no code path issues either.
 """
 import json
@@ -52,6 +52,17 @@ MIGRATIONS = [
         settled_micro INTEGER,
         released_micro INTEGER
     );
+    """,
+    # Budgets are metered in tokens, not USD.
+    """
+    ALTER TABLE budget_accounts RENAME COLUMN limit_micro TO limit_tokens;
+    ALTER TABLE budget_accounts RENAME COLUMN reserved_micro TO reserved_tokens;
+    ALTER TABLE budget_accounts RENAME COLUMN spent_micro TO spent_tokens;
+    ALTER TABLE runs RENAME COLUMN reserved_micro TO reserved_tokens;
+    ALTER TABLE runs RENAME COLUMN cost_micro TO tokens_used;
+    ALTER TABLE reservations RENAME COLUMN reserved_micro TO reserved_tokens;
+    ALTER TABLE reservations RENAME COLUMN settled_micro TO settled_tokens;
+    ALTER TABLE reservations RENAME COLUMN released_micro TO released_tokens;
     """,
 ]
 
@@ -106,12 +117,12 @@ class Store:
             raise
         conn.execute("COMMIT")
 
-    def ensure_account(self, account_id: str, limit_micro: int) -> None:
+    def ensure_account(self, account_id: str, limit_tokens: int) -> None:
         with self.transaction() as conn:
             conn.execute(
-                "INSERT INTO budget_accounts (id, limit_micro) VALUES (?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET limit_micro=excluded.limit_micro",
-                (account_id, limit_micro),
+                "INSERT INTO budget_accounts (id, limit_tokens) VALUES (?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET limit_tokens=excluded.limit_tokens",
+                (account_id, limit_tokens),
             )
 
     def account(self, account_id: str) -> dict | None:

@@ -16,12 +16,12 @@ def test_agents():
 def test_preview_clamps_budget():
     result = client.post('/api/v1/runs/preview', json={
         'agent_id': 'research-analyst', 'instruction': 'Summarise',
-        'budget': {'max_cost_usd': '0.25', 'max_duration_seconds': 5000, 'max_turns': 10}
+        'budget': {'max_tokens': 50000, 'max_duration_seconds': 5000, 'max_turns': 10}
     })
     assert result.status_code == 200
     body = result.json()
     assert body['status'] == 'preview_only'
-    assert body['effective_budget'] == {'max_cost_usd': '0.25', 'max_duration_seconds': 900, 'max_turns': 10}
+    assert body['effective_budget'] == {'max_tokens': 50000, 'max_duration_seconds': 900, 'max_turns': 10}
 
 def test_execution_disabled_by_default():
     result = client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'Hi'})
@@ -58,12 +58,11 @@ def test_model_profiles_listed(profiles_dir):
     assert result.status_code == 200
     assert [p['id'] for p in result.json()] == ['test-model']
 
-def test_model_profile_has_no_secrets_and_fails_closed_on_price(profiles_dir):
+def test_model_profile_has_no_secrets(profiles_dir):
     body = client.get('/api/v1/model-profiles/test-model').json()
     assert body['endpoint'] == {'kind': 'amazon-bedrock', 'region': 'eu-north-1',
                                 'model_id': 'global.test.model-1', 'routing': 'global'}
     assert body['credential_ref'] == 'aws:default-chain'
-    assert body['price_schedule_id'] is None
 
 def test_model_profile_unknown_and_traversal(profiles_dir):
     assert client.get('/api/v1/model-profiles/nope').status_code == 404

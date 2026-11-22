@@ -1,5 +1,5 @@
 {
   "agent_id": "research-analyst",
   "instruction": "Summarise the evidence for and against remote work productivity, with citations.",
-  "budget": {"max_cost_usd": 0.25, "max_duration_seconds": 180, "max_turns": 10}
+  "budget": {"max_tokens": 50000, "max_duration_seconds": 180, "max_turns": 10}
 }

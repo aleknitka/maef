@@ -1,7 +1,5 @@
 import json
 import time
-from datetime import date
-from decimal import Decimal
 
 import boto3
 import pytest
@@ -15,7 +13,6 @@ from maef_api.harness import PreparedRun, execute
 from maef_api.models import (
     Budget,
     ModelEndpointProfile,
-    PriceSchedule,
     ResolvedDefinition,
 )
 from maef_api.runner import Runner
@@ -28,10 +25,8 @@ def profile(extra=''):
     return ModelEndpointProfile.model_validate(yaml.safe_load(PROFILE.format(id='test-model', extra=extra)))
 
 def definition(dirty=False):
-    price = PriceSchedule(schema_version='maef.dev/v1alpha1', id='test-prices', effective_from=date(2026, 1, 1),
-                          input_usd_per_million_tokens=Decimal(1), output_usd_per_million_tokens=Decimal(5))
     return ResolvedDefinition(agent_id='research-analyst', agent_version='0.1.0', git_rev='abc', dirty=dirty,
-                              definition_digest='d', model_profile_id='test-model', profile_digest='p', price_schedule=price)
+                              definition_digest='d', model_profile_id='test-model', profile_digest='p')
 
 class FakeAdapter:
     def __init__(self, response=None, error=None):
@@ -48,9 +43,9 @@ def store(tmp_path):
 
 def prepared(store, **kw):
     d, p = definition(), profile()
-    budget = Budget(max_cost_usd=Decimal('0.5'), max_turns=1, **kw)
+    budget = Budget(max_tokens=500_000, max_turns=1, **kw)
     run_id = admit(store, d, budget, instruction='Question?', system_prompt_bytes=20, max_output_tokens=p.max_output_tokens)
-    return PreparedRun(run_id, d, p, budget, store.get_run(run_id)['reserved_micro'], 'You are an analyst.', 'Question?')
+    return PreparedRun(run_id, d, p, budget, store.get_run(run_id)['reserved_tokens'], 'You are an analyst.', 'Question?')
 
 def types(store, run_id):
     return [e['type'] for e in store.get_run(run_id)['events']]
@@ -60,14 +55,14 @@ def test_successful_run(store):
     adapter = FakeAdapter(ModelResponse('The answer.', 'end_turn', 1000, 200))
     execute(store, run, adapter)
     detail = store.get_run(run.run_id)
-    assert detail['status'] == 'succeeded' and detail['cost_micro'] == 2000  # 1000*$1/M + 200*$5/M
+    assert detail['status'] == 'succeeded' and detail['tokens_used'] == 1200
     assert types(store, run.run_id) == ['task.created', 'task.admitted', 'run.started', 'model.request',
                                         'model.response', 'usage.recorded', 'run.output', 'run.manifest', 'task.succeeded']
     assert adapter.calls[0]['max_output_tokens'] == 4096
     manifest = next(e for e in detail['events'] if e['type'] == 'run.manifest')['payload']
-    assert manifest['agent_revision'] == 'abc' and manifest['cost_micro_usd'] == 2000
+    assert manifest['agent_revision'] == 'abc' and manifest['tokens_used'] == 1200
     acct = store.account('default')
-    assert (acct['reserved_micro'], acct['spent_micro']) == (0, 2000)
+    assert (acct['reserved_tokens'], acct['spent_tokens']) == (0, 1200)
 
 def test_prompts_not_logged(store):
     run = prepared(store)
@@ -86,9 +81,9 @@ def test_adapter_error_records_class_only_and_releases(store):
     run = prepared(store)
     execute(store, run, FakeAdapter(error=TimeoutError('secret prompt echo')))
     detail = store.get_run(run.run_id)
-    assert detail['terminal_reason'] == 'model_error:TimeoutError' and detail['cost_micro'] == 0
+    assert detail['terminal_reason'] == 'model_error:TimeoutError' and detail['tokens_used'] == 0
     assert 'secret prompt echo' not in json.dumps(detail['events'])
-    assert store.account('default')['reserved_micro'] == 0
+    assert store.account('default')['reserved_tokens'] == 0
 
 def test_duration_exhausted_skips_model_call(store):
     run = prepared(store)
@@ -101,8 +96,8 @@ def test_sweep_fails_orphans_closed(store):
     run = prepared(store)
     assert Runner(store).sweep_orphans() == 1
     detail = store.get_run(run.run_id)
-    assert detail['terminal_reason'] == 'worker_lost' and detail['cost_micro'] == run.reserved_micro
-    assert store.account('default')['spent_micro'] == run.reserved_micro
+    assert detail['terminal_reason'] == 'worker_lost' and detail['tokens_used'] == run.reserved_tokens
+    assert store.account('default')['spent_tokens'] == run.reserved_tokens
 
 def test_bedrock_request_shape_and_usage_parsing():
     client = boto3.client('bedrock-runtime', region_name='eu-north-1', aws_access_key_id='x', aws_secret_access_key='y')

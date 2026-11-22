@@ -1,5 +1,3 @@
-from datetime import date
-from decimal import Decimal
 from ipaddress import ip_address
 from typing import Annotated, Literal
 from urllib.parse import urlparse
@@ -74,10 +72,8 @@ class ModelEndpointProfile(BaseModel):
     capabilities: ModelCapabilities = Field(default_factory=ModelCapabilities)
     timeout_seconds: int = Field(default=300, ge=1, le=3600)
     max_retries: int = Field(default=2, ge=0, le=10)
-    # Hard cap on output tokens per model call; bounds the worst-case cost of a turn.
+    # Hard cap on output tokens per model call; bounds the worst-case token use of a turn.
     max_output_tokens: int = Field(default=4096, ge=1, le=1_000_000)
-    # None means unpriced: budget admission must fail closed (ADR-0004).
-    price_schedule_id: str | None = Field(default=None, pattern=PROFILE_ID_PATTERN)
 
     @model_validator(mode="after")
     def _dialect_matches_endpoint(self):
@@ -85,19 +81,9 @@ class ModelEndpointProfile(BaseModel):
             raise ValueError(f"api_dialect {self.api_dialect} does not match endpoint kind {self.endpoint.kind}")
         return self
 
-class PriceSchedule(BaseModel):
-    """Token prices in USD per million tokens. Committed to Git: prices are not secrets."""
-    model_config = ConfigDict(extra="forbid")
-    schema_version: Literal["maef.dev/v1alpha1"]
-    id: str = Field(pattern=PROFILE_ID_PATTERN)
-    currency: Literal["USD"] = "USD"
-    effective_from: date
-    input_usd_per_million_tokens: Decimal = Field(ge=0, max_digits=12, decimal_places=6)
-    output_usd_per_million_tokens: Decimal = Field(ge=0, max_digits=12, decimal_places=6)
-
 class Budget(BaseModel):
-    # Decimal, never float: costs are exact (docs/BUDGETS_OBSERVABILITY.md). Serialised as a string.
-    max_cost_usd: Decimal = Field(default=Decimal("0.5"), ge=0, le=100000, max_digits=12, decimal_places=6)
+    # Total model tokens (input + output) a run may use. Integers: exact and provider-neutral.
+    max_tokens: int = Field(default=100_000, ge=1, le=100_000_000)
     max_duration_seconds: int = Field(default=300, ge=1, le=86400)
     max_turns: int = Field(default=20, ge=1, le=100000)
 
@@ -145,7 +131,6 @@ class ResolvedDefinition(BaseModel):
     definition_digest: str
     model_profile_id: str
     profile_digest: str
-    price_schedule: PriceSchedule | None
 
 class ExecutionEvent(BaseModel):
     run_id: str
@@ -163,8 +148,8 @@ class RunRecord(BaseModel):
     definition_digest: str
     profile_digest: str
     effective_budget: Budget
-    reserved_micro_usd: int
-    cost_micro_usd: int | None
+    reserved_tokens: int
+    tokens_used: int | None
     terminal_reason: str | None
     created_at: str
     finished_at: str | None
@@ -173,7 +158,7 @@ class RunDetail(RunRecord):
     events: list[ExecutionEvent]
 
 class ResultManifest(BaseModel):
-    """Written as the final run event. Cost is integer micro-USD (1 USD = 1_000_000)."""
+    """Written as the final run event. Usage is in tokens as reported by the provider."""
     run_id: str
     status: Literal["succeeded", "failed", "cancelled"]
     agent_id: str
@@ -183,5 +168,5 @@ class ResultManifest(BaseModel):
     model_profile_revision: str
     input_tokens: int = 0
     output_tokens: int = 0
-    cost_micro_usd: int
+    tokens_used: int
     terminal_reason: str

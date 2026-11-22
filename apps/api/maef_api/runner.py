@@ -21,5 +21,5 @@ class Runner:
         whole reservation is charged (fail closed)."""
         orphans = [r for r in self.store.list_runs() if r["status"] in ("admitted", "running")]
         for r in orphans:
-            settle(self.store, r["id"], cost_micro=r["reserved_micro"], status="failed", terminal_reason="worker_lost")
+            settle(self.store, r["id"], tokens_used=r["reserved_tokens"], status="failed", terminal_reason="worker_lost")
         return len(orphans)

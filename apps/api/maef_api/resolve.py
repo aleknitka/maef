@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 from .models import ResolvedDefinition
-from .registry import AgentRegistry, ModelProfileRegistry, PriceScheduleRegistry
+from .registry import AgentRegistry, ModelProfileRegistry
 
 
 class ResolveError(Exception):
@@ -32,7 +32,6 @@ def resolve_definition(
     agent_id: str,
     agents: AgentRegistry,
     profiles: ModelProfileRegistry,
-    schedules: PriceScheduleRegistry,
 ) -> ResolvedDefinition:
     agent = agents.get_agent(agent_id)
     if agent is None:
@@ -54,8 +53,6 @@ def resolve_definition(
         raise ResolveError(f"Model profile not found: {profile_id}")
     profile_bytes = (profiles.root / f"{profile_id}.yaml").read_bytes()
 
-    schedule = schedules.get_schedule(profile.price_schedule_id) if profile.price_schedule_id else None
-
     git_rev = _git(base, "rev-parse", "HEAD")
     status = _git(base, "status", "--porcelain", "--", ".")
     return ResolvedDefinition(
@@ -66,5 +63,4 @@ def resolve_definition(
         definition_digest=_digest(parts),
         model_profile_id=profile_id,
         profile_digest=hashlib.sha256(profile_bytes).hexdigest(),
-        price_schedule=schedule,
     )

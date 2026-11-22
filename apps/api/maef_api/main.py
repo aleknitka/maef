@@ -1,6 +1,5 @@
 import json
 import os
-from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .adapters.anthropic import AnthropicAdapter
 from .adapters.bedrock import BedrockAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
-from .admission import AdmissionError, admit, to_micro
+from .admission import AdmissionError, admit
 from .harness import PreparedRun
 from .models import (
     AgentDefinition,
@@ -19,7 +18,7 @@ from .models import (
     RunRecord,
     RunRequest,
 )
-from .registry import ROOT, AgentRegistry, ModelProfileRegistry, PriceScheduleRegistry
+from .registry import ROOT, AgentRegistry, ModelProfileRegistry
 from .resolve import ResolveError, resolve_definition
 from .runner import Runner
 from .store import Store
@@ -31,8 +30,7 @@ model_profiles = ModelProfileRegistry()
 # Ledger lives under the gitignored runs/ directory unless overridden.
 store = Store(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
 
-price_schedules = PriceScheduleRegistry()
-store.ensure_account("default", to_micro(Decimal(os.environ.get("MAEF_ACCOUNT_LIMIT_USD", "5.00"))))
+store.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
 runner = Runner(store)
 runner.sweep_orphans()
 
@@ -96,7 +94,7 @@ def effective_budget(ceiling: Budget, requested: Budget | None) -> Budget:
     if requested is None:
         return ceiling
     return Budget(
-        max_cost_usd=min(ceiling.max_cost_usd, requested.max_cost_usd),
+        max_tokens=min(ceiling.max_tokens, requested.max_tokens),
         max_duration_seconds=min(ceiling.max_duration_seconds, requested.max_duration_seconds),
         max_turns=min(ceiling.max_turns, requested.max_turns),
     )
@@ -119,7 +117,7 @@ def preview_run(request: RunRequest):
 
 def _record(row: dict) -> dict:
     return {**row, "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"]),
-            "reserved_micro_usd": row["reserved_micro"], "cost_micro_usd": row["cost_micro"]}
+            "reserved_tokens": row["reserved_tokens"], "tokens_used": row["tokens_used"]}
 
 @app.get("/api/v1/runs", response_model=list[RunRecord])
 def list_runs():
@@ -140,7 +138,7 @@ def start_run(request: RunRequest):
     if agent is None:
         raise HTTPException(status_code=404, detail="Agent not found")
     try:
-        definition = resolve_definition(agent.id, registry, model_profiles, price_schedules)
+        definition = resolve_definition(agent.id, registry, model_profiles)
     except ResolveError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     profile = model_profiles.get_profile(definition.model_profile_id)
@@ -155,6 +153,6 @@ def start_run(request: RunRequest):
         )
     except AdmissionError as exc:
         raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)})
-    reserved = store.get_run(run_id)["reserved_micro"]
+    reserved = store.get_run(run_id)["reserved_tokens"]
     runner.submit(PreparedRun(run_id, definition, profile, budget, reserved, system_prompt, request.instruction), adapter)
     return {"run_id": run_id, "status": "admitted"}
