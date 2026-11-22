@@ -7,6 +7,7 @@ the `run.output` event.
 import json
 import time
 from dataclasses import dataclass
+from typing import Protocol
 
 from .adapters.base import Message, ModelAdapter, ToolCall, ToolSpec
 from .definitions import PinnedDefinition
@@ -24,6 +25,32 @@ class PreparedRun:
     reserved_tokens: int
     instruction: str
     tools: ToolSet | None = None  # None: no tools
+
+
+class SinkFailure(Exception):
+    """The sink can no longer accept this run's events (lease lost, sequence broken, control
+    plane unreachable). The run is abandoned: execute() re-raises it without trying to finish."""
+
+
+class RunSink(Protocol):
+    """Where a run's events and its terminal result go. The seam between harness and ledger."""
+
+    def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None: ...
+
+    def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None: ...
+
+
+class LedgerSink:
+    """In-process sink: writes straight to the ledger (tests, single-process use)."""
+
+    def __init__(self, ledger: Ledger, run_id: str):
+        self._ledger, self._run_id = ledger, run_id
+
+    def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
+        self._ledger.append(self._run_id, type, payload, status=status)
+
+    def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
+        self._ledger.settle(self._run_id, tokens_used=tokens_used, status=status, terminal_reason=terminal_reason)
 
 
 def _size(value: object) -> int:
@@ -44,8 +71,9 @@ def _invoke(tools: ToolSet, call: ToolCall) -> ToolResult:
     return tools.invoke(call.name, call.arguments)
 
 
-def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.monotonic) -> None:
-    """Run one prepared run to a terminal state. Never raises: failures are recorded."""
+def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.monotonic) -> None:
+    """Run one prepared run to a terminal state. Model and tool failures are recorded, not raised;
+    only SinkFailure escapes (the run was abandoned)."""
     pinned, profile = run.pinned, run.pinned.profile
     tools = run.tools or BuiltinTools([], {})
     specs = tools.specs()
@@ -54,7 +82,7 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
     status, reason = "failed", "internal_error"
     messages = [Message("user", run.instruction)]
     try:
-        ledger.append(run.run_id, "run.started", status="running")
+        sink.append("run.started", status="running")
         while True:
             prompt_bytes = _prompt_bytes(pinned.instructions, messages, specs)
             stop = guard.check(prompt_bytes)
@@ -62,7 +90,7 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
                 reason = stop
                 break
             turn = guard.turns + 1
-            ledger.append(run.run_id, "model.request", {
+            sink.append("model.request", {
                 "turn": turn, "profile": profile.id, "prompt_bytes": prompt_bytes,
                 "max_output_tokens": profile.max_output_tokens, "tools": len(specs)})
             response = adapter.converse(
@@ -73,9 +101,9 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
             guard.record(response.input_tokens, response.output_tokens)
             in_tokens += response.input_tokens
             out_tokens += response.output_tokens
-            ledger.append(run.run_id, "model.response", {
+            sink.append("model.response", {
                 "turn": turn, "stop_reason": response.stop_reason, "tool_calls": len(response.tool_calls)})
-            ledger.append(run.run_id, "usage.recorded", {
+            sink.append("usage.recorded", {
                 "turn": turn, "input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
                 "total_tokens": response.input_tokens + response.output_tokens})
             messages.append(Message("assistant", response.text, response.tool_calls))
@@ -85,16 +113,16 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
                     reason = "malformed_response"
                     break
                 for call in response.tool_calls:
-                    ledger.append(run.run_id, "tool.call", {
+                    sink.append("tool.call", {
                         "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments)})
                     result = _invoke(tools, call)
-                    ledger.append(run.run_id, "tool.result", {
+                    sink.append("tool.result", {
                         "turn": turn, "name": call.name, "result_bytes": len(result.content.encode()),
                         "is_error": result.is_error})
                     messages.append(Message("tool", result.content, tool_call_id=call.id, is_error=result.is_error))
                 continue
 
-            ledger.append(run.run_id, "run.output", {"text": response.text})
+            sink.append("run.output", {"text": response.text})
             if response.stop_reason == "end_turn":
                 status, reason = "succeeded", "completed"
             elif response.stop_reason == "max_tokens":
@@ -102,6 +130,8 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
             else:
                 reason = f"unsupported_stop_reason:{response.stop_reason}"
             break
+    except SinkFailure:
+        raise
     except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
         status, reason = "failed", f"model_error:{type(exc).__name__}"
 
@@ -114,5 +144,5 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
         definition_digest=pinned.definition_digest, model_profile_revision=pinned.profile_digest,
         input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=guard.tokens_used, terminal_reason=reason,
     )
-    ledger.append(run.run_id, "run.manifest", manifest.model_dump(mode="json"))
-    ledger.settle(run.run_id, tokens_used=guard.tokens_used, status=status, terminal_reason=reason)
+    sink.append("run.manifest", manifest.model_dump(mode="json"))
+    sink.complete(tokens_used=guard.tokens_used, status=status, terminal_reason=reason)

@@ -23,4 +23,4 @@ Approved 2026-11-22. Each step is self-contained: tests pass and it is committed
 Ordering: 0→4 sequential; 5–9 depend on 4; 11 must land before any network exposure.
 
 ## Status
-- [x] 0 · [x] 1 · [x] 2 · [ ] 3 · [ ] 4 · [ ] 5 · [ ] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10 · [ ] 11 · [ ] 12 · [ ] 13 · [ ] 14
+- [x] 0 · [x] 1 · [x] 2 · [x] 3 · [ ] 4 · [ ] 5 · [ ] 6 · [ ] 7 · [ ] 8 · [ ] 9 · [ ] 10 · [ ] 11 · [ ] 12 · [ ] 13 · [ ] 14

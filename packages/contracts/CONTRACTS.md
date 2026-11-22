@@ -9,10 +9,12 @@ One file per profile in `model-profiles/<id>.yaml` (gitignored: profiles are loc
 ## TaskSubmission (preview implemented)
 `agent_id`, `instruction`, optional `budget`. Future: `agent_revision`, `context_refs`, `artifact_targets`, `priority`, `idempotency_key`, `approval_policy`, `worker_class`.
 
-## WorkerRegistration (planned)
+## WorkerRegistration (planned; step 11)
+Not implemented: workers are identified only by the `worker_id` they send to `claim` and share one `MAEF_WORKER_TOKEN`.
 `worker_id`, `worker_version`, `architecture`, `capabilities[]`, `sandbox_profiles[]`, `capacity`, `heartbeat_interval_seconds`.
 
-## ExecutionLease (planned)
+## ExecutionLease (implemented subset)
+Implemented: `run_id`, `fencing_token`, `expires_at` (unix seconds) and `task` {`instruction`, `budget`, `reserved_tokens`, `pinned` (the PinnedDefinition incl. `definition_bytes` and base64 `files`)}. Never carries credentials. Planned fields:
 `lease_id`, `fencing_token`, `run_id`, `expires_at`, `agent_git_revision`, `definition_digest`, `approved_policy_digest`, `runtime_profile`, `budget_reservation_id`, `scoped_credential_refs`.
 
 ## ExecutionEvent (planned)
@@ -34,8 +36,12 @@ An agent and its model profile pinned for a run (`Definitions.resolve`): `agent`
 ## ExecutionEvent, ResultManifest, run ledger (implemented)
 SQLite ledger (`runs/maef.db`, override with `MAEF_DB`). `run_events` is append-only (triggers reject UPDATE/DELETE) with gapless `seq` per run. Usage is integer tokens as reported by the provider. Admission reserves `min(max_tokens, worst-case tokens)` in one `BEGIN IMMEDIATE` transaction and fails closed on dirty or unknown git state (dirty allowed only with an explicit flag, recorded in the `task.created` event). `settle` charges the actual tokens and returns the remainder. Read-only `GET /api/v1/runs` and `GET /api/v1/runs/{id}`.
 
-## Execution (implemented, interim)
-`POST /api/v1/runs` returns 202 `{run_id}` when `MAEF_EXECUTION_ENABLED=1` (otherwise 501), runs in a local thread pool, never in the request. A turn loop (see below) over the profile's `max_output_tokens`, timeout and retries. Events: `run.started`, per turn `model.request` (`turn`, `prompt_bytes`, `tools`), `model.response` (`turn`, `stop_reason`, `tool_calls`), `usage.recorded` (`turn`, tokens), `tool.call` (`turn`, `name`, `argument_bytes`), `tool.result` (`turn`, `name`, `result_bytes`, `is_error`), then `run.output`, `run.manifest`, then the terminal `task.*` event. Startup sweep fails orphaned runs as `worker_lost` and charges their full reservation. In-process execution is an interim exception to ADR-0002 that ends when tools arrive.
+## Execution (implemented)
+`POST /api/v1/runs` returns 202 `{run_id}` when `MAEF_EXECUTION_ENABLED=1` (otherwise 501) after admitting and queuing the run; a separate worker process (`python -m maef_api.worker`) executes it. A turn loop (see below) over the profile's `max_output_tokens`, timeout and retries. Events: `run.started`, per turn `model.request` (`turn`, `prompt_bytes`, `tools`), `model.response` (`turn`, `stop_reason`, `tool_calls`), `usage.recorded` (`turn`, tokens), `tool.call` (`turn`, `name`, `argument_bytes`), `tool.result` (`turn`, `name`, `result_bytes`, `is_error`), then `run.output`, `run.manifest`, then the terminal `task.*` event. 
+
+**Run lifecycle:** `admitted` (queued, claimable) -> `leased` -> `running` -> `succeeded` | `failed` | `cancelled`. Queued runs survive an API restart.
+
+**Worker protocol (`/api/v1/worker/`, `Authorization: Bearer $MAEF_WORKER_TOKEN`; 503 if the token is unset, 401 if wrong; per-worker machine credentials are step 11):** `POST claim` {worker_id} -> 200 Lease | 204; `POST runs/{id}/heartbeat` {fencing_token}; `POST runs/{id}/events` {fencing_token, wseq, type, payload, status} -> {appended}; `POST runs/{id}/finish` {fencing_token, tokens_used, status, terminal_reason}. Conflicts are 409 `{detail: {code: "fencing" | "sequence_gap"}}`. `wseq` is the worker's own gapless counter from 1: a repeat is ignored (`appended: false`), a gap is refused. Workers may only set status `running` and may not write `task.*` or `lease.*` events. The ledger adds `lease.granted` and `lease.expired`. A lease that is not renewed within `MAEF_LEASE_SECONDS` (default 60) is swept (startup and every 10 s): the run fails as `worker_lost` and its whole reservation is charged. Before running, the worker recomputes the definition digest from the bytes in the lease; a mismatch finishes the run `failed`/`definition_mismatch` with 0 tokens and no model call. In-process execution (the ADR-0002 interim exception) is gone.
 
 ## Endpoint kinds (implemented)
 `endpoint.kind`: `amazon-bedrock`, `openai-compatible` (OpenAI or any local chat/completions server; `base_url`, `token_param`) and `anthropic` (Messages API). `api_dialect` must match the kind. `base_url` must be https, or http on loopback only, with no embedded credentials. `credential_ref` is `aws:default-chain`, `none:local` or `env:NAME`; the key is read from the environment at call time and never stored or logged. HTTP errors record status and class only, never bodies. A missing `usage` block fails the call, since the budget cannot be metered. Other endpoint kinds plug in by adding a kind and an adapter.

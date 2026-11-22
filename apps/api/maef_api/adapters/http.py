@@ -13,7 +13,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # a redirect would reach a host the egress policy never checked
 
 
-_opener = urllib.request.build_opener(_NoRedirect)
+opener = urllib.request.build_opener(_NoRedirect)
 
 
 class ModelHTTPError(Exception):
@@ -32,7 +32,7 @@ def post_json(url: str, headers: dict, body: dict, *, timeout: float, max_retrie
             raise ModelHTTPError(None, str(exc)) from None
         req = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json", **headers})
         try:
-            with _opener.open(req, timeout=timeout) as resp:  # scheme validated by the profile
+            with opener.open(req, timeout=timeout) as resp:  # scheme validated by the profile
                 return json.loads(resp.read())
         except urllib.error.HTTPError as exc:
             retryable = exc.code in (408, 429) or exc.code >= 500

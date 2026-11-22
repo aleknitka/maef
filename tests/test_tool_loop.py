@@ -11,7 +11,7 @@ from maef_api.adapters.base import Message, ModelResponse, ToolCall, ToolSpec
 from maef_api.adapters.bedrock import BedrockAdapter
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import Credentials
-from maef_api.harness import PreparedRun, execute
+from maef_api.harness import LedgerSink, PreparedRun, execute
 from maef_api.ledger import Ledger
 from maef_api.models import Budget, ModelEndpointProfile
 from maef_api.tools import BuiltinTools
@@ -236,11 +236,11 @@ def store(tmp_path):
 def run_loop(store, responses, *, tools=None, max_turns=5):
     d = definition()
     budget = Budget(max_tokens=200_000, max_turns=max_turns)
-    run_id = store.admit(d, budget, prompt_bytes=1000)
+    run_id = store.admit(d, budget, prompt_bytes=1000, instruction='Question?')
     tools = tools or BuiltinTools(['read_agent_file', 'current_time'], FILES)
     run = PreparedRun(run_id, d, budget, store.get(run_id).reserved_tokens, 'Question?', tools)
     adapter = Scripted(responses)
-    execute(store, run, adapter)
+    execute(LedgerSink(store, run_id), run, adapter)
     return store.get(run_id), adapter
 
 

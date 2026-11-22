@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 from maef_api.adapters.base import ModelResponse
+from maef_api.channel import LocalChannel
 from maef_api.definitions import Definitions
 from maef_api.ledger import Ledger
 from maef_api.models import Budget, RunRequest
@@ -15,6 +16,7 @@ from maef_api.runs import (
     Runs,
     UnsupportedDialect,
 )
+from maef_api.worker import Worker
 from test_api import PROFILE
 
 
@@ -25,10 +27,6 @@ class FakeAdapter:
     def converse(self, **kwargs):
         self.calls.append(kwargs)
         return ModelResponse(text='answer', tool_calls=(), stop_reason='end_turn', input_tokens=7, output_tokens=5)
-
-
-def inline(fn):
-    fn()
 
 
 @pytest.fixture
@@ -42,11 +40,13 @@ def env(tmp_path):
     return SimpleNamespace(agents=agents, profiles=profiles, ledger=ledger, adapter=FakeAdapter())
 
 
-def make_runs(env, *, executor=inline, factory=None, enabled=True, dirty_ok=True):
-    factory = factory or (lambda profile: env.adapter)
+def make_runs(env, *, enabled=True, dirty_ok=True, **kw):
     definitions = Definitions(AgentRegistry(env.agents), ModelProfileRegistry(env.profiles))
-    return Runs(definitions, env.ledger, factory, executor,
-                execution_enabled=lambda: enabled, allow_dirty=lambda: dirty_ok)
+    return Runs(definitions, env.ledger, execution_enabled=lambda: enabled, allow_dirty=lambda: dirty_ok, **kw)
+
+
+def run_worker(env):
+    return Worker(LocalChannel(env.ledger), lambda profile: env.adapter, worker_id='w1').run_once()
 
 
 def request(budget=None, agent_id='research-analyst'):
@@ -83,34 +83,39 @@ def test_submit_dirty_refused_unless_allowed(env):
     assert e.value.code == 'dirty'
 
 
-def test_adapter_factory_unsupported_dialect_propagates(env):
-    def factory(profile):
-        raise UnsupportedDialect('no adapter')
+def test_unsupported_dialect_refused_before_admission(env):
     with pytest.raises(UnsupportedDialect):
-        make_runs(env, factory=factory).submit(request())
+        make_runs(env, supported_dialects=('openai-compatible',)).submit(request())
     assert env.ledger.list() == []
 
 
-def test_successful_run_completes_inline(env):
+def test_submit_queues_and_worker_completes(env):
     runs = make_runs(env)
     record = runs.submit(request())
+    assert record.status == 'admitted' and env.adapter.calls == []  # submit never executes
+    assert run_worker(env) is True and run_worker(env) is False
     detail = runs.get(record.id)
     assert detail.status == 'succeeded' and detail.terminal_reason == 'completed'
-    assert record.status == 'succeeded'  # submit returns post-executor state
     assert detail.tokens_used == 7 + 5
 
 
 def test_system_prompt_is_the_pinned_instructions(env):
     make_runs(env).submit(request())
+    run_worker(env)
     system_md = (env.agents / 'research-analyst' / 'SYSTEM.md').read_text()
     assert env.adapter.calls[0]['system'] == system_md
 
 
-def test_recover_fails_orphans_with_worker_lost(env):
-    orphaned = make_runs(env, executor=lambda fn: None)  # never runs the function
-    run_id = orphaned.submit(request()).id
-    runs = make_runs(env)
+def test_recover_fails_expired_leases_and_keeps_queued_runs(env):
+    now = [1000.0]
+    runs = make_runs(env, clock=lambda: now[0])
+    leased_id = runs.submit(request()).id
+    queued_id = runs.submit(request()).id
+    assert env.ledger.claim('w1', 60, now[0]).run_id == leased_id
+    assert runs.recover() == 0
+    now[0] = 2000.0
     assert runs.recover() == 1
-    detail = runs.get(run_id)
+    detail = runs.get(leased_id)
     assert detail.status == 'failed' and detail.terminal_reason == 'worker_lost'
+    assert runs.get(queued_id).status == 'admitted'
     assert runs.recover() == 0

@@ -1,5 +1,4 @@
 import json
-import time
 
 import boto3
 import pytest
@@ -8,12 +7,13 @@ from fastapi.testclient import TestClient
 from maef_api import main
 from maef_api.adapters.base import Message, ModelResponse
 from maef_api.adapters.bedrock import BedrockAdapter
-from maef_api.definitions import PinnedDefinition
-from maef_api.harness import PreparedRun, execute
+from maef_api.channel import LocalChannel
+from maef_api.definitions import PinnedDefinition, compute_definition_digest
+from maef_api.harness import LedgerSink, PreparedRun, execute
 from maef_api.ledger import Ledger
 from maef_api.models import AgentDefinition, Budget, ModelEndpointProfile
-from maef_api.runner import Runner
 from maef_api.runs import Runs
+from maef_api.worker import Worker
 from test_api import PROFILE
 
 
@@ -43,7 +43,7 @@ def store(tmp_path):
 def prepared(store, **kw):
     d = definition()
     budget = Budget(max_tokens=500_000, max_turns=1, **kw)
-    run_id = store.admit(d, budget, prompt_bytes=28)
+    run_id = store.admit(d, budget, prompt_bytes=28, instruction='Question?')
     return PreparedRun(run_id, d, budget, store.get(run_id).reserved_tokens, 'Question?')
 
 def types(store, run_id):
@@ -52,7 +52,7 @@ def types(store, run_id):
 def test_successful_run(store):
     run = prepared(store)
     adapter = FakeAdapter(ModelResponse('The answer.', (), 'end_turn', 1000, 200))
-    execute(store, run, adapter)
+    execute(LedgerSink(store, run.run_id), run, adapter)
     detail = store.get(run.run_id)
     assert detail.status == 'succeeded' and detail.tokens_used == 1200
     assert types(store, run.run_id) == ['task.created', 'task.admitted', 'run.started', 'model.request',
@@ -65,20 +65,20 @@ def test_successful_run(store):
 
 def test_prompts_not_logged(store):
     run = prepared(store)
-    execute(store, run, FakeAdapter(ModelResponse('ok', (), 'end_turn', 10, 1)))
+    execute(LedgerSink(store, run.run_id), run, FakeAdapter(ModelResponse('ok', (), 'end_turn', 10, 1)))
     dump = json.dumps([e.model_dump() for e in store.get(run.run_id).events if e.type != 'run.output'])
     assert 'Question?' not in dump and 'You are an analyst' not in dump
 
 def test_truncated_output_fails_but_is_kept(store):
     run = prepared(store)
-    execute(store, run, FakeAdapter(ModelResponse('partial', (), 'max_tokens', 10, 4096)))
+    execute(LedgerSink(store, run.run_id), run, FakeAdapter(ModelResponse('partial', (), 'max_tokens', 10, 4096)))
     detail = store.get(run.run_id)
     assert detail.status == 'failed' and detail.terminal_reason == 'output_truncated'
     assert 'run.output' in types(store, run.run_id)
 
 def test_adapter_error_records_class_only_and_releases(store):
     run = prepared(store)
-    execute(store, run, FakeAdapter(error=TimeoutError('secret prompt echo')))
+    execute(LedgerSink(store, run.run_id), run, FakeAdapter(error=TimeoutError('secret prompt echo')))
     detail = store.get(run.run_id)
     assert detail.terminal_reason == 'model_error:TimeoutError' and detail.tokens_used == 0
     assert 'secret prompt echo' not in json.dumps([e.model_dump() for e in detail.events])
@@ -88,12 +88,14 @@ def test_duration_exhausted_skips_model_call(store):
     run = prepared(store)
     ticks = iter([0, 10_000, 10_000])
     adapter = FakeAdapter(ModelResponse('x', (), 'end_turn', 1, 1))
-    execute(store, run, adapter, clock=lambda: next(ticks))
+    execute(LedgerSink(store, run.run_id), run, adapter, clock=lambda: next(ticks))
     assert adapter.calls == [] and store.get(run.run_id).terminal_reason == 'duration_exhausted'
 
 def test_recover_fails_orphans_closed(store):
     run = prepared(store)
-    assert store.fail_orphans() == 1
+    assert store.claim('w1', 60, now=1000) is not None
+    assert store.expire_leases(now=1030) == 0  # lease still valid
+    assert store.expire_leases(now=1061) == 1
     detail = store.get(run.run_id)
     assert detail.terminal_reason == 'worker_lost' and detail.tokens_used == run.reserved_tokens
     assert store.account('default')['spent_tokens'] == run.reserved_tokens
@@ -124,32 +126,31 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setenv('MAEF_EXECUTION_ENABLED', '1')
     monkeypatch.setenv('MAEF_ALLOW_DIRTY', '1')
     defs = main.runs.definitions
-    monkeypatch.setattr(defs, 'resolve', lambda agent_id: definition(dirty=True))
+    pinned = definition(dirty=True)
+    pinned = pinned.model_copy(update={'definition_digest': compute_definition_digest(pinned.definition_bytes, pinned.files)})
+    monkeypatch.setattr(defs, 'resolve', lambda agent_id: pinned)
     adapter = FakeAdapter(ModelResponse('Done.', (), 'end_turn', 100, 10))
-    monkeypatch.setattr(main, 'runs', Runs(defs, s, lambda p: adapter, Runner().submit,
-                                           execution_enabled=main.execution_enabled, allow_dirty=main.allow_dirty))
-    return TestClient(main.app), s
+    monkeypatch.setattr(main, 'runs', Runs(defs, s, execution_enabled=main.execution_enabled, allow_dirty=main.allow_dirty))
+    return TestClient(main.app), s, Worker(LocalChannel(s), lambda p: adapter, worker_id='w1')
 
-def test_post_runs_executes_in_background(api):
-    client, _ = api
+def test_post_runs_queues_and_worker_executes(api):
+    client, _, worker = api
     res = client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'Hello'})
     assert res.status_code == 202
     run_id = res.json()['run_id']
-    for _ in range(100):
-        if client.get(f'/api/v1/runs/{run_id}').json()['status'] == 'succeeded':
-            break
-        time.sleep(0.05)
+    assert client.get(f'/api/v1/runs/{run_id}').json()['status'] == 'admitted'
+    assert worker.run_once() is True
     assert client.get(f'/api/v1/runs/{run_id}').json()['status'] == 'succeeded'
 
 def test_post_runs_disabled_flag_and_health(api, monkeypatch):
-    client, _ = api
+    client, _, _ = api
     assert client.get('/health').json()['execution_enabled'] is True
     monkeypatch.delenv('MAEF_EXECUTION_ENABLED')
     assert client.get('/health').json()['execution_enabled'] is False
     assert client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'x'}).status_code == 501
 
 def test_post_runs_refuses_dirty_without_flag(api, monkeypatch):
-    client, s = api
+    client, s, _ = api
     monkeypatch.delenv('MAEF_ALLOW_DIRTY')
     res = client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'x'})
     assert res.status_code == 409 and res.json()['detail']['code'] == 'dirty' and s.list() == []

@@ -29,7 +29,7 @@ def store(tmp_path):
 def run(store, budget=None, **kw):
     kw.setdefault('definition', definition())
     return store.admit(kw.pop('definition'), budget or Budget(max_tokens=400_000, max_turns=1),
-                       prompt_bytes=105, **kw)
+                       prompt_bytes=105, instruction='Question?', **kw)
 
 def test_admit_reserves_and_logs_events(store):
     run_id = run(store)
@@ -74,7 +74,7 @@ def test_concurrent_admission_exactly_one_fits(tmp_path):
     def worker():
         barrier.wait()
         try:
-            store.admit(definition(max_output_tokens=100_000), budget, prompt_bytes=11)
+            store.admit(definition(max_output_tokens=100_000), budget, prompt_bytes=11, instruction='Q')
             results.append('ok')
         except AdmissionError as e:
             results.append(e.code)
@@ -97,7 +97,7 @@ def test_failed_admission_leaves_no_partial_state(store):
     assert store.list() == []
 
 def test_runs_api(store, monkeypatch):
-    monkeypatch.setattr(main, 'runs', Runs(main.runs.definitions, store, None, None,
+    monkeypatch.setattr(main, 'runs', Runs(main.runs.definitions, store,
                                            execution_enabled=lambda: False, allow_dirty=lambda: False))
     run_id = run(store)
     client = TestClient(main.app)

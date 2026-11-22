@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .definitions import PinnedDefinition
+from .leases import FencingError, Lease, SequenceGap, TaskPayload
 from .models import Budget, RunDetail, RunRecord
 
 MIGRATIONS = [
@@ -73,7 +74,24 @@ MIGRATIONS = [
     ALTER TABLE reservations RENAME COLUMN settled_micro TO settled_tokens;
     ALTER TABLE reservations RENAME COLUMN released_micro TO released_tokens;
     """,
+    # Queue + leases: the task is stored at admission so a worker can run it without the API.
+    """
+    ALTER TABLE runs ADD COLUMN task TEXT;
+    CREATE TABLE leases (
+        run_id TEXT PRIMARY KEY REFERENCES runs(id),
+        worker_id TEXT NOT NULL,
+        fencing_token INTEGER NOT NULL,
+        expires_at REAL NOT NULL,
+        last_wseq INTEGER NOT NULL DEFAULT 0
+    );
+    """,
 ]
+
+TERMINAL = ("succeeded", "failed", "cancelled")
+# Statuses a worker may move a run to through report(); terminal states only via finish().
+WORKER_STATUSES = ("running",)
+# Event types only the ledger itself may write.
+RESERVED_PREFIXES = ("task.", "lease.")
 
 
 
@@ -95,7 +113,9 @@ def worst_case_tokens(budget: Budget, max_output_tokens: int, prompt_bytes: int)
 
 
 def _record(row: sqlite3.Row) -> dict:
-    return {**dict(row), "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"])}
+    record = {**dict(row), "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"])}
+    record.pop("task", None)  # the stored task carries the pinned definition; never listed
+    return record
 
 
 def _append(conn: sqlite3.Connection, run_id: str, type_: str, payload: dict | None = None) -> None:
@@ -188,6 +208,7 @@ class Ledger:
         budget: Budget,
         *,
         prompt_bytes: int,
+        instruction: str,
         account_id: str = "default",
         allow_dirty: bool = False,
     ) -> str:
@@ -198,6 +219,7 @@ class Ledger:
         bound = worst_case_tokens(budget, pinned.profile.max_output_tokens, prompt_bytes)
         reserve = min(budget.max_tokens, bound)
         run_id = uuid.uuid4().hex
+        task = TaskPayload(instruction=instruction, budget=budget, reserved_tokens=reserve, pinned=pinned).model_dump_json()
 
         with self._transaction() as conn:
             account = conn.execute("SELECT * FROM budget_accounts WHERE id=?", (account_id,)).fetchone()
@@ -209,9 +231,9 @@ class Ledger:
             conn.execute("UPDATE budget_accounts SET reserved_tokens = reserved_tokens + ? WHERE id=?", (reserve, account_id))
             conn.execute(
                 "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, definition_digest, profile_digest, "
-                "effective_budget, reserved_tokens, created_at) VALUES (?, 'admitted', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "effective_budget, reserved_tokens, created_at, task) VALUES (?, 'admitted', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, account_id, pinned.agent.id, pinned.git_rev, int(pinned.dirty),
-                 pinned.definition_digest, pinned.profile_digest, budget.model_dump_json(), reserve, now()),
+                 pinned.definition_digest, pinned.profile_digest, budget.model_dump_json(), reserve, now(), task),
             )
             conn.execute("INSERT INTO reservations (run_id, account_id, reserved_tokens) VALUES (?, ?, ?)", (run_id, account_id, reserve))
             _append(conn, run_id, "task.created", {"agent_id": pinned.agent.id, "dirty_allowed": pinned.dirty and allow_dirty})
@@ -227,38 +249,122 @@ class Ledger:
 
     def settle(self, run_id: str, *, tokens_used: int, status: str, terminal_reason: str) -> None:
         """Charge the actual usage, return the unused reservation and close the run."""
-        if status not in ("succeeded", "failed", "cancelled"):
-            raise ValueError(f"Invalid terminal status: {status}")
         with self._transaction() as conn:
-            res = conn.execute("SELECT * FROM reservations WHERE run_id=?", (run_id,)).fetchone()
-            if res is None or res["settled_tokens"] is not None:
-                raise AdmissionError("not_open", f"Run {run_id} has no open reservation.")
-            released = max(res["reserved_tokens"] - tokens_used, 0)
-            conn.execute("UPDATE reservations SET settled_tokens=?, released_tokens=? WHERE run_id=?", (tokens_used, released, run_id))
-            conn.execute(
-                "UPDATE budget_accounts SET reserved_tokens = reserved_tokens - ?, spent_tokens = spent_tokens + ? WHERE id=?",
-                (res["reserved_tokens"], tokens_used, res["account_id"]),
-            )
-            conn.execute(
-                "UPDATE runs SET status=?, tokens_used=?, terminal_reason=?, finished_at=? WHERE id=?",
-                (status, tokens_used, terminal_reason, now(), run_id),
-            )
-            payload = {"tokens_used": tokens_used, "released_tokens": released, "terminal_reason": terminal_reason}
-            if tokens_used > res["reserved_tokens"]:
-                payload["overrun_tokens"] = tokens_used - res["reserved_tokens"]
-            _append(conn, run_id, f"task.{status}", payload)
+            _settle(conn, run_id, tokens_used, status, terminal_reason)
 
     def release(self, run_id: str, reason: str) -> None:
         """Cancel a run that never used anything."""
         self.settle(run_id, tokens_used=0, status="cancelled", terminal_reason=reason)
 
-    def fail_orphans(self) -> int:
-        """Runs left open by a previous process are failed. Their spend is unknown, so the
-        whole reservation is charged (fail closed)."""
-        orphans = [r for r in self.list() if r.status in ("admitted", "running")]
-        for r in orphans:
-            self.settle(r.id, tokens_used=r.reserved_tokens, status="failed", terminal_reason="worker_lost")
-        return len(orphans)
+    # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
+
+    def claim(self, worker_id: str, lease_seconds: float, now: float) -> Lease | None:
+        """Lease the oldest queued run to `worker_id`, or None when the queue is empty."""
+        with self._transaction() as conn:
+            row = conn.execute(
+                "SELECT id, task FROM runs WHERE status='admitted' AND task IS NOT NULL "
+                "ORDER BY created_at, rowid LIMIT 1").fetchone()
+            if row is None:
+                return None
+            previous = conn.execute("SELECT fencing_token FROM leases WHERE run_id=?", (row["id"],)).fetchone()
+            token = (previous["fencing_token"] if previous else 0) + 1
+            expires = now + lease_seconds
+            conn.execute(
+                "INSERT OR REPLACE INTO leases (run_id, worker_id, fencing_token, expires_at, last_wseq) VALUES (?, ?, ?, ?, 0)",
+                (row["id"], worker_id, token, expires))
+            conn.execute("UPDATE runs SET status='leased' WHERE id=?", (row["id"],))
+            _append(conn, row["id"], "lease.granted", {"worker_id": worker_id, "fencing_token": token})
+        return Lease(run_id=row["id"], fencing_token=token, expires_at=expires, task=TaskPayload.model_validate_json(row["task"]))
+
+    def heartbeat(self, run_id: str, token: int, lease_seconds: float, now: float) -> None:
+        """Extend the lease. An already-expired lease cannot be revived: the sweep settles it."""
+        with self._transaction() as conn:
+            lease = _check_lease(conn, run_id, token)
+            if lease["expires_at"] < now:
+                raise FencingError("lease expired")
+            conn.execute("UPDATE leases SET expires_at=? WHERE run_id=?", (now + lease_seconds, run_id))
+
+    def report(self, run_id: str, token: int, wseq: int, type: str, payload: dict | None = None,
+               status: str | None = None) -> bool:
+        """Append a worker event exactly once. True if appended, False for a duplicate (wseq already seen)."""
+        if type.startswith(RESERVED_PREFIXES):
+            raise ValueError(f"Event type is reserved: {type}")
+        if status is not None and status not in WORKER_STATUSES:
+            raise ValueError(f"Workers may not set status {status}")
+        with self._transaction() as conn:
+            lease = _check_lease(conn, run_id, token)
+            last = lease["last_wseq"]
+            if wseq <= last:
+                return False
+            if wseq != last + 1:
+                raise SequenceGap(f"expected wseq {last + 1}, got {wseq}")
+            if status:
+                conn.execute("UPDATE runs SET status=? WHERE id=?", (status, run_id))
+            _append(conn, run_id, type, payload)
+            conn.execute("UPDATE leases SET last_wseq=? WHERE run_id=?", (wseq, run_id))
+        return True
+
+    def finish(self, run_id: str, token: int, *, tokens_used: int, status: str, terminal_reason: str) -> None:
+        """Settle the run on behalf of the lease holder. A second finish is a FencingError.
+
+        Charges max(reported tokens, sum of usage.recorded events) so a worker cannot under-report."""
+        with self._transaction() as conn:
+            _check_lease(conn, run_id, token)
+            # Never charge less than the per-turn usage the worker already reported.
+            recorded = sum(
+                json.loads(row["payload"]).get("total_tokens", 0)
+                for row in conn.execute(
+                    "SELECT payload FROM run_events WHERE run_id=? AND type='usage.recorded'", (run_id,))
+            )
+            _settle(conn, run_id, max(tokens_used, recorded), status, terminal_reason)
+
+    def expire_leases(self, now: float) -> int:
+        """Fail runs whose lease lapsed (or that hold none from before leases existed). Their spend
+        is unknown, so the whole reservation is charged (fail closed). Queued runs are untouched.
+        Legacy queued runs without a stored task could never run and are failed too."""
+        with self._transaction() as conn:
+            rows = conn.execute(
+                "SELECT r.id, r.reserved_tokens, l.worker_id, l.fencing_token FROM runs r "
+                "LEFT JOIN leases l ON l.run_id = r.id "
+                "WHERE (r.status IN ('leased', 'running') AND (l.run_id IS NULL OR l.expires_at < ?)) "
+                "OR (r.status = 'admitted' AND r.task IS NULL)", (now,)).fetchall()
+            for r in rows:
+                if r["worker_id"] is not None:
+                    _append(conn, r["id"], "lease.expired", {"worker_id": r["worker_id"], "fencing_token": r["fencing_token"]})
+                _settle(conn, r["id"], r["reserved_tokens"], "failed", "worker_lost")
+        return len(rows)
+
+
+def _check_lease(conn: sqlite3.Connection, run_id: str, token: int) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT l.*, r.status FROM leases l JOIN runs r ON r.id = l.run_id WHERE l.run_id=?", (run_id,)).fetchone()
+    if row is None or row["fencing_token"] != token or row["status"] in TERMINAL:
+        raise FencingError(f"Stale or unknown lease for run {run_id}")
+    return row
+
+
+def _settle(conn: sqlite3.Connection, run_id: str, tokens_used: int, status: str, terminal_reason: str) -> None:
+    if status not in TERMINAL:
+        raise ValueError(f"Invalid terminal status: {status}")
+    if tokens_used < 0:
+        raise ValueError("tokens_used must not be negative")
+    res = conn.execute("SELECT * FROM reservations WHERE run_id=?", (run_id,)).fetchone()
+    if res is None or res["settled_tokens"] is not None:
+        raise AdmissionError("not_open", f"Run {run_id} has no open reservation.")
+    released = max(res["reserved_tokens"] - tokens_used, 0)
+    conn.execute("UPDATE reservations SET settled_tokens=?, released_tokens=? WHERE run_id=?", (tokens_used, released, run_id))
+    conn.execute(
+        "UPDATE budget_accounts SET reserved_tokens = reserved_tokens - ?, spent_tokens = spent_tokens + ? WHERE id=?",
+        (res["reserved_tokens"], tokens_used, res["account_id"]),
+    )
+    conn.execute(
+        "UPDATE runs SET status=?, tokens_used=?, terminal_reason=?, finished_at=? WHERE id=?",
+        (status, tokens_used, terminal_reason, now(), run_id),
+    )
+    payload = {"tokens_used": tokens_used, "released_tokens": released, "terminal_reason": terminal_reason}
+    if tokens_used > res["reserved_tokens"]:
+        payload["overrun_tokens"] = tokens_used - res["reserved_tokens"]
+    _append(conn, run_id, f"task.{status}", payload)
 
 
 def _split(script: str) -> list[str]:

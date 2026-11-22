@@ -1,13 +1,14 @@
-"""The run interface used by HTTP (and later the CLI): preview, submit, inspect, recover."""
+"""The run interface used by HTTP (and later the CLI): preview, submit, inspect, recover.
+
+Runs admits and queues; it never executes. A worker claims the queued run (see worker.py)."""
+import time
 from collections.abc import Callable
 
-from .adapters.base import ModelAdapter
 from .definitions import Definitions, ResolveError
-from .harness import PreparedRun, execute
 from .ledger import AdmissionError, Ledger
 from .models import (
+    SUPPORTED_DIALECTS,
     Budget,
-    ModelEndpointProfile,
     RunDetail,
     RunPreview,
     RunRecord,
@@ -59,16 +60,16 @@ class Runs:
         self,
         definitions: Definitions,
         ledger: Ledger,
-        adapter_factory: Callable[[ModelEndpointProfile], ModelAdapter],
-        executor: Callable[[Callable[[], None]], object],
         *,
         execution_enabled: Callable[[], bool],
         allow_dirty: Callable[[], bool],
+        supported_dialects: tuple[str, ...] = SUPPORTED_DIALECTS,
+        clock: Callable[[], float] = time.time,
     ):
         self.definitions = definitions
         self.ledger = ledger
-        self._adapter_factory = adapter_factory
-        self._executor = executor
+        self._supported_dialects = supported_dialects
+        self._clock = clock
         self._execution_enabled = execution_enabled
         self._allow_dirty = allow_dirty
 
@@ -91,7 +92,7 @@ class Runs:
         )
 
     def submit(self, req: RunRequest) -> RunRecord:
-        """Admit a run and hand it to the executor; returns the run as it stands afterwards."""
+        """Admit a run and queue it for a worker; returns the queued run."""
         if not self._execution_enabled():
             raise ExecutionDisabled("Execution disabled. Set MAEF_EXECUTION_ENABLED=1 or use /api/v1/runs/preview.")
         agent = self._agent(req.agent_id)
@@ -99,7 +100,8 @@ class Runs:
             pinned = self.definitions.resolve(agent.id)
         except ResolveError as exc:
             raise DefinitionConflict(str(exc)) from exc
-        adapter = self._adapter_factory(pinned.profile)
+        if pinned.profile.api_dialect not in self._supported_dialects:
+            raise UnsupportedDialect(f"No adapter for dialect {pinned.profile.api_dialect}")
         try:
             tools = BuiltinTools(pinned.agent.tools, pinned.files)
         except ValueError as exc:
@@ -109,15 +111,13 @@ class Runs:
             run_id = self.ledger.admit(
                 pinned, budget,
                 prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(tools.specs()),
+                instruction=req.instruction,
                 allow_dirty=self._allow_dirty(),
             )
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
-        prepared = PreparedRun(run_id, pinned, budget, record.reserved_tokens, req.instruction, tools)
-        self._executor(lambda: execute(self.ledger, prepared, adapter))
-        current = self.ledger.get(run_id)
-        return RunRecord.model_validate(current.model_dump(exclude={"events"}))
+        return RunRecord.model_validate(record.model_dump(exclude={"events"}))
 
     def get(self, run_id: str) -> RunDetail | None:
         return self.ledger.get(run_id)
@@ -126,5 +126,6 @@ class Runs:
         return self.ledger.list()
 
     def recover(self) -> int:
-        """Fail runs left open by a previous process (fail closed)."""
-        return self.ledger.fail_orphans()
+        """Fail runs whose lease lapsed (fail closed). Queued runs stay queued. Called at startup
+        and periodically."""
+        return self.ledger.expire_leases(self._clock())

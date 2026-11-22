@@ -16,9 +16,9 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 - One example agent definition and API tests.
 - Architecture, contracts, ADRs, security considerations and phased roadmap.
 
-**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits a budget-reserved, tool-less Bedrock Converse call (needs the `bedrock` extra, a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
+**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
 
-**Not implemented:** sandbox execution, external tools, MCP client/server, remote workers, actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
+**Not implemented:** sandbox execution, external tools, MCP client/server, remote worker machine credentials and sandboxes (the worker is a plain process using one shared token), actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
 
 ## Requirements
 - Python >=3.11
@@ -34,6 +34,18 @@ make api
 ```
 
 API: http://127.0.0.1:8000/docs
+
+## Start a worker (second terminal)
+
+The API only admits and queues runs; a worker process executes them. Both need the same `MAEF_WORKER_TOKEN` (without it every `/api/v1/worker/` route returns 503):
+
+```bash
+export MAEF_WORKER_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
+MAEF_EXECUTION_ENABLED=1 make api      # terminal 1
+make worker                            # terminal 2
+```
+
+Worker settings: `MAEF_API_URL` (default `http://127.0.0.1:8000`; set `MAEF_API_ALLOW_PRIVATE=1` for a LAN address), `MAEF_WORKER_ID` (default hostname-pid). Model credentials (`env:NAME` references) are read from the worker's own environment, never sent by the API. SIGINT/SIGTERM finish the run in flight, then exit. The API fails runs whose worker stops heartbeating (lease `MAEF_LEASE_SECONDS`, default 60) as `worker_lost`, charging their full reservation.
 
 ## Start the Studio (second terminal)
 

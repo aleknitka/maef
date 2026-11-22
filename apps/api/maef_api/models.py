@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"
+# Dialects the worker has an adapter for; Runs refuses to admit anything else.
+SUPPORTED_DIALECTS = ("bedrock-converse", "openai-compatible", "anthropic")
 
 class BedrockEndpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -15,7 +17,7 @@ class BedrockEndpoint(BaseModel):
     # Where requests may be served: the selected Region only, a geography, or anywhere.
     routing: Literal["in-region", "geo", "global"]
 
-def _is_loopback(host: str) -> bool:
+def is_loopback_host(host: str) -> bool:
     if host == "localhost":
         return True
     try:
@@ -48,7 +50,7 @@ class _HttpEndpoint(BaseModel):
 
     @property
     def is_loopback(self) -> bool:
-        return _is_loopback(urlparse(self.base_url).hostname)
+        return is_loopback_host(urlparse(self.base_url).hostname)
 
 class OpenAICompatibleEndpoint(_HttpEndpoint):
     """OpenAI (https://api.openai.com/v1) or any local server speaking chat/completions."""
@@ -143,7 +145,7 @@ class ExecutionEvent(BaseModel):
 
 class RunRecord(BaseModel):
     id: str
-    status: Literal["admitted", "running", "succeeded", "failed", "cancelled"]
+    status: Literal["admitted", "leased", "running", "succeeded", "failed", "cancelled"]
     agent_id: str
     git_rev: str | None
     dirty: bool
