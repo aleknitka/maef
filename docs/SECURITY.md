@@ -14,7 +14,7 @@
 - Workspace attachment policy guards symlinks, path traversal and host path injection.
 - Explicit approval for destructive actions, external side effects, publishing, merging or escalation.
 - Per-tool instrumentation and accounting; deny launch if budget and pricing policy cannot be evaluated.
-- Endpoint allowlist and protection against SSRF, including private network metadata endpoints. (Met for model endpoints in step 1; the enforced egress proxy for open-network MCP servers is step 11b.)
+- Endpoint allowlist and protection against SSRF, including private network metadata endpoints. (Met for model endpoints in step 1. Met for MCP servers with `network: allowlist` in step 11b: internal-only network, enforced proxy, host/port allowlist, public-address-only, connect-to-vetted-IP. `network: open` remains unfiltered and discouraged.)
 
 ## Additional concerns
 MCP server descriptions are not trusted instructions. An MCP tool may be compromised or return malicious text. Use signature/pinning and approvals; do not inherit all parent MCP configuration. Even rootless containers share a host kernel. For hostile third-party code, evaluate gVisor/Firecracker microVMs or remote hosts with stronger separation. Limit access to local files and cloud metadata credentials.

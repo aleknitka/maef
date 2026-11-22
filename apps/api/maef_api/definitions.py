@@ -99,7 +99,7 @@ def mcp_ref_problem(agent: AgentDefinition, manifests: list[McpServerManifest]) 
         return "invalid_mcp_reference"
     if refs != [(m.id, m.version) for m in manifests]:
         return "mcp_reference_mismatch"
-    if any(m.network == "open" for m in manifests) and not agent.permissions.network_open:
+    if any(m.network != "none" for m in manifests) and not agent.permissions.network_open:
         return "network_not_permitted"
     return None
 
@@ -211,7 +211,7 @@ class Definitions:
             raw[server_id] = data
         problem = mcp_ref_problem(agent, manifests)
         if problem == "network_not_permitted":
-            raise ResolveError("MCP server needs open network but the agent does not set permissions.network_open")
+            raise ResolveError("MCP server needs network access (allowlist or open) but the agent does not set permissions.network_open")
         return manifests, raw
 
     def _pin_sandbox(self, profile_id: str, required: bool, src: _GitSource | None = None) -> tuple[SandboxProfile | None, str | None]:

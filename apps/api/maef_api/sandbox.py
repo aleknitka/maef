@@ -8,6 +8,7 @@ nothing into the container. `FakeSandbox` is the in-memory adapter for tests.
 Image requirements: POSIX `sh`, `cat`, `mkdir` (used by put/get), and a `sleep` that accepts
 `infinity` (GNU or busybox). Container output and file contents are never logged.
 """
+import json
 import os
 import posixpath
 import queue
@@ -19,8 +20,10 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal, Protocol
 
+from . import egress_proxy
 from .models import SandboxProfile, is_pinned_image
 
 MAX_OUTPUT_BYTES = 64 * 1024
@@ -29,6 +32,9 @@ MAX_LINE_BYTES = 1024 * 1024  # longest line a spawned process may emit
 WORKSPACE = "/workspace"
 ALLOW_UNPINNED_ENV = "MAEF_ALLOW_UNPINNED_IMAGES"
 RUNTIME_ENV = "MAEF_OCI_RUNTIME"
+# Multi-arch manifest-list digest of docker.io/library/python:3.12-alpine (amd64 + arm64), pinned
+# 2026-11-23. Re-pin with `podman image ls --digests` (the list digest, not one platform's).
+EGRESS_PROXY_IMAGE = "docker.io/library/python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89"
 _PROVISION_TIMEOUT = 300.0
 _CLI_TIMEOUT = 30.0
 _CANCEL_POLL_SECONDS = 0.25
@@ -67,7 +73,17 @@ class Process(Protocol):
         ...
 
 
-Network = Literal["none", "open"]
+Network = Literal["none", "allowlist", "open"]
+
+
+@dataclass(frozen=True)
+class EgressSpec:
+    """What the egress proxy lets through for `network="allowlist"` (see egress_proxy.Policy)."""
+    hosts: tuple[str, ...]
+    ports: tuple[int, ...] = (443, 80)
+    max_connections: int = 32
+    idle_seconds: float = 60.0
+    max_bytes: int = 256 * 1024 * 1024
 
 
 class Session(Protocol):
@@ -84,14 +100,22 @@ class Session(Protocol):
 
     def get(self, path: str) -> bytes: ...
 
+    def egress_summary(self) -> dict | None:
+        """For `allowlist` sessions: {decisions, hosts, bytes} from the proxy's log (hosts only), else
+        None. Call before teardown; never raises."""
+        ...
+
     def teardown(self) -> None:
-        """Idempotent; never raises."""
+        """Idempotent; never raises. Also removes the proxy and network of an `allowlist` session."""
         ...
 
 
 class Sandbox(Protocol):
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none") -> Session:
-        """`network="open"` uses the runtime's default network; callers must have been granted it."""
+    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
+                  egress: EgressSpec | None = None) -> Session:
+        """`network="open"` uses the runtime's default network, unfiltered; callers must have been
+        granted it. `network="allowlist"` (needs `egress`) joins the container to a per-run internal
+        network whose only way out is an enforced allowlist proxy."""
         ...
 
     def info(self) -> dict:
@@ -150,17 +174,34 @@ class OciCliSandbox:
         return dict(self._info)
 
     # -- Sandbox --
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none") -> Session:
+    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
+                  egress: EgressSpec | None = None) -> Session:
         if profile.require_rootless and not self.info()["rootless"]:
             raise SandboxUnavailable("runtime_not_rootless")  # fail closed, never downgrade
         if not is_pinned_image(profile.image) and self._env.get(ALLOW_UNPINNED_ENV) != "1":
             raise SandboxUnavailable("unpinned_image")
+        if network == "allowlist" and (egress is None or not egress.hosts or not egress.ports):
+            raise SandboxUnavailable("egress_not_configured")
         safe = re.sub(r"[^A-Za-z0-9]", "", run_id)[:12] or "run"
-        name = f"maef-{safe}-{secrets.token_hex(4)}"
+        suffix = secrets.token_hex(4)
+        name = f"maef-{safe}-{suffix}"
+        proxy = net = None
+        net_args: list[str] = []
+        if network == "none":
+            net_args = ["--network=none"]
+        elif network == "allowlist":
+            net, proxy = f"maef-egress-{safe}-{suffix}", f"maef-proxy-{safe}-{suffix}"
+            try:
+                proxy_ip = self._start_egress(net, proxy, run_id, egress)
+            except SandboxError:
+                self._remove_egress(net, proxy)
+                raise
+            url = f"http://{proxy_ip}:{egress_proxy.PROXY_PORT}"
+            net_args = [f"--network={net}", "--env", "NO_PROXY=", "--env", "no_proxy=",
+                        *(x for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy") for x in ("--env", f"{k}={url}"))]
         args = [
             "run", "-d", "--rm", "--name", name, "--label", f"maef.run={run_id}",
-            "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-            *(["--network=none"] if network == "none" else []),
+            "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", *net_args,
             "--pids-limit", str(profile.pids_limit), "--memory", f"{profile.memory_mb}m",
             "--cpus", str(profile.cpus), "--user", profile.user,
             "--tmpfs", f"{WORKSPACE}:rw,size={profile.workspace_mb}m,mode=1777",
@@ -171,15 +212,77 @@ class OciCliSandbox:
             done = self._run(args, timeout=_PROVISION_TIMEOUT)
         except (OSError, subprocess.SubprocessError):
             self._rm(name)
+            self._remove_egress(net, proxy)
             raise SandboxUnavailable("provision_failed") from None
         if done.returncode != 0:
             self._rm(name)
+            self._remove_egress(net, proxy)
             raise SandboxUnavailable("provision_failed")
-        return _OciSession(self, name)
+        return _OciSession(self, name, proxy=proxy, network=net)
 
-    def _rm(self, name: str) -> None:
+    def _start_egress(self, net: str, proxy: str, run_id: str, spec: EgressSpec) -> str:
+        """Returns the proxy's IP on the internal network. Internal network (no route out) plus a proxy that is on the runtime's default network
+        (for DNS and the way out) and on the internal network. The proxy starts on the default network
+        because an internal network's DNS does not forward (podman: the network has DNS disabled so the
+        proxy keeps the host's resolvers; clients reach the proxy by IP); it accepts clients only from the internal
+        network's subnet, so other containers on the default network cannot use it."""
+        label = f"maef.run={run_id}"
+        default = "podman" if self.runtime == "podman" else "bridge"
         try:
-            self._run(["rm", "-f", name])
+            if self._run(["network", "create", "--internal", "--label", label,
+                              *(["--disable-dns"] if self.runtime == "podman" else []), net]).returncode != 0:
+                raise SandboxUnavailable("egress_network_failed")
+            fmt = ("{{range .Subnets}}{{.Subnet}} {{end}}" if self.runtime == "podman"
+                   else "{{range .IPAM.Config}}{{.Subnet}} {{end}}")
+            subnets = (self._out(["network", "inspect", "--format", fmt, net]) or "").split()
+            if not subnets:
+                raise SandboxUnavailable("egress_network_failed")
+            config = json.dumps({"hosts": list(spec.hosts), "ports": list(spec.ports),
+                                 "max_connections": spec.max_connections, "idle_seconds": spec.idle_seconds,
+                                 "max_bytes": spec.max_bytes, "client_cidrs": subnets})
+            source = Path(egress_proxy.__file__).read_text(encoding="utf-8")
+            done = self._run([
+                "run", "-d", "--rm", "--name", proxy, "--label", label, "--network", default,
+                "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
+                "--pids-limit", "128", "--memory", "128m", "--cpus", "0.5", "--user", "65534:65534",
+                "--tmpfs", "/tmp:rw,size=8m,mode=1777", "--env", f"MAEF_EGRESS_CONFIG={config}",
+                "--entrypoint", "python", EGRESS_PROXY_IMAGE, "-u", "-c", source], timeout=_PROVISION_TIMEOUT)
+            if done.returncode != 0:
+                raise SandboxUnavailable("egress_proxy_failed")
+            if self._run(["network", "connect", net, proxy]).returncode != 0:
+                raise SandboxUnavailable("egress_proxy_failed")
+            deadline = time.monotonic() + 30
+            while '"event": "ready"' not in (self._logs(proxy) or ""):
+                if time.monotonic() > deadline or self._out(["ps", "-q", "--filter", f"name=^{proxy}$"]) == "":
+                    raise SandboxUnavailable("egress_proxy_failed")
+                time.sleep(0.2)
+            ip = self._out(["inspect", "--format", f'{{{{(index .NetworkSettings.Networks "{net}").IPAddress}}}}', proxy])
+            if not ip or not re.fullmatch(r"[0-9a-fA-F:.]+", ip):
+                raise SandboxUnavailable("egress_proxy_failed")
+            return ip
+        except (OSError, subprocess.SubprocessError):
+            raise SandboxUnavailable("egress_proxy_failed") from None
+
+    def _logs(self, name: str) -> str | None:
+        try:
+            done = self._run(["logs", name])
+        except (OSError, subprocess.SubprocessError):
+            return None
+        return done.stdout.decode(errors="replace") if done.returncode == 0 else None
+
+    def _remove_egress(self, net: str | None, proxy: str | None) -> None:
+        if proxy:
+            self._rm(proxy, kill=True)
+        if net:
+            try:
+                self._run(["network", "rm", "-f", net])
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+    def _rm(self, name: str, *, kill: bool = False) -> None:
+        """`kill`: no stop grace period (podman); for the proxy, whose PID 1 ignores SIGTERM."""
+        try:
+            self._run(["rm", "-f", "-t", "0", name] if kill and self.runtime == "podman" else ["rm", "-f", name])
         except (OSError, subprocess.SubprocessError):
             pass
 
@@ -189,12 +292,27 @@ class OciCliSandbox:
         ids = (self._out(["ps", "-a", "-q", "--filter", "label=maef.run"]) or "").split()
         for cid in ids:
             self._rm(cid)
+        nets = (self._out(["network", "ls", "-q", "--filter", "label=maef.run"]) or "").split()
+        for net in nets:
+            self._remove_egress(net, None)
         return len(ids)
 
 
 class _OciSession:
-    def __init__(self, sandbox: OciCliSandbox, name: str):
+    def __init__(self, sandbox: OciCliSandbox, name: str, *, proxy: str | None = None, network: str | None = None):
         self._sb, self.name, self._down = sandbox, name, False
+        self._proxy, self._network = proxy, network
+        self._summary: dict | None = None
+
+    def egress_summary(self) -> dict | None:
+        if self._proxy is None:
+            return None
+        if self._summary is None:
+            text = self._sb._logs(self._proxy)
+            if text is None:
+                return None
+            self._summary = egress_proxy.summarize_log(text)
+        return self._summary
 
     def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
              cancel: threading.Event | None = None) -> ExecResult:
@@ -294,7 +412,9 @@ class _OciSession:
     def teardown(self) -> None:
         if not self._down:
             self._down = True
+            self.egress_summary()  # last chance: the proxy's log goes with its container
             self._sb._rm(self.name)
+            self._sb._remove_egress(self._network, self._proxy)
 
 
 class _OciProcess:
@@ -384,6 +504,11 @@ class FakeSession:
     # Builds the Process for spawn(); tests inject a fake MCP server (see mcp.FakeMcpServer).
     spawn_factory: Callable[[list[str], dict[str, str]], Process] | None = None
     spawned: list[tuple[list[str], dict[str, str]]] = field(default_factory=list)
+    # What egress_summary() returns (tests set it); only meaningful for network="allowlist".
+    egress: dict | None = None
+
+    def egress_summary(self) -> dict | None:
+        return self.egress
 
     def spawn(self, argv: list[str], *, env: dict[str, str]) -> Process:
         self.spawned.append((list(argv), dict(env)))
@@ -422,17 +547,22 @@ class FakeSandbox:
         self._rootless, self._fail = rootless, fail
         self._spawn_factory, self._allow_unpinned = spawn_factory, allow_unpinned
         self.sessions: list[FakeSession] = []
-        # (profile, run_id, network) per provision call, in order.
+        # (profile, run_id, network) per provision call, in order; egress specs in `egress_specs`.
         self.provisioned: list[tuple[SandboxProfile, str, str]] = []
+        self.egress_specs: list[EgressSpec | None] = []
 
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none") -> FakeSession:
+    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
+                  egress: EgressSpec | None = None) -> FakeSession:
         if self._fail:
             raise SandboxUnavailable(self._fail)
         if profile.require_rootless and not self._rootless:
             raise SandboxUnavailable("runtime_not_rootless")
         if not is_pinned_image(profile.image) and not self._allow_unpinned:
             raise SandboxUnavailable("unpinned_image")
+        if network == "allowlist" and (egress is None or not egress.hosts):
+            raise SandboxUnavailable("egress_not_configured")
         session = FakeSession(self._handler, spawn_factory=self._spawn_factory)
+        self.egress_specs.append(egress)
         self.provisioned.append((profile, run_id, network))
         self.sessions.append(session)
         return session

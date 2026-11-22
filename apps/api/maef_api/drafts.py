@@ -147,7 +147,7 @@ def permission_diff(old: AgentDefinition | None, new: AgentDefinition | None,
         new_secrets = sorted(set(manifest.secrets) - set(previous.secrets if previous else ()))
         if new_secrets:
             diff.mcp_new_secrets[ref] = new_secrets
-        if manifest.network == "open" and not (previous and previous.network == "open"):
+        if manifest.network != "none" and not (previous and previous.network == manifest.network):
             diff.mcp_network_open_added.append(ref)
     return diff
 

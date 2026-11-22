@@ -119,8 +119,8 @@ def _lint_agent(root: Path, agent_dir: Path, mcps: dict[str, McpServerManifest],
         else:
             manifests.append(manifest)
     if len(manifests) == len(agent.mcp_servers) and mcp_ref_problem(agent, manifests) == "network_not_permitted":
-        out.append(Finding(path=rel, message="an MCP server needs open network but permissions.network_open is not set"))
-    elif agent.permissions.network_open and not any(m.network == "open" for m in manifests):
+        out.append(Finding(path=rel, message="an MCP server needs open network (network: open or allowlist) but permissions.network_open is not set"))
+    elif agent.permissions.network_open and not any(m.network != "none" for m in manifests):
         out.append(Finding(path=rel, severity="warning",
                            message="permissions.network_open is set but no referenced MCP server needs open network"))
     sandbox_id = agent.runtime.sandbox_profile

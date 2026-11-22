@@ -86,3 +86,105 @@ def test_teardown_removes_container(session):
     session.teardown()
     session.teardown()  # idempotent
     assert listed() == ''
+
+
+# --- enforced egress proxy (network="allowlist") ---
+
+from maef_api.sandbox import EgressSpec
+
+
+def _rt(*args):
+    return subprocess.run([SANDBOX.runtime, *args], capture_output=True, text=True, check=False)
+
+
+def _labelled(run_id):
+    out = []
+    for kind in (['ps', '-a', '-q'], ['network', 'ls', '-q']):
+        out += _rt(*kind, '--filter', f'label=maef.run={run_id}').stdout.split()
+    return out
+
+
+@pytest.fixture
+def egress_session():
+    """A python client container (the pinned proxy image) on the per-run internal network."""
+    from maef_api.sandbox import EGRESS_PROXY_IMAGE
+    profile = SandboxProfileRegistry().get_profile('restricted-local').model_copy(
+        update={'image': EGRESS_PROXY_IMAGE, 'user': '65534:65534'})
+    if not SANDBOX.info()['rootless']:
+        profile = profile.model_copy(update={'require_rootless': False})
+    run_id = uuid.uuid4().hex
+    s = SANDBOX.provision(profile, run_id, network='allowlist',
+                          egress=EgressSpec(hosts=('example.com', '*.example.org', 'localhost', '127.0.0.1',
+                                                   '169.254.169.254', '10.0.0.1')))
+    s.run_id = run_id
+    yield s
+    s.teardown()
+    assert _labelled(run_id) == []  # no labelled containers or networks survive teardown
+
+
+CLIENT = '''
+import os, socket, sys
+host, port = sys.argv[1], int(sys.argv[2])
+if len(sys.argv) > 3 and sys.argv[3] == "direct":
+    s = socket.create_connection((host, port), timeout=4); print("CONNECTED"); sys.exit(0)
+p = os.environ["HTTPS_PROXY"].split("//")[1].split(":")
+s = socket.create_connection((p[0], int(p[1])), timeout=15)
+s.sendall(f"CONNECT {host}:{port} HTTP/1.1\\r\\nHost: {host}:{port}\\r\\n\\r\\n".encode())
+print(s.recv(200).decode().split("\\r\\n")[0])
+'''
+
+
+def connect(session, host, port=443, mode=''):
+    r = session.exec(['python', '-c', CLIENT, host, str(port), mode], timeout=40)
+    return r.exit_code, r.stdout.decode().strip()
+
+
+def test_proxy_env_and_internal_network_only(egress_session):
+    env = sh(egress_session, 'env')
+    assert b'HTTPS_PROXY=http://10.' in env.stdout and b'NO_PROXY=\n' in env.stdout
+    assert _rt('network', 'inspect', '--format', '{{.Internal}}',
+               _rt('network', 'ls', '-q', '--filter', f'label=maef.run={egress_session.run_id}').stdout.split()[0]
+               ).stdout.strip() == 'true'
+
+
+def test_allowlisted_host_connects_through_proxy_only(egress_session):
+    _code, out = connect(egress_session, 'example.com')
+    if '502' in out:
+        pytest.skip('no internet access from the proxy')
+    assert out.startswith('HTTP/1.1 200'), out
+    # the same target without the proxy has no route
+    assert connect(egress_session, '93.184.216.34', 443, 'direct')[1] != 'CONNECTED'
+    assert connect(egress_session, '1.1.1.1', 443, 'direct')[1] != 'CONNECTED'
+
+
+def test_non_allowlisted_host_is_denied(egress_session):
+    assert connect(egress_session, 'github.com')[1].startswith('HTTP/1.1 403')
+    assert connect(egress_session, 'example.com', 8080)[1].startswith('HTTP/1.1 403')
+
+
+@pytest.mark.parametrize('host', ['169.254.169.254', '10.0.0.1', '127.0.0.1', 'localhost'])
+def test_private_targets_denied_even_when_allowlisted(egress_session, host):
+    assert connect(egress_session, host)[1].startswith('HTTP/1.1 403')
+
+
+def test_wildcard_all_still_refuses_private_addresses():
+    profile = SandboxProfileRegistry().get_profile('restricted-local')
+    from maef_api.sandbox import EGRESS_PROXY_IMAGE
+    profile = profile.model_copy(update={'image': EGRESS_PROXY_IMAGE,
+                                         'require_rootless': SANDBOX.info()['rootless']})
+    run_id = uuid.uuid4().hex
+    s = SANDBOX.provision(profile, run_id, network='allowlist', egress=EgressSpec(hosts=('*',)))
+    try:
+        for host in ('169.254.169.254', '10.0.0.1', '127.0.0.1', 'localhost', '2130706433', '[::1]'):
+            assert connect(s, host)[1].startswith('HTTP/1.1 403'), host
+        summary = s.egress_summary()
+        assert summary['decisions'].get('deny', 0) >= 5 and 'allow' not in summary['decisions']
+    finally:
+        s.teardown()
+    assert _labelled(run_id) == []
+
+
+def test_cleanup_orphans_removes_labelled_networks(egress_session):
+    assert _labelled(egress_session.run_id)
+    SANDBOX.cleanup_orphans()
+    assert _labelled(egress_session.run_id) == []

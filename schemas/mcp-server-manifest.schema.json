@@ -2,6 +2,26 @@
   "additionalProperties": false,
   "description": "MCP server manifest (`mcp-servers/<id>.yaml`): a stdio server that runs in its own container.\n`env` holds non-secret values only; `secrets` maps ENV_NAME to a credential_ref that the worker\nresolves at run time (never stored or logged). Tag-only images are checked at provisioning.",
   "properties": {
+    "allowed_hosts": {
+      "items": {
+        "maxLength": 253,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 256,
+      "title": "Allowed Hosts",
+      "type": "array"
+    },
+    "allowed_ports": {
+      "items": {
+        "maximum": 65535,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "maxItems": 16,
+      "title": "Allowed Ports",
+      "type": "array"
+    },
     "command": {
       "items": {
         "maxLength": 1024,
@@ -43,6 +63,7 @@
     "network": {
       "enum": [
         "none",
+        "allowlist",
         "open"
       ],
       "title": "Network",

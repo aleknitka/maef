@@ -35,7 +35,7 @@ from .leases import ChannelError, FencingError, Lease, SequenceGap
 from .mcp import CompositeToolSet, McpError, McpToolSet, sandbox_profile_for
 from .models import McpServerManifest, ModelEndpointProfile, is_pinned_image
 from .outputs import collect_outputs
-from .sandbox import Sandbox, SandboxError, Session, detect_sandbox
+from .sandbox import EgressSpec, Sandbox, SandboxError, Session, detect_sandbox
 from .tools import SANDBOXED_TOOLS, BuiltinTools
 
 log = logging.getLogger("maef.worker")
@@ -145,11 +145,26 @@ class _McpHandle:
     manifest: McpServerManifest
     session: Session
     tools: McpToolSet | None = None
+    egress: dict | None = None  # proxy decision summary, taken once before teardown
+    stopped: bool = False
 
     def stop(self) -> None:
+        if self.stopped:
+            return
+        self.stopped = True
         if self.tools is not None:
             self.tools.close()
+        if self.manifest.network == "allowlist":
+            try:
+                self.egress = self.session.egress_summary()
+            except Exception:  # noqa: BLE001  # the summary is best effort; teardown must still happen
+                self.egress = None
         self.session.teardown()
+
+
+def _report_egress(sink, handle: _McpHandle) -> None:
+    if handle.manifest.network == "allowlist" and handle.egress is not None:
+        sink.append("egress.summary", {"server": handle.manifest.id, **handle.egress})
 
 
 class _Heartbeat(threading.Thread):
@@ -276,12 +291,17 @@ class Worker:
                 sink.append("mcp.started", {
                     "server": manifest.id, "version": manifest.version,
                     "tool_count": len(handle.tools.specs()), "network": manifest.network})
+                if manifest.network == "allowlist":
+                    sink.append("egress.proxy_started", {
+                        "server": manifest.id, "allowed_hosts": len(manifest.allowed_hosts),
+                        "any_public_host": "*" in manifest.allowed_hosts, "ports": manifest.allowed_ports})
                 if handle.tools.truncated:
                     sink.append("mcp.tools_truncated", {
                         "server": manifest.id, "listed": handle.tools.listed, "max_tools": manifest.max_tools})
             steps: list[Callable[[ChannelSink], None]] = []
             for handle in mcp:
-                steps.append(lambda s, h=handle: (h.stop(), s.append("mcp.stopped", {"server": h.manifest.id})))
+                steps.append(lambda s, h=handle: (h.stop(), s.append("mcp.stopped", {"server": h.manifest.id}),
+                                                  _report_egress(s, h)))
             if session is not None:
                 steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
             run_sink = _TeardownSink(sink, steps) if steps else sink
@@ -331,7 +351,9 @@ class Worker:
             try:
                 session = self._sandbox.provision(
                     sandbox_profile_for(manifest, pinned.sandbox), f"{lease.run_id}-{manifest.id}",
-                    network=manifest.network)
+                    network=manifest.network,
+                    egress=EgressSpec(tuple(manifest.allowed_hosts), tuple(manifest.allowed_ports))
+                    if manifest.network == "allowlist" else None)
             except SandboxError as exc:
                 raise _StartupFailure(unavailable, code=str(exc)) from None
             handle = _McpHandle(manifest, session)

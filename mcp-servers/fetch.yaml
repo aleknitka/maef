@@ -1,6 +1,6 @@
 schema_version: maef.dev/v1alpha1
 id: fetch
-version: 0.2.0
+version: 0.3.0
 transport: stdio
 # Reference MCP fetch server, pinned by digest (verified with rootless Podman on 2026-11-22).
 image: docker.io/mcp/fetch@sha256:1a7a0996a565a0b8ca5c41b42830d4e5f334d33f851596bbd9debb2beedb22d3
@@ -8,8 +8,12 @@ image: docker.io/mcp/fetch@sha256:1a7a0996a565a0b8ca5c41b42830d4e5f334d33f851596
 command: ["mcp-server-fetch"]
 env: {}
 secrets: {}
-# Fetching web pages needs the network; the agent must set permissions.network_open.
-network: open
+# Fetching web pages needs the network. `allowlist` runs the server on an internal-only network whose
+# single way out is the enforced egress proxy: any PUBLIC host on 443/80 (private, loopback and
+# metadata addresses are always refused). The agent must set permissions.network_open.
+network: allowlist
+allowed_hosts: ["*"]
+allowed_ports: [443, 80]
 permission: read-only
 max_tools: 8
 # The image's Python interpreter lives under /root, so it cannot run as nobody. Root here is the

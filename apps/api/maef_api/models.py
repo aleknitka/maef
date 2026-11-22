@@ -155,7 +155,13 @@ class McpServerManifest(BaseModel):
     command: list[Annotated[str, Field(min_length=1, max_length=1024)]] = Field(min_length=1, max_length=64)
     env: dict[str, Annotated[str, Field(max_length=4096)]] = Field(default_factory=dict)
     secrets: dict[str, Annotated[str, Field(pattern=r"^env:[A-Z][A-Z0-9_]{1,63}$")]] = Field(default_factory=dict)
-    network: Literal["none", "open"]
+    # none: no network. allowlist: only through an enforced egress proxy (see allowed_hosts/allowed_ports).
+    # open: the runtime's default network, unfiltered; discouraged.
+    network: Literal["none", "allowlist", "open"]
+    # allowlist only: exact hostnames, `*.suffix` (subdomains only) or `*` (any PUBLIC host; addresses
+    # are always vetted by the proxy). Ports are the destination ports the proxy will connect to.
+    allowed_hosts: list[Annotated[str, Field(min_length=1, max_length=253)]] = Field(default_factory=list, max_length=256)
+    allowed_ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(default_factory=lambda: [443, 80], max_length=16)
     permission: Literal["read-only", "side-effects"]
     max_tools: int = Field(default=32, ge=1, le=256)
     # Container user. Defaults to nobody. "0:0" is for images that only work as root (e.g. the
@@ -165,6 +171,16 @@ class McpServerManifest(BaseModel):
 
     @model_validator(mode="after")
     def _env_names(self):
+        if self.network == "allowlist":
+            if not self.allowed_hosts or not self.allowed_ports:
+                raise ValueError("network allowlist needs allowed_hosts and allowed_ports")
+            from .egress_proxy import (
+                normalize_pattern,  # local: the proxy module is standalone
+            )
+            if any(normalize_pattern(h) is None for h in self.allowed_hosts):
+                raise ValueError("allowed_hosts has an invalid entry")
+        elif self.allowed_hosts or self.allowed_ports != [443, 80]:
+            raise ValueError("allowed_hosts and allowed_ports are only valid with network: allowlist")
         for name in (*self.env, *self.secrets):
             if (not re.fullmatch(_ENV_NAME, name) or name in _PROTECTED_ENV
                     or name.startswith(_PROTECTED_ENV_PREFIXES)):
@@ -185,7 +201,7 @@ class Runtime(BaseModel):
 
 class AgentPermissions(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    # Lets MCP servers whose manifest says `network: open` run. Default: no network anywhere.
+    # Lets MCP servers whose manifest says `network: allowlist` or `open` run. Default: no network anywhere.
     network_open: bool = False
 
 class AgentDefinition(BaseModel):
