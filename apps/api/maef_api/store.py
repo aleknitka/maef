@@ -6,7 +6,7 @@ reject UPDATE and DELETE, and no code path issues either.
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 MIGRATIONS = [
@@ -57,7 +57,7 @@ MIGRATIONS = [
 
 
 def now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 class Store:

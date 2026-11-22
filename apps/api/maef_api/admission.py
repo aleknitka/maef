@@ -4,7 +4,6 @@ Fails closed: no price schedule, an unknown git state or a dirty tree all refuse
 All money is integer micro-USD. Prices are USD per million tokens, so
 micro-USD = price * tokens, rounded up.
 """
-import json
 import uuid
 from decimal import ROUND_CEILING, Decimal
 

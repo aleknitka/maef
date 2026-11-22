@@ -1,8 +1,9 @@
 import shutil
+
 import pytest
+from maef_api.models import Budget
 from maef_api.registry import AgentRegistry, ModelProfileRegistry, PriceScheduleRegistry
 from maef_api.resolve import ResolveError, resolve_definition
-from maef_api.models import Budget
 from test_api import PROFILE
 
 SCHEDULE = """schema_version: maef.dev/v1alpha1

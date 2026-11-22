@@ -3,7 +3,11 @@ uvicorn<1,>=0.30
 pydantic<3,>=2.9
 pyyaml<7,>=6
 
+[bedrock]
+boto3<2,>=1.35
+
 [dev]
 pytest<10,>=8
 httpx<1,>=0.27
 ruff<1,>=0.8
+boto3<2,>=1.35

@@ -2,6 +2,7 @@ import sqlite3
 import threading
 from datetime import date
 from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 from maef_api import main
@@ -9,9 +10,10 @@ from maef_api.admission import AdmissionError, admit, release, settle
 from maef_api.models import Budget, PriceSchedule, ResolvedDefinition
 from maef_api.store import Store
 
+
 def definition(priced=True, dirty=False):
     price = PriceSchedule(schema_version='maef.dev/v1alpha1', id='test-prices', effective_from=date(2026, 1, 1),
-                          input_usd_per_million_tokens=Decimal('1'), output_usd_per_million_tokens=Decimal('5')) if priced else None
+                          input_usd_per_million_tokens=Decimal(1), output_usd_per_million_tokens=Decimal(5)) if priced else None
     return ResolvedDefinition(agent_id='research-analyst', agent_version='0.1.0', git_rev='abc', dirty=dirty,
                               definition_digest='d', model_profile_id='m', profile_digest='p', price_schedule=price)
 
@@ -93,7 +95,7 @@ def test_events_are_append_only(store):
 
 def test_failed_admission_leaves_no_partial_state(store):
     with pytest.raises(AdmissionError):
-        run(store, budget=Budget(max_cost_usd=Decimal('5'), max_turns=100), account_id='missing')
+        run(store, budget=Budget(max_cost_usd=Decimal(5), max_turns=100), account_id='missing')
     assert store.list_runs() == []
 
 def test_runs_api(store, monkeypatch):

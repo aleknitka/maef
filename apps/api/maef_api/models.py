@@ -1,6 +1,7 @@
 from datetime import date
 from decimal import Decimal
 from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"

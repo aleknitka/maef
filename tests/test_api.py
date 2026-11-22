@@ -23,7 +23,7 @@ def test_preview_clamps_budget():
     assert body['status'] == 'preview_only'
     assert body['effective_budget'] == {'max_cost_usd': '0.25', 'max_duration_seconds': 900, 'max_turns': 10}
 
-def test_execution_explicitly_unavailable():
+def test_execution_disabled_by_default():
     result = client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'Hi'})
     assert result.status_code == 501
 
@@ -32,9 +32,9 @@ def test_path_traversal_rejected():
 
 
 import pytest
-from pydantic import ValidationError
 from maef_api import main
 from maef_api.registry import ModelProfileRegistry
+from pydantic import ValidationError
 
 PROFILE = """schema_version: maef.dev/v1alpha1
 id: {id}

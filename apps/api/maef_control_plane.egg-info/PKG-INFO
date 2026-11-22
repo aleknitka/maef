@@ -7,7 +7,10 @@ Requires-Dist: fastapi<1,>=0.115
 Requires-Dist: uvicorn<1,>=0.30
 Requires-Dist: pydantic<3,>=2.9
 Requires-Dist: pyyaml<7,>=6
+Provides-Extra: bedrock
+Requires-Dist: boto3<2,>=1.35; extra == "bedrock"
 Provides-Extra: dev
 Requires-Dist: pytest<10,>=8; extra == "dev"
 Requires-Dist: httpx<1,>=0.27; extra == "dev"
 Requires-Dist: ruff<1,>=0.8; extra == "dev"
+Requires-Dist: boto3<2,>=1.35; extra == "dev"
