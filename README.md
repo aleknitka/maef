@@ -141,6 +141,20 @@ maef result $RUN_ID
 
 Agent output is untrusted: the gateway wraps it in `<maef-result run_id=... status=...>` and caps it at 100 KiB.
 
+## Decision models (Jev, Clef)
+
+Decision models answer typed questions (`choice`, `score`, `noul`) about a state instead of writing text. Copy an example from
+`examples/model-profiles/` (`jev-decisions-api.yaml` with `DECISIONS_API_KEY`, `clef-omni-workers-ai.yaml` with `CLOUDFLARE_API_TOKEN` and your account id) into `model-profiles/`, then:
+
+```bash
+maef decide jev-decisions-api --state @ticket.json --wait \
+  --question "team:choice:Which team should handle this?:billing=payments and refunds,technical=bugs and outages" \
+  --question "urgent:noul:Is this urgent?" \
+  --question "anger:score:How upset is the customer?:calm,annoyed,angry"
+```
+
+Runs go through the same queue, worker and token ledger (`POST /api/v1/decisions`, the `decide` MCP gateway tool); answers are the `answers.json` artifact and are untrusted content. Wire formats, limits and known gaps: `docs/DECISION_MODELS.md`.
+
 ## Validate
 
 ```bash

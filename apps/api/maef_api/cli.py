@@ -37,6 +37,15 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("digest")
     s.add_argument("-o", "--output", required=True)
     s.add_argument("--force", action="store_true")
+    s = sub.add_parser("decide", help="ask a decision model typed questions about a state")
+    s.add_argument("profile")
+    s.add_argument("--state", required=True, metavar="@FILE|TEXT", help="@file.json (JSON is parsed) or literal text")
+    s.add_argument("--question", action="append", required=True, metavar="NAME:TYPE:INSTRUCTIONS[:OPTIONS]",
+                   help="choice: opt1=desc,opt2=desc; score: level0,level1,...; noul: [true=desc,false=desc]")
+    s.add_argument("--max-tokens", type=int)
+    s.add_argument("--wait", action="store_true", help="follow events and print the answers")
+    s.add_argument("--timeout", type=float, default=600, metavar="SECONDS")
+    s.add_argument("--json", action="store_true")
     sub.add_parser("mcp", help="run the stdio MCP gateway")
     return p
 
@@ -100,6 +109,62 @@ def _run(client: MaefClient, args) -> int:
     return EXIT_OK
 
 
+def parse_question(spec: str) -> tuple[str, dict]:
+    """NAME:TYPE:INSTRUCTIONS[:OPTIONS] -> (name, question). Instructions cannot contain ':'; options
+    are comma separated (choice/noul: key=description pairs, score: ordered level descriptions)."""
+    parts = spec.split(":", 3)
+    if len(parts) < 3 or not all(p.strip() for p in parts[:3]):
+        raise ValueError(f"bad --question {spec!r}: expected NAME:TYPE:INSTRUCTIONS[:OPTIONS]")
+    name, kind, instructions = (p.strip() for p in parts[:3])
+    question: dict = {"type": kind, "instructions": instructions}
+    options = parts[3].strip() if len(parts) == 4 else ""
+    if options:
+        items = [o.strip() for o in options.split(",") if o.strip()]
+        if kind == "score":
+            question["criteria"] = items
+        else:
+            pairs = [i.partition("=") for i in items]
+            question["criteria"] = {k.strip(): v.strip() or k.strip() for k, _, v in pairs}
+    return name, question
+
+
+def _decision_state(text: str):
+    if not text.startswith("@"):
+        return text
+    raw = Path(text[1:]).read_text(encoding="utf-8")
+    try:
+        value = json.loads(raw)
+    except ValueError:
+        return raw
+    return value if isinstance(value, dict | list) else raw
+
+
+def _decide(client: MaefClient, args) -> int:
+    try:
+        questions = dict(parse_question(q) for q in args.question)
+    except ValueError as exc:
+        _err(str(exc))
+        return EXIT_ERROR
+    run = client.decide(args.profile, _decision_state(args.state), questions, args.max_tokens)
+    run_id = run["run_id"]
+    if not args.wait:
+        _out(args, run, f"{run_id} {run['status']}")
+        return EXIT_OK
+    _err(f"run {run_id}")
+    final = client.wait(run_id, args.timeout, on_event=lambda e: _err(_event_line(e)))
+    if final["status"] not in TERMINAL_STATUSES:
+        _err(f"timed out after {args.timeout:g}s; run {run_id} is still {final['status']}")
+        return EXIT_TIMEOUT
+    answers = client.answers(run_id)
+    if answers is not None:
+        print(json.dumps({"run_id": run_id, "status": final["status"], "tokens_used": final.get("tokens_used"), **answers})
+              if args.json else json.dumps(answers, indent=2))
+    if final["status"] != "succeeded":
+        _err(f"run {final['status']}: {final.get('terminal_reason')}")
+        return EXIT_RUN_FAILED
+    return EXIT_OK
+
+
 def _dispatch(client: MaefClient, args) -> int:
     cmd = args.cmd
     if cmd == "agents":
@@ -107,6 +172,8 @@ def _dispatch(client: MaefClient, args) -> int:
         _out(args, agents, "\n".join(f"{a['id']}\t{a.get('display_name', '')}" for a in agents))
     elif cmd in ("preview", "run"):
         return _run(client, args)
+    elif cmd == "decide":
+        return _decide(client, args)
     elif cmd == "status":
         run = client.get_run(args.run_id)
         run.pop("events", None)

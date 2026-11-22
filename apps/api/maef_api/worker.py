@@ -3,6 +3,7 @@
 The worker never touches the ledger; it only speaks WorkerChannel. Model credentials resolve
 here, from the worker's own environment: a lease never carries secrets.
 """
+import hashlib
 import logging
 import os
 import signal
@@ -18,10 +19,16 @@ from pydantic import ValidationError
 from .adapters.anthropic import AnthropicAdapter
 from .adapters.base import ModelAdapter
 from .adapters.bedrock import BedrockAdapter
+from .adapters.decision import (
+    DecisionAdapter,
+    DecisionsApiAdapter,
+    WorkersAiDecisionAdapter,
+)
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .artifacts import ArtifactRef
 from .channel import HttpChannel, WorkerChannel
 from .credentials import CredentialError, Credentials, Secret
+from .decisions import execute_decision
 from .definitions import compute_definition_digest, mcp_ref_problem
 from .harness import PreparedRun, SinkFailure, execute
 from .leases import ChannelError, FencingError, Lease, SequenceGap
@@ -34,6 +41,7 @@ from .tools import SANDBOXED_TOOLS, BuiltinTools
 log = logging.getLogger("maef.worker")
 
 AdapterFactory = Callable[[ModelEndpointProfile], ModelAdapter]
+DecisionFactory = Callable[[ModelEndpointProfile], DecisionAdapter]
 SEND_ATTEMPTS = 3
 
 
@@ -49,6 +57,16 @@ def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
             return OpenAICompatibleAdapter(profile, credentials)
         if profile.api_dialect == "anthropic":
             return AnthropicAdapter(profile, credentials)
+        raise NoAdapterForDialect(profile.api_dialect)
+    return factory
+
+
+def default_decision_factory(credentials: Credentials) -> DecisionFactory:
+    def factory(profile: ModelEndpointProfile) -> DecisionAdapter:
+        if profile.api_dialect == "decisions-api":
+            return DecisionsApiAdapter(profile, credentials)
+        if profile.api_dialect == "workers-ai-decision":
+            return WorkersAiDecisionAdapter(profile, credentials)
         raise NoAdapterForDialect(profile.api_dialect)
     return factory
 
@@ -161,11 +179,12 @@ class _Heartbeat(threading.Thread):
 class Worker:
     def __init__(self, channel: WorkerChannel, adapter_factory: AdapterFactory, *, worker_id: str,
                  heartbeat_seconds: float = 15, clock=time.monotonic, sandbox: Sandbox | None = None,
-                 credentials: Credentials | None = None):
+                 credentials: Credentials | None = None, decision_factory: DecisionFactory | None = None):
         self._channel, self._adapter_factory = channel, adapter_factory
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
         self._sandbox = sandbox
         self._credentials = credentials or Credentials()
+        self._decision_factory = decision_factory or default_decision_factory(self._credentials)
 
     def run_once(self) -> bool:
         """Claim and run at most one lease. Returns whether a lease was run."""
@@ -182,8 +201,32 @@ class Worker:
             heartbeat.stop()
         return True
 
+    def _run_decision(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event) -> None:
+        task = lease.task
+        d = task.decision
+        sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
+
+        def reject(reason: str) -> None:
+            sink.append("run.rejected", {"reason": reason}, status="running")
+            sink.complete(tokens_used=0, status="failed", terminal_reason=reason)
+
+        try:  # the profile the worker runs is exactly the pinned bytes
+            consistent = (hashlib.sha256(d.profile_bytes).hexdigest() == d.profile_digest
+                          and ModelEndpointProfile.model_validate(yaml.safe_load(d.profile_bytes)) == d.profile)
+        except (yaml.YAMLError, ValidationError):
+            consistent = False
+        if not consistent:
+            return reject("definition_mismatch")
+        try:
+            adapter = self._decision_factory(d.profile)
+        except Exception as exc:  # noqa: BLE001  # class name only
+            return reject(f"setup_error:{type(exc).__name__}")
+        execute_decision(sink, lease.run_id, task, adapter, cancel.is_set)
+
     def _run(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event) -> None:
         task = lease.task
+        if task.kind == "decision":
+            return self._run_decision(lease, abandoned, cancel)
         pinned = task.pinned
         sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
 

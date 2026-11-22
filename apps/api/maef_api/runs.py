@@ -4,10 +4,13 @@ Runs admits and queues; it never executes. A worker claims the queued run (see w
 import time
 from collections.abc import Callable
 
+from .adapters.decision import DecisionRequest, DecisionRunRequest
 from .definitions import Definitions, ResolveError
+from .leases import DecisionTask
 from .ledger import AdmissionError, AlreadyTerminal, Ledger, UnknownRun
 from .mcp import ADMISSION_ALLOWANCE_BYTES
 from .models import (
+    DECISION_DIALECTS,
     SUPPORTED_DIALECTS,
     Budget,
     BudgetOverride,
@@ -40,6 +43,14 @@ class UnsupportedDialect(RunsError):
     pass
 
 
+class ProfileNotFound(RunsError):
+    pass
+
+
+class NotADecisionProfile(RunsError):
+    pass
+
+
 class RunNotFound(RunsError):
     pass
 
@@ -53,6 +64,10 @@ class AdmissionRejected(RunsError):
         super().__init__(message)
         self.code = code
         self.message = message
+
+
+DEFAULT_DECISION_TOKENS = 50_000
+DECISION_ALLOWANCE_BYTES = 1024
 
 
 def effective_budget(ceiling: Budget, requested: BudgetOverride | Budget | None) -> Budget:
@@ -127,6 +142,30 @@ class Runs:
                 instruction=req.instruction,
                 allow_dirty=self._allow_dirty(),
             )
+        except AdmissionError as exc:
+            raise AdmissionRejected(exc.code, str(exc)) from exc
+        record = self.ledger.get(run_id)
+        return RunRecord.model_validate(record.model_dump(exclude={"events"}))
+
+    def submit_decision(self, req: DecisionRunRequest) -> RunRecord:
+        """Admit a decision run against the same token ledger and queue it for a worker.
+        Reservation: min(max_tokens or DEFAULT_DECISION_TOKENS, request bytes + 1024); bytes bound input tokens."""
+        if not self._execution_enabled():
+            raise ExecutionDisabled("Execution disabled. Set MAEF_EXECUTION_ENABLED=1.")
+        try:
+            profile, data, digest = self.definitions.resolve_profile(req.profile_id)
+        except ResolveError as exc:
+            if "not found" in str(exc):
+                raise ProfileNotFound(req.profile_id) from None
+            raise DefinitionConflict(str(exc)) from exc
+        if profile.api_dialect not in DECISION_DIALECTS:
+            raise NotADecisionProfile(f"Profile {profile.id} is not a decision model profile")
+        request = DecisionRequest(state=req.state, questions=req.questions)
+        reserve = min(req.max_tokens or DEFAULT_DECISION_TOKENS, request.request_bytes() + DECISION_ALLOWANCE_BYTES)
+        task = DecisionTask(request=request, profile=profile, profile_bytes=data, profile_digest=digest)
+        try:
+            run_id = self.ledger.admit_decision(
+                task, reserve=reserve, max_duration_seconds=profile.timeout_seconds * (profile.max_retries + 1))
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)

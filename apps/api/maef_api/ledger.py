@@ -22,7 +22,7 @@ from .artifacts import (
     ArtifactRejected,
 )
 from .definitions import PinnedDefinition
-from .leases import FencingError, Lease, SequenceGap, TaskPayload
+from .leases import DecisionTask, FencingError, Lease, SequenceGap, TaskPayload
 from .models import Budget, ExecutionEvent, RunDetail, RunRecord
 
 MIGRATIONS = [
@@ -107,6 +107,10 @@ MIGRATIONS = [
     # Cooperative cancellation: the worker sees the flag on its next heartbeat or report.
     """
     ALTER TABLE runs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0;
+    """,
+    # Decision runs share the ledger: `kind` tells them from agent runs.
+    """
+    ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent';
     """,
 ]
 
@@ -306,6 +310,31 @@ class Ledger:
             conn.execute("INSERT INTO reservations (run_id, account_id, reserved_tokens) VALUES (?, ?, ?)", (run_id, account_id, reserve))
             _append(conn, run_id, "task.created", {"agent_id": pinned.agent.id, "dirty_allowed": pinned.dirty and allow_dirty})
             _append(conn, run_id, "task.admitted", {"reserved_tokens": reserve, "worst_case_tokens": bound})
+        return run_id
+
+    def admit_decision(self, decision: DecisionTask, *, reserve: int, max_duration_seconds: int,
+                       account_id: str = "default") -> str:
+        """Reserve `reserve` tokens and queue a decision run (kind "decision") in one transaction."""
+        budget = Budget(max_tokens=reserve, max_duration_seconds=max_duration_seconds, max_turns=1)
+        run_id = uuid.uuid4().hex
+        task = TaskPayload(kind="decision", budget=budget, reserved_tokens=reserve, decision=decision).model_dump_json()
+        profile_id = decision.profile.id
+        with self._transaction() as conn:
+            account = conn.execute("SELECT * FROM budget_accounts WHERE id=?", (account_id,)).fetchone()
+            if account is None:
+                raise AdmissionError("no_account", f"Unknown budget account: {account_id}")
+            free = account["limit_tokens"] - account["reserved_tokens"] - account["spent_tokens"]
+            if reserve > free:
+                raise AdmissionError("insufficient_budget", f"Needs {reserve} tokens, {free} available.")
+            conn.execute("UPDATE budget_accounts SET reserved_tokens = reserved_tokens + ? WHERE id=?", (reserve, account_id))
+            conn.execute(
+                "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, definition_digest, profile_digest, "
+                "effective_budget, reserved_tokens, created_at, task, kind) VALUES (?, 'admitted', ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, 'decision')",
+                (run_id, account_id, f"decision:{profile_id}", decision.profile_digest, decision.profile_digest,
+                 budget.model_dump_json(), reserve, now(), task))
+            conn.execute("INSERT INTO reservations (run_id, account_id, reserved_tokens) VALUES (?, ?, ?)", (run_id, account_id, reserve))
+            _append(conn, run_id, "task.created", {"kind": "decision", "profile_id": profile_id})
+            _append(conn, run_id, "task.admitted", {"reserved_tokens": reserve, "request_bytes": decision.request.request_bytes()})
         return run_id
 
     def append(self, run_id: str, type: str, payload: dict | None = None, *, status: str | None = None) -> None:

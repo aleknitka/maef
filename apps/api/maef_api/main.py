@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
+from .adapters.decision import DecisionRunRequest
 from .artifacts import (
     DIGEST_RE,
     MAX_ARTIFACT_BYTES,
@@ -49,6 +50,8 @@ from .runs import (
     AgentNotFound,
     DefinitionConflict,
     ExecutionDisabled,
+    NotADecisionProfile,
+    ProfileNotFound,
     RunAlreadyTerminal,
     RunNotFound,
     Runs,
@@ -260,6 +263,22 @@ def start_run(request: RunRequest):
         raise HTTPException(status_code=501, detail=str(exc))
     except AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found")
+    except DefinitionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except AdmissionRejected as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
+    return {"run_id": record.id, "status": record.status}
+
+@app.post("/api/v1/decisions", status_code=202)
+def start_decision(request: DecisionRunRequest):
+    try:
+        record = runs.submit_decision(request)
+    except ExecutionDisabled as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except ProfileNotFound:
+        raise HTTPException(status_code=404, detail="Model profile not found")
+    except NotADecisionProfile as exc:
+        raise HTTPException(status_code=409, detail={"code": "not_a_decision_profile", "message": str(exc)})
     except DefinitionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except AdmissionRejected as exc:

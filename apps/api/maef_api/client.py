@@ -22,6 +22,7 @@ DEFAULT_URL = "http://127.0.0.1:8000"
 TERMINAL_STATUSES = ("succeeded", "failed", "cancelled")
 TERMINAL_EVENTS = ("task.succeeded", "task.failed", "task.cancelled")
 RESULT_NAME = "output.md"
+ANSWERS_NAME = "answers.json"
 _MAX_MESSAGE = 300
 _MAX_RECONNECTS = 3
 
@@ -180,6 +181,23 @@ class MaefClient:
     def submit(self, agent_id: str, instruction: str, budget: dict | None = None) -> dict:
         """-> {"run_id", "status"}"""
         return self._call("POST", "/api/v1/runs", self._run_body(agent_id, instruction, budget))
+
+    def decide(self, profile_id: str, state, questions: dict, max_tokens: int | None = None) -> dict:
+        """Queue a decision run -> {"run_id", "status"}. `questions` maps name -> {type, instructions, criteria?}."""
+        body = {"profile_id": profile_id, "state": state, "questions": questions}
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+        return self._call("POST", "/api/v1/decisions", body)
+
+    def answers(self, run_id: str) -> dict | None:
+        """The finished decision's `{"answers": {name: {type, value, ...}}}`, or None when there is none."""
+        for ref in self.artifacts(run_id):
+            if ref.get("name") == ANSWERS_NAME:
+                try:
+                    return json.loads(self.download(ref["digest"]))
+                except ValueError:
+                    raise MaefClientError(0, "bad_response", "The answers artifact is not valid JSON.") from None
+        return None
 
     def get_run(self, run_id: str) -> dict:
         return self._call("GET", f"/api/v1/runs/{quote(run_id, safe='')}")

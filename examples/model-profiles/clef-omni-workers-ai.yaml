@@ -1,0 +1,18 @@
+schema_version: maef.dev/v1alpha1
+id: clef-omni-workers-ai
+version: 0.1.0
+display_name: Clef Omni (Cloudflare Workers AI)
+vendor: Cloudflare
+# Decision model: used with POST /api/v1/decisions or `maef decide`, never by an agent.
+api_dialect: workers-ai-decision
+endpoint:
+  kind: cloudflare-workers-ai
+  base_url: https://api.cloudflare.com/client/v4
+  account_id: "00000000000000000000000000000000"  # your 32-hex Cloudflare account id
+  model_id: "@cf/cloudflare/clef-omni"
+credential_ref: env:CLOUDFLARE_API_TOKEN
+capabilities:
+  input_modalities: [text]
+  streaming: false
+timeout_seconds: 60
+max_retries: 1

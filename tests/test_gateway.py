@@ -38,11 +38,11 @@ def test_initialize_echoes_supported_version_and_falls_back(live_api):
     assert unknown['result']['protocolVersion'] == '2025-06-18'
 
 
-def test_tools_list_has_exactly_five_object_schemas(live_api):
+def test_tools_list_has_exactly_six_object_schemas(live_api):
     [reply] = rpc(MaefClient(live_api.transport), {'jsonrpc': '2.0', 'id': 2, 'method': 'tools/list'})
     tools = reply['result']['tools']
-    assert [t['name'] for t in tools] == ['list_agents', 'delegate', 'run_status', 'run_result', 'cancel_run']
-    assert len(TOOLS) == 5 and all(t['inputSchema']['type'] == 'object' for t in tools)
+    assert [t['name'] for t in tools] == ['list_agents', 'delegate', 'decide', 'run_status', 'run_result', 'cancel_run']
+    assert len(TOOLS) == 6 and all(t['inputSchema']['type'] == 'object' for t in tools)
 
 
 def test_ping_and_protocol_errors(live_api):

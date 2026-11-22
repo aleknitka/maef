@@ -149,6 +149,17 @@ class Definitions:
                 raise ResolveError(f"Sandbox profile unreadable or invalid: {profile_id}") from None
             return None, None
 
+    def resolve_profile(self, profile_id: str) -> tuple[ModelEndpointProfile, bytes, str]:
+        """A model profile pinned to its exact bytes: (profile, bytes, sha256 hex digest)."""
+        if self.profiles.get_profile(profile_id) is None:
+            raise ResolveError(f"Model profile not found: {profile_id}")
+        try:
+            data = (self.profiles.root / f"{profile_id}.yaml").read_bytes()
+            profile = ModelEndpointProfile.model_validate(yaml.safe_load(data))
+        except (OSError, yaml.YAMLError, ValidationError):
+            raise ResolveError(f"Model profile unreadable or invalid: {profile_id}") from None
+        return profile, data, hashlib.sha256(data).hexdigest()
+
     def resolve(self, agent_id: str) -> PinnedDefinition:
         agent = self.agents.get_agent(agent_id)
         if agent is None:

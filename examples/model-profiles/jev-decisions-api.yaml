@@ -1,0 +1,17 @@
+schema_version: maef.dev/v1alpha1
+id: jev-decisions-api
+version: 0.1.0
+display_name: Jev 1.13 (decisions-api.dev)
+vendor: TypeSafe
+# Decision model: used with POST /api/v1/decisions or `maef decide`, never by an agent.
+api_dialect: decisions-api
+endpoint:
+  kind: decisions-api
+  base_url: https://decisions-api.dev
+  model_id: typesafe/jev-1.13
+credential_ref: env:DECISIONS_API_KEY
+capabilities:
+  input_modalities: [text]
+  streaming: false
+timeout_seconds: 60
+max_retries: 1

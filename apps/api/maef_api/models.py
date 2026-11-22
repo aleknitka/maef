@@ -10,6 +10,8 @@ from .artifacts import ArtifactRef
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"
 # Dialects the worker has an adapter for; Runs refuses to admit anything else.
 SUPPORTED_DIALECTS = ("bedrock-converse", "openai-compatible", "anthropic")
+# Decision models answer typed questions about a state (POST /api/v1/decisions); agents cannot use them.
+DECISION_DIALECTS = ("decisions-api", "workers-ai-decision")
 
 class BedrockEndpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -65,8 +67,23 @@ class AnthropicEndpoint(_HttpEndpoint):
     kind: Literal["anthropic"]
     base_url: str = "https://api.anthropic.com"
 
-Endpoint = Annotated[BedrockEndpoint | OpenAICompatibleEndpoint | AnthropicEndpoint, Field(discriminator="kind")]
-_KIND_DIALECT = {"amazon-bedrock": "bedrock-converse", "openai-compatible": "openai-compatible", "anthropic": "anthropic"}
+class DecisionsApiEndpoint(_HttpEndpoint):
+    """decisions-api.dev: POST /v1/systemone (Jev and other decision models)."""
+    kind: Literal["decisions-api"]
+    base_url: str = "https://decisions-api.dev"
+
+class WorkersAiEndpoint(_HttpEndpoint):
+    """Cloudflare Workers AI decision models (Clef): POST /accounts/{account_id}/ai/run/{model_id}."""
+    kind: Literal["cloudflare-workers-ai"]
+    base_url: str = "https://api.cloudflare.com/client/v4"
+    account_id: str = Field(pattern=r"^[0-9a-f]{32}$")
+    model_id: str = Field(pattern=r"^@cf/[a-z0-9._-]+/[a-z0-9._-]+$", max_length=200)
+
+Endpoint = Annotated[
+    BedrockEndpoint | OpenAICompatibleEndpoint | AnthropicEndpoint | DecisionsApiEndpoint | WorkersAiEndpoint,
+    Field(discriminator="kind")]
+_KIND_DIALECT = {"amazon-bedrock": "bedrock-converse", "openai-compatible": "openai-compatible", "anthropic": "anthropic",
+                 "decisions-api": "decisions-api", "cloudflare-workers-ai": "workers-ai-decision"}
 
 class ModelCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -81,7 +98,8 @@ class ModelEndpointProfile(BaseModel):
     version: str
     display_name: str
     vendor: str
-    api_dialect: Literal["bedrock-converse", "openai-compatible", "anthropic", "cli-adapter"]
+    api_dialect: Literal["bedrock-converse", "openai-compatible", "anthropic", "cli-adapter",
+                         "decisions-api", "workers-ai-decision"]
     endpoint: Endpoint
     # Where credentials come from, never a secret value: aws:default-chain, env:NAME, none:local.
     credential_ref: str = Field(pattern=r"^(aws:default-chain|none:local|env:[A-Z][A-Z0-9_]{1,63})$")
@@ -216,6 +234,7 @@ class ExecutionEvent(BaseModel):
 
 class RunRecord(BaseModel):
     id: str
+    kind: Literal["agent", "decision"] = "agent"
     status: Literal["admitted", "leased", "running", "succeeded", "failed", "cancelled"]
     agent_id: str
     git_rev: str | None
