@@ -8,6 +8,13 @@
       "skillPath": "skills/code-review/SKILL.md",
       "computedHash": "03ed68030e1927335991f3290dac4e766f6d78bcca1f077a3fb9ad65aaf666f5"
     },
+    "codebase-design": {
+      "source": "mattpocock/skills",
+      "commit": "abeeaf95660ba9e8b7c753eb38f441ca707a8823",
+      "sourceType": "github",
+      "skillPath": "skills/engineering/codebase-design/SKILL.md",
+      "computedHash": "d40f025dc1b0f2020663260f38f2bcb8d6ed3523afb11e5fda624b01238677e8"
+    },
     "deslop": {
       "source": "cursor/plugins",
       "commit": "792440e8a560a4a3f63748cdee70491ecd412982",
