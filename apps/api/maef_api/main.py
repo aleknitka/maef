@@ -5,11 +5,23 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
+from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+from .artifacts import (
+    DIGEST_RE,
+    MAX_ARTIFACT_BYTES,
+    ArtifactCorrupt,
+    ArtifactIntake,
+    ArtifactNotFound,
+    ArtifactRef,
+    ArtifactRejected,
+    default_artifact_store,
+)
 from .definitions import Definitions
 from .leases import FencingError, SequenceGap
 from .ledger import Ledger
@@ -77,6 +89,7 @@ def allow_dirty() -> bool:
 # Ledger lives under the gitignored runs/ directory unless overridden.
 ledger = Ledger(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
 ledger.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
+artifacts = default_artifact_store()
 runs = Runs(
     Definitions(registry, model_profiles, SandboxProfileRegistry(), McpServerRegistry()), ledger,
     execution_enabled=lambda: execution_enabled(), allow_dirty=lambda: allow_dirty(),
@@ -141,6 +154,30 @@ def get_run(run_id: str):
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+@app.get("/api/v1/runs/{run_id}/artifacts", response_model=list[ArtifactRef])
+def list_run_artifacts(run_id: str):
+    if runs.get(run_id) is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return runs.ledger.artifacts(run_id)
+
+@app.get("/api/v1/artifacts/{digest}", response_class=Response)
+def get_artifact(digest: str):
+    # Only digests recorded for some run are served: the store cannot be probed.
+    ref = runs.ledger.artifact_by_digest(digest) if DIGEST_RE.match(digest) else None
+    if ref is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    try:
+        data = artifacts.read(ref)
+    except ArtifactNotFound:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    except ArtifactCorrupt:
+        raise HTTPException(status_code=500, detail="Artifact failed verification")
+    disposition = f'attachment; filename="{ref.name}"' if ref.name.isascii() else (
+        f"attachment; filename=\"artifact\"; filename*=UTF-8''{quote(ref.name)}")
+    return Response(content=data, headers={
+        "Content-Type": ref.mime, "Content-Disposition": disposition,
+        "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox"})
 
 @app.post("/api/v1/runs", status_code=202)
 def start_run(request: RunRequest):
@@ -230,3 +267,25 @@ def worker_finish(run_id: str, body: FinishRequest):
     except FencingError as exc:
         raise _conflict("fencing", exc)
     return {"ok": True}
+
+@app.post("/api/v1/worker/runs/{run_id}/artifacts", dependencies=[Depends(require_worker)])
+async def worker_artifact(run_id: str, request: Request, name: str = Query(min_length=1, max_length=512),
+                          mime: str = Query(default="application/octet-stream", max_length=200),
+                          x_fencing_token: Annotated[int, Header()] = ..., x_content_digest: Annotated[str, Header()] = ...):
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > MAX_ARTIFACT_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "too_large"})
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > MAX_ARTIFACT_BYTES:
+            raise HTTPException(status_code=413, detail={"code": "too_large"})
+        chunks.append(chunk)
+    try:
+        return await run_in_threadpool(
+            ArtifactIntake(runs.ledger, artifacts).accept, run_id, token=x_fencing_token, name=name, mime=mime,
+            data=b"".join(chunks), digest=x_content_digest)
+    except FencingError as exc:
+        raise _conflict("fencing", exc)
+    except ArtifactRejected as exc:
+        raise HTTPException(status_code=400 if exc.code == "digest_mismatch" else 413, detail={"code": exc.code})

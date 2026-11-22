@@ -15,6 +15,12 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .artifacts import (
+    MAX_RUN_ARTIFACT_BYTES,
+    MAX_RUN_ARTIFACTS,
+    ArtifactRef,
+    ArtifactRejected,
+)
 from .definitions import PinnedDefinition
 from .leases import FencingError, Lease, SequenceGap, TaskPayload
 from .models import Budget, RunDetail, RunRecord
@@ -85,13 +91,26 @@ MIGRATIONS = [
         last_wseq INTEGER NOT NULL DEFAULT 0
     );
     """,
+    # Artifact refs per run; the bytes live in an ArtifactStore.
+    """
+    CREATE TABLE run_artifacts (
+        run_id TEXT NOT NULL REFERENCES runs(id),
+        seq INTEGER NOT NULL,
+        digest TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        mime TEXT NOT NULL,
+        name TEXT NOT NULL,
+        PRIMARY KEY (run_id, seq)
+    );
+    CREATE INDEX run_artifacts_digest ON run_artifacts(digest);
+    """,
 ]
 
 TERMINAL = ("succeeded", "failed", "cancelled")
 # Statuses a worker may move a run to through report(); terminal states only via finish().
 WORKER_STATUSES = ("running",)
 # Event types only the ledger itself may write.
-RESERVED_PREFIXES = ("task.", "lease.")
+RESERVED_PREFIXES = ("task.", "lease.", "artifact.")
 
 
 
@@ -256,6 +275,50 @@ class Ledger:
         """Cancel a run that never used anything."""
         self.settle(run_id, tokens_used=0, status="cancelled", terminal_reason=reason)
 
+    # --- artifacts (bytes live in an ArtifactStore; the ledger holds refs) ---
+
+    def check_artifact_room(self, run_id: str, token: int | None, size: int, *,
+                            digest: str | None = None, name: str | None = None) -> None:
+        """Fencing and per-run limits, before any bytes are stored. An upload already recorded
+        under the same (digest, name) only needs the fencing check."""
+        with self.connect() as conn:
+            if digest is not None and conn.execute(
+                    "SELECT 1 FROM run_artifacts WHERE run_id=? AND digest=? AND name=?",
+                    (run_id, digest, name)).fetchone():
+                if token is not None:
+                    _check_lease(conn, run_id, token)
+                return
+            _artifact_guard(conn, run_id, token, size)
+
+    def add_artifact(self, run_id: str, token: int | None, ref: ArtifactRef) -> None:
+        """Record a ref and emit `artifact.stored`. Idempotent for the same (digest, name), so a
+        retried upload does not double count. `token=None` skips fencing (in-process use)."""
+        with self._transaction() as conn:
+            if conn.execute("SELECT 1 FROM run_artifacts WHERE run_id=? AND digest=? AND name=?",
+                            (run_id, ref.digest, ref.name)).fetchone():
+                if token is not None:
+                    _check_lease(conn, run_id, token)
+                return
+            _artifact_guard(conn, run_id, token, ref.size)
+            seq = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM run_artifacts WHERE run_id=?", (run_id,)).fetchone()[0]
+            conn.execute("INSERT INTO run_artifacts (run_id, seq, digest, size, mime, name) VALUES (?, ?, ?, ?, ?, ?)",
+                         (run_id, seq, ref.digest, ref.size, ref.mime, ref.name))
+            _append(conn, run_id, "artifact.stored", ref.model_dump(include={"name", "digest", "size", "mime"}))
+
+    def artifacts(self, run_id: str) -> "list[ArtifactRef]":  # `list` is shadowed by Ledger.list
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT digest, size, mime, name FROM run_artifacts WHERE run_id=? ORDER BY seq", (run_id,)).fetchall()
+        return [ArtifactRef(**dict(r)) for r in rows]
+
+    def artifact_by_digest(self, digest: str) -> ArtifactRef | None:
+        """The earliest recorded ref for this digest, or None: only recorded digests may be served."""
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT digest, size, mime, name FROM run_artifacts WHERE digest=? ORDER BY rowid LIMIT 1",
+                (digest,)).fetchone()
+        return ArtifactRef(**dict(row)) if row else None
+
     # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
 
     def claim(self, worker_id: str, lease_seconds: float, now: float) -> Lease | None:
@@ -341,6 +404,17 @@ def _check_lease(conn: sqlite3.Connection, run_id: str, token: int) -> sqlite3.R
     if row is None or row["fencing_token"] != token or row["status"] in TERMINAL:
         raise FencingError(f"Stale or unknown lease for run {run_id}")
     return row
+
+
+def _artifact_guard(conn: sqlite3.Connection, run_id: str, token: int | None, size: int) -> None:
+    if token is not None:
+        _check_lease(conn, run_id, token)
+    elif conn.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone() is None:
+        raise ArtifactRejected("unknown_run")
+    count, total = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(size), 0) FROM run_artifacts WHERE run_id=?", (run_id,)).fetchone()
+    if count + 1 > MAX_RUN_ARTIFACTS or total + size > MAX_RUN_ARTIFACT_BYTES:
+        raise ArtifactRejected("run_limit")
 
 
 def _settle(conn: sqlite3.Connection, run_id: str, tokens_used: int, status: str, terminal_reason: str) -> None:

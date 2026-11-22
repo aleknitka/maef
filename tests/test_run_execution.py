@@ -56,9 +56,12 @@ def test_successful_run(store):
     detail = store.get(run.run_id)
     assert detail.status == 'succeeded' and detail.tokens_used == 1200
     assert types(store, run.run_id) == ['task.created', 'task.admitted', 'run.started', 'model.request',
-                                        'model.response', 'usage.recorded', 'run.output', 'run.manifest', 'task.succeeded']
+                                        'model.response', 'usage.recorded', 'artifact.stored', 'run.output', 'run.manifest', 'task.succeeded']
     assert adapter.calls[0]['max_output_tokens'] == 4096
+    output = next(e for e in detail.events if e.type == 'run.output').payload
+    assert set(output) == {'digest', 'size', 'mime', 'name'} and output['name'] == 'output.md'
     manifest = next(e for e in detail.events if e.type == 'run.manifest').payload
+    assert manifest['artifacts'] == [output]
     assert manifest['agent_revision'] == 'abc' and manifest['tokens_used'] == 1200
     acct = store.account('default')
     assert (acct['reserved_tokens'], acct['spent_tokens']) == (0, 1200)

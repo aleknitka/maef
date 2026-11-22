@@ -19,6 +19,7 @@ from .adapters.anthropic import AnthropicAdapter
 from .adapters.base import ModelAdapter
 from .adapters.bedrock import BedrockAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
+from .artifacts import ArtifactRef
 from .channel import HttpChannel, WorkerChannel
 from .credentials import CredentialError, Credentials, Secret
 from .definitions import compute_definition_digest, mcp_ref_problem
@@ -26,6 +27,7 @@ from .harness import PreparedRun, SinkFailure, execute
 from .leases import ChannelError, FencingError, Lease, SequenceGap
 from .mcp import CompositeToolSet, McpError, McpToolSet, sandbox_profile_for
 from .models import McpServerManifest, ModelEndpointProfile, is_pinned_image
+from .outputs import collect_outputs
 from .sandbox import Sandbox, SandboxError, Session, detect_sandbox
 from .tools import SANDBOXED_TOOLS, BuiltinTools
 
@@ -60,13 +62,12 @@ class ChannelSink:
         self._channel, self._lease, self._abandoned, self._sleep = channel, lease, abandoned, sleep
         self._wseq = 0
 
-    def _send(self, call: Callable[[], object]) -> None:
+    def _send(self, call: Callable[[], object]) -> object:
         for attempt in range(SEND_ATTEMPTS):
             if self._abandoned is not None and self._abandoned.is_set():
                 raise SinkFailure("lease_lost")
             try:
-                call()
-                return
+                return call()
             except (FencingError, SequenceGap) as exc:
                 raise SinkFailure(type(exc).__name__) from None
             except ChannelError as exc:
@@ -78,6 +79,9 @@ class ChannelSink:
         wseq = self._wseq + 1
         self._send(lambda: self._channel.report(self._lease, wseq, type, payload, status))
         self._wseq = wseq
+
+    def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
+        return self._send(lambda: self._channel.upload(self._lease, name=name, mime=mime, data=data))
 
     def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
         self._send(lambda: self._channel.finish(
@@ -94,6 +98,9 @@ class _TeardownSink:
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         self._inner.append(type, payload, status=status)
+
+    def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
+        return self._inner.upload(name, mime, data)
 
     def teardown(self) -> None:
         if not self._done:
@@ -230,7 +237,8 @@ class Worker:
             if session is not None:
                 steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
             run_sink = _TeardownSink(sink, steps) if steps else sink
-            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools)
+            outputs = None if session is None else (lambda: collect_outputs(session))
+            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs)
             execute(run_sink, run, adapter, self._clock)
         finally:
             for handle in mcp:

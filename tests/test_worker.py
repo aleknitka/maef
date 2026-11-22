@@ -260,7 +260,8 @@ def test_sandboxed_run_provisions_executes_and_tears_down(store):
     assert ev['sandbox.provisioned']['unpinned_image_allowed'] is True
     assert 'sandbox.torn_down' in ev
     session = sandbox.sessions[0]
-    assert session.execs == [['echo', 'hi']] and session.torn_down
+    assert session.execs[0] == ['echo', 'hi'] and session.execs[1][0] == 'find' and len(session.execs) == 2
+    assert session.torn_down
     assert 0 < session.timeouts[0] <= 30
 
 

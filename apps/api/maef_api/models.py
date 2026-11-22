@@ -5,6 +5,8 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .artifacts import ArtifactRef
+
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"
 # Dialects the worker has an adapter for; Runs refuses to admit anything else.
 SUPPORTED_DIALECTS = ("bedrock-converse", "openai-compatible", "anthropic")
@@ -236,3 +238,4 @@ class ResultManifest(BaseModel):
     output_tokens: int = 0
     tokens_used: int
     terminal_reason: str
+    artifacts: list[ArtifactRef] = Field(default_factory=list)

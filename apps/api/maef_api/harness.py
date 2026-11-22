@@ -1,19 +1,30 @@
 """Harness: the turn loop. One bounded model call per turn, tool calls executed between turns.
 
 The BudgetGuard is consulted before every call. Prompts, tool arguments and tool results are
-never logged: events carry sizes and counts only. The model's final answer is stored once, in
-the `run.output` event.
+never logged: events carry sizes and counts only. The model's final answer is stored once, as the
+`output.md` artifact; `run.output` carries only its ref. Sandbox files under /workspace/out/ are
+collected as artifacts after the loop and listed in the manifest.
 """
 import json
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
 from .adapters.base import Message, ModelAdapter, ToolCall, ToolSpec
+from .artifacts import (
+    ArtifactIntake,
+    ArtifactRef,
+    ArtifactRejected,
+    ArtifactStore,
+    InMemoryArtifactStore,
+)
 from .definitions import PinnedDefinition
 from .guard import BudgetGuard
 from .ledger import Ledger
 from .models import Budget, ResultManifest
+from .outputs import Collected
+from .sandbox import SandboxError
 from .tools import BuiltinTools, ToolResult, ToolSet, spec_bytes
 
 
@@ -25,6 +36,7 @@ class PreparedRun:
     reserved_tokens: int
     instruction: str
     tools: ToolSet | None = None  # None: no tools
+    outputs: Callable[[], Collected] | None = None  # sandbox file collection; None: no sandbox session
 
 
 class SinkFailure(Exception):
@@ -37,14 +49,23 @@ class RunSink(Protocol):
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None: ...
 
+    def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
+        """Store an artifact for this run. Raises ArtifactRejected (not retryable) or SinkFailure."""
+        ...
+
     def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None: ...
 
 
 class LedgerSink:
     """In-process sink: writes straight to the ledger (tests, single-process use)."""
 
-    def __init__(self, ledger: Ledger, run_id: str):
+    def __init__(self, ledger: Ledger, run_id: str, artifacts: ArtifactStore | None = None):
         self._ledger, self._run_id = ledger, run_id
+        self.artifacts = artifacts or InMemoryArtifactStore()
+        self._intake = ArtifactIntake(ledger, self.artifacts)
+
+    def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
+        return self._intake.accept(self._run_id, token=None, name=name, mime=mime, data=data)
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         self._ledger.append(self._run_id, type, payload, status=status)
@@ -71,6 +92,25 @@ def _invoke(tools: ToolSet, call: ToolCall) -> ToolResult:
     return tools.invoke(call.name, call.arguments)
 
 
+def _collect_outputs(sink: RunSink, collect: Callable[[], Collected], artifacts: list[ArtifactRef]) -> None:
+    """Best effort: a collection problem is an event, never a failed run. Only SinkFailure escapes."""
+    try:
+        collected = collect()
+    except Exception as exc:  # noqa: BLE001  # code or class name only
+        code = str(exc) if isinstance(exc, SandboxError) else type(exc).__name__
+        sink.append("outputs.collection_failed", {"code": code})
+        return
+    skipped, stored = list(collected.skipped), 0
+    for file in collected.files:
+        try:
+            artifacts.append(sink.upload(file.name, file.mime, file.data))
+            stored += 1
+        except ArtifactRejected as exc:
+            skipped.append({"name": file.name, "reason": exc.code})
+    if stored or skipped:
+        sink.append("outputs.collected", {"count": stored, "skipped": skipped})
+
+
 def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.monotonic) -> None:
     """Run one prepared run to a terminal state. Model and tool failures are recorded, not raised;
     only SinkFailure escapes (the run was abandoned)."""
@@ -80,6 +120,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     server_of = getattr(tools, "server_of", None) or (lambda name: None)
     guard = BudgetGuard(run.budget, run.reserved_tokens, profile.max_output_tokens, clock)
     in_tokens = out_tokens = 0
+    artifacts: list[ArtifactRef] = []
     status, reason = "failed", "internal_error"
     messages = [Message("user", run.instruction)]
     try:
@@ -124,7 +165,12 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                     messages.append(Message("tool", result.content, tool_call_id=call.id, is_error=result.is_error))
                 continue
 
-            sink.append("run.output", {"text": response.text})
+            try:
+                ref = sink.upload("output.md", "text/markdown", response.text.encode())
+                artifacts.append(ref)
+                sink.append("run.output", ref.model_dump())
+            except ArtifactRejected as exc:
+                sink.append("run.output", {"error": exc.code, "bytes": len(response.text.encode())})
             if response.stop_reason == "end_turn":
                 status, reason = "succeeded", "completed"
             elif response.stop_reason == "max_tokens":
@@ -137,6 +183,9 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
         status, reason = "failed", f"model_error:{type(exc).__name__}"
 
+    if run.outputs is not None:
+        _collect_outputs(sink, run.outputs, artifacts)
+
     # Usage is what the provider reported. A call that errored reported nothing, so it is
     # charged 0 and the reservation is released (known gap: a timeout may still consume upstream).
     # The manifest is written before settle(), whose task.* event is the terminal one.
@@ -145,6 +194,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
         agent_revision=pinned.git_rev, dirty=pinned.dirty,
         definition_digest=pinned.definition_digest, model_profile_revision=pinned.profile_digest,
         input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=guard.tokens_used, terminal_reason=reason,
+        artifacts=artifacts,
     )
     sink.append("run.manifest", manifest.model_dump(mode="json"))
     sink.complete(tokens_used=guard.tokens_used, status=status, terminal_reason=reason)

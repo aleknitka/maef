@@ -8,9 +8,17 @@ import time
 import urllib.error
 import urllib.request
 from typing import Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 from .adapters.http import opener
+from .artifacts import (
+    ArtifactIntake,
+    ArtifactRef,
+    ArtifactRejected,
+    ArtifactStore,
+    InMemoryArtifactStore,
+    sha256_digest,
+)
 from .credentials import Secret
 from .egress import EgressDenied, EgressPolicy
 from .leases import ChannelError, FencingError, Lease, SequenceGap
@@ -28,12 +36,21 @@ class WorkerChannel(Protocol):
                status: str | None = None) -> bool:
         """Raises FencingError or SequenceGap; False means a duplicate that was ignored."""
 
+    def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
+        """Raises FencingError, ChannelError (retryable) or ArtifactRejected (not retryable)."""
+
     def finish(self, lease: Lease, *, tokens_used: int, status: str, terminal_reason: str) -> None: ...
 
 
 class LocalChannel:
-    def __init__(self, ledger: Ledger, lease_seconds: float = 60, clock=time.time):
+    def __init__(self, ledger: Ledger, lease_seconds: float = 60, clock=time.time,
+                 artifacts: ArtifactStore | None = None):
         self._ledger, self._lease_seconds, self._clock = ledger, lease_seconds, clock
+        self.artifacts = artifacts or InMemoryArtifactStore()
+        self._intake = ArtifactIntake(ledger, self.artifacts)
+
+    def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
+        return self._intake.accept(lease.run_id, token=lease.fencing_token, name=name, mime=mime, data=data)
 
     def claim(self, worker_id: str) -> Lease | None:
         return self._ledger.claim(worker_id, self._lease_seconds, self._clock())
@@ -68,13 +85,16 @@ class HttpChannel:
         self._policy = policy or EgressPolicy()
 
     def _post(self, path: str, body: dict) -> bytes | None:
+        return self._send(path, json.dumps(body).encode(), {"Content-Type": "application/json"})
+
+    def _send(self, path: str, data: bytes, headers: dict[str, str]) -> bytes | None:
         url = f"{self._base}/api/v1/worker/{path}"
         try:
             self._policy.check(url, allow_loopback=self._allow_loopback, allow_private=self._allow_private)
         except EgressDenied as exc:
             raise ChannelError(str(exc)) from None
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
-            "Content-Type": "application/json", "Authorization": f"Bearer {self._token.reveal()}"})
+        req = urllib.request.Request(url, data=data, method="POST", headers={
+            **headers, "Authorization": f"Bearer {self._token.reveal()}"})
         try:
             with opener.open(req, timeout=self._timeout) as resp:
                 raw = resp.read()
@@ -87,6 +107,12 @@ class HttpChannel:
                     code = None
                 if code in _CONFLICTS:
                     raise _CONFLICTS[code](code) from None
+            if exc.code in (400, 413) and "/artifacts" in path:
+                try:
+                    code = json.loads(exc.read())["detail"]["code"]
+                except (ValueError, KeyError, TypeError):
+                    code = "rejected"
+                raise ArtifactRejected(code if isinstance(code, str) else "rejected") from None
             raise ChannelError(f"http_error (HTTP {exc.code})") from None
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             raise ChannelError("connection_error") from None
@@ -108,6 +134,16 @@ class HttpChannel:
         try:
             return bool(raw and json.loads(raw).get("appended"))
         except (ValueError, AttributeError):
+            raise ChannelError("bad_response") from None
+
+    def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
+        raw = self._send(
+            f"runs/{lease.run_id}/artifacts?{urlencode({'name': name, 'mime': mime})}", data,
+            {"Content-Type": "application/octet-stream", "X-Fencing-Token": str(lease.fencing_token),
+             "X-Content-Digest": sha256_digest(data)})
+        try:
+            return ArtifactRef.model_validate_json(raw or b"")
+        except ValueError:
             raise ChannelError("bad_response") from None
 
     def finish(self, lease: Lease, *, tokens_used: int, status: str, terminal_reason: str) -> None:
