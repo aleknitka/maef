@@ -24,6 +24,7 @@ TERMINAL_EVENTS = ("task.succeeded", "task.failed", "task.cancelled")
 RESULT_NAME = "output.md"
 ANSWERS_NAME = "answers.json"
 _MAX_MESSAGE = 300
+AUTH_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."
 _MAX_RECONNECTS = 3
 
 
@@ -50,6 +51,8 @@ def error_from_response(status: int, body: bytes) -> MaefClientError:
         message = str(detail.get("message") or message)
     elif isinstance(detail, list):
         code, message = "invalid_request", "The request was rejected as invalid."
+    if status in (401, 403):
+        message = f"{message[:_MAX_MESSAGE - len(AUTH_HINT) - 1]} {AUTH_HINT}"
     return MaefClientError(status, code, message[:_MAX_MESSAGE])
 
 
@@ -65,6 +68,11 @@ class Transport(Protocol):
         ...
 
 
+def _bearer(token: str | None) -> dict:
+    token = token if token is not None else os.environ.get("MAEF_API_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 def _is_loopback(host: str) -> bool:
     if host == "localhost":
         return True
@@ -76,7 +84,8 @@ def _is_loopback(host: str) -> bool:
 
 class HttpTransport:
     def __init__(self, base_url: str | None = None, timeout: float = 30.0, *, allow_private: bool = False,
-                 policy: EgressPolicy | None = None):
+                 policy: EgressPolicy | None = None, token: str | None = None):
+        self._auth = _bearer(token)
         self.base_url = (base_url or os.environ.get("MAEF_API_URL") or DEFAULT_URL).rstrip("/")
         parsed = urlparse(self.base_url)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
@@ -93,7 +102,7 @@ class HttpTransport:
         return opener.open(req, timeout=timeout)  # scheme validated in __init__
 
     def request(self, method, path, *, json=None, headers=None, data=None):
-        hdrs = dict(headers or {})
+        hdrs = {**self._auth, **(headers or {})}
         if data is not None:
             hdrs["Content-Type"] = "text/plain; charset=utf-8"
         elif json is not None:
@@ -112,7 +121,7 @@ class HttpTransport:
             raise MaefClientError(0, "connection_error", "Cannot reach the MAEF API.") from None
 
     def stream(self, path, headers=None):
-        hdrs = {"Accept": "text/event-stream", **(headers or {})}
+        hdrs = {"Accept": "text/event-stream", **self._auth, **(headers or {})}
         req = urllib.request.Request(self.base_url + path, method="GET", headers=hdrs)
         try:
             resp = self._open(req, min(self.timeout, 5.0))  # short reads keep wait() deadlines honest
@@ -137,18 +146,20 @@ def _dumps(value) -> bytes:
 class AsgiTransport:
     """In-process transport over fastapi.testclient (imported lazily: tests only)."""
 
-    def __init__(self, app):
+    def __init__(self, app, token: str | None = None):
         from fastapi.testclient import TestClient
         self._client = TestClient(app)
+        self._auth = _bearer(token)
 
     def request(self, method, path, *, json=None, headers=None, data=None):
+        headers = {**self._auth, **(headers or {})}
         if data is not None:
-            headers = {"Content-Type": "text/plain; charset=utf-8", **(headers or {})}
+            headers = {"Content-Type": "text/plain; charset=utf-8", **headers}
         resp = self._client.request(method, path, json=json, headers=headers, content=data)
         return resp.status_code, dict(resp.headers), resp.content
 
     def stream(self, path, headers=None):
-        with self._client.stream("GET", path, headers=headers) as resp:
+        with self._client.stream("GET", path, headers={**self._auth, **(headers or {})}) as resp:
             if resp.status_code >= 300:
                 resp.read()
                 raise error_from_response(resp.status_code, resp.content)

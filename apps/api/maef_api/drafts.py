@@ -5,7 +5,7 @@ Invariants: a draft is branch `maef/draft/<agent>/<id>` plus a worktree under `r
 (gitignored); only text files under `agents/<agent>/` can be written; publish commits on the draft
 branch and returns the sha, it never merges or pushes (a human merges after review, ADR-0003); the
 published sha can be run at once with `RunRequest.agent_revision`. Discarding a published draft removes the
-worktree but keeps the branch, so the published commit stays reachable. No auth exists before step 11.
+worktree but keeps the branch, so the published commit stays reachable.
 """
 import os
 import re

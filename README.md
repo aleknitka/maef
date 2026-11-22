@@ -18,7 +18,7 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 
 **Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
 
-**Not implemented:** MCP over HTTP, MCP gateway server, remote worker machine credentials and sandboxes (the worker is a plain process using one shared token), actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
+**Not implemented:** MCP over HTTP, MCP gateway server, actual spend enforcement, an enforced egress proxy for open-network MCP servers, publishing, Git commit automation. Studio clearly labels previews as non-executions.
 
 ## Requirements
 - Python >=3.11
@@ -30,28 +30,36 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
+```
+
+Every `/api/v1/*` route needs a bearer token. Create tokens with the local bootstrap CLI (it opens the ledger, `MAEF_DB`, directly and prints each secret once):
+
+```bash
+export MAEF_API_TOKEN=$(maef admin token create --name me --scopes admin)   # admin implies every scope
+maef admin token create --name ci --scopes read,runs:write                   # scopes: read, runs:write, decisions:write, authoring, admin
+maef admin token list; maef admin token revoke ID
+export MAEF_WORKER_CREDENTIAL=$(maef admin worker create --id worker-1)      # one credential per worker
 make api
 ```
 
-API: http://127.0.0.1:8000/docs
+API: http://127.0.0.1:8000/docs. `MAEF_AUTH_DISABLED=1` turns token checks off for loopback clients only (local dev; logs a warning). `GET /api/v1/audit` (admin) lists the audit log.
 
 ## Start a worker (second terminal)
 
-The API only admits and queues runs; a worker process executes them. Both need the same `MAEF_WORKER_TOKEN` (without it every `/api/v1/worker/` route returns 503):
+The API only admits and queues runs; a worker process executes them using its own `MAEF_WORKER_CREDENTIAL` (the lease binds to that credential's worker id):
 
 ```bash
-export MAEF_WORKER_TOKEN=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
 MAEF_EXECUTION_ENABLED=1 make api      # terminal 1
-make worker                            # terminal 2
+make worker                            # terminal 2 (with MAEF_WORKER_CREDENTIAL exported)
 ```
 
-Worker settings: `MAEF_API_URL` (default `http://127.0.0.1:8000`; set `MAEF_API_ALLOW_PRIVATE=1` for a LAN address), `MAEF_WORKER_ID` (default hostname-pid). Model credentials (`env:NAME` references) are read from the worker's own environment, never sent by the API. SIGINT/SIGTERM finish the run in flight, then exit. The API fails runs whose worker stops heartbeating (lease `MAEF_LEASE_SECONDS`, default 60) as `worker_lost`, charging their full reservation.
+Worker settings: `MAEF_API_URL` (default `http://127.0.0.1:8000`; set `MAEF_API_ALLOW_PRIVATE=1` for a LAN address), `MAEF_WORKER_ID` (log label only). Model credentials (`env:NAME` references) are read from the worker's own environment, never sent by the API. SIGINT/SIGTERM finish the run in flight, then exit. The API fails runs whose worker stops heartbeating (lease `MAEF_LEASE_SECONDS`, default 60) as `worker_lost`, charging their full reservation.
 
 ## Follow and cancel a run
 
 ```bash
-curl -N http://127.0.0.1:8000/api/v1/runs/$RUN_ID/events     # live SSE; resume with -H 'Last-Event-ID: 12'
-curl -X POST http://127.0.0.1:8000/api/v1/runs/$RUN_ID/cancel # 202 {"outcome": "cancelled" | "requested"}
+curl -N -H "Authorization: Bearer $MAEF_API_TOKEN" http://127.0.0.1:8000/api/v1/runs/$RUN_ID/events     # live SSE; resume with -H 'Last-Event-ID: 12'
+curl -X POST -H "Authorization: Bearer $MAEF_API_TOKEN" http://127.0.0.1:8000/api/v1/runs/$RUN_ID/cancel # 202 {"outcome": "cancelled" | "requested"}
 ```
 
 A queued run is cancelled immediately; a running one stops within one worker heartbeat (15 s) or sooner, and is charged only for the usage so far.
@@ -63,7 +71,7 @@ A keyboard-first terminal front end (OpenTUI + React on Bun) over the HTTP API a
 ```bash
 cd apps/tui && bun install     # once
 # start the API and a worker as above, then from the repo root:
-make tui                       # MAEF_API_URL defaults to http://127.0.0.1:8000
+make tui                       # MAEF_API_URL defaults to http://127.0.0.1:8000; reads MAEF_API_TOKEN
 ```
 
 Keys: `1`/`2`/`3` agents, new run, runs; `Enter` select; new run: `Tab` next field, `ctrl+p` preview, `ctrl+s` submit, `Esc` back; run detail: `c` cancel, `r` result, `a` artifacts, `Esc` back; `ctrl+r` retry after an API error; `q`/`ctrl+c` quit. Tests: `cd apps/tui && bun test`.
@@ -157,7 +165,7 @@ Runs go through the same queue, worker and token ledger (`POST /api/v1/decisions
 
 ## Authoring agents
 
-Definitions live in Git (ADR-0003); authoring never edits `main`. `maef lint` validates every definition file and `maef schema export --check` fails when `schemas/*.schema.json` lag the models. Drafts are opt-in because the API has no auth until step 11: start it with `MAEF_AUTHORING_ENABLED=1` on loopback only.
+Definitions live in Git (ADR-0003); authoring never edits `main`. `maef lint` validates every definition file and `maef schema export --check` fails when `schemas/*.schema.json` lag the models. Drafts are opt-in (`MAEF_AUTHORING_ENABLED=1`) and need the `authoring` scope.
 
 ```bash
 maef draft new research-analyst                   # branch maef/draft/research-analyst/<id> + worktree in runs/drafts/<id>

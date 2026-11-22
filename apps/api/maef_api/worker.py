@@ -361,9 +361,9 @@ class Worker:
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    token = os.environ.get("MAEF_WORKER_TOKEN")
+    token = os.environ.get("MAEF_WORKER_CREDENTIAL")
     if not token:
-        log.error("MAEF_WORKER_TOKEN is required")
+        log.error("MAEF_WORKER_CREDENTIAL is required (create one with `maef admin worker create --id ID`)")
         return 2
     channel = HttpChannel(
         os.environ.get("MAEF_API_URL", "http://127.0.0.1:8000"), Secret(token),

@@ -6,6 +6,7 @@ export const TERMINAL_STATUSES = ["succeeded", "failed", "cancelled"]
 export const TERMINAL_EVENTS = ["task.succeeded", "task.failed", "task.cancelled"]
 export const RESULT_NAME = "output.md"
 const MAX_MESSAGE = 300
+const AUTH_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."
 const MAX_RECONNECTS = 3
 
 export interface Budget { max_tokens: number; max_duration_seconds: number; max_turns: number }
@@ -49,6 +50,7 @@ export function errorFromResponse(status: number, body: string): ApiError {
       message = String(detail.message || message)
     }
   } catch { /* keep defaults */ }
+  if (status === 401 || status === 403) message = `${safe(message).slice(0, MAX_MESSAGE - AUTH_HINT.length - 1)} ${AUTH_HINT}`
   return new ApiError(status, safe(code), safe(message).slice(0, MAX_MESSAGE))
 }
 
@@ -129,8 +131,10 @@ async function* lineIterator(body: ReadableStream<Uint8Array>): AsyncGenerator<s
   }
 }
 
-export function createApi(baseUrl: string = DEFAULT_URL, fetchImpl: typeof fetch = fetch, retryDelayMs = 500): Api {
+export function createApi(baseUrl: string = DEFAULT_URL, fetchImpl: typeof fetch = fetch, retryDelayMs = 500,
+  token: string | undefined = process.env.MAEF_API_TOKEN): Api {
   const base = baseUrl.replace(/\/+$/, "")
+  const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   const enc = encodeURIComponent
 
   async function send(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<Response> {
@@ -138,7 +142,7 @@ export function createApi(baseUrl: string = DEFAULT_URL, fetchImpl: typeof fetch
     try {
       res = await fetchImpl(base + path, {
         method,
-        headers: body !== undefined ? { "Content-Type": "application/json", ...headers } : headers,
+        headers: body !== undefined ? { "Content-Type": "application/json", ...auth, ...headers } : { ...auth, ...headers },
         body: body !== undefined ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(30_000),
       })
@@ -189,7 +193,7 @@ export function createApi(baseUrl: string = DEFAULT_URL, fetchImpl: typeof fetch
           let res: Response
           try {
             res = await fetchImpl(base + path, {
-              headers: { Accept: "text/event-stream", ...(cursor ? { "Last-Event-ID": String(cursor) } : {}) },
+              headers: { Accept: "text/event-stream", ...auth, ...(cursor ? { "Last-Event-ID": String(cursor) } : {}) },
               signal,
             })
           } catch {

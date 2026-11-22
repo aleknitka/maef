@@ -4,7 +4,7 @@
 (1) Browser -> control-plane API; (2) control plane -> worker; (3) worker -> sandbox; (4) sandbox -> model endpoint/tool/MCP; (5) worker -> artifact store; (6) untrusted Git/skill/tool source -> runtime.
 
 ## Minimum controls before execution is enabled
-- Authentication, authorisation and per-action audit logs for any network-accessible deployment.
+- Authentication, authorisation and per-action audit logs for any network-accessible deployment. **Met (step 11):** scoped bearer tokens on every `/api/v1/*` route, per-worker credentials with lease fencing by worker, append-only `audit_log`. Remaining: TLS termination is the operator's job; tokens have no expiry yet.
 - Immutable Git definition and dependency resolution; signed/approved registries where feasible.
 - Capabilities granted explicitly per agent + task, scoped to filesystem, network and secrets.
 - No arbitrary docker daemon socket mounted into generated-code containers.
@@ -14,7 +14,7 @@
 - Workspace attachment policy guards symlinks, path traversal and host path injection.
 - Explicit approval for destructive actions, external side effects, publishing, merging or escalation.
 - Per-tool instrumentation and accounting; deny launch if budget and pricing policy cannot be evaluated.
-- Endpoint allowlist and protection against SSRF, including private network metadata endpoints.
+- Endpoint allowlist and protection against SSRF, including private network metadata endpoints. (Met for model endpoints in step 1; the enforced egress proxy for open-network MCP servers is step 11b.)
 
 ## Additional concerns
 MCP server descriptions are not trusted instructions. An MCP tool may be compromised or return malicious text. Use signature/pinning and approvals; do not inherit all parent MCP configuration. Even rootless containers share a host kernel. For hostile third-party code, evaluate gVisor/Firecracker microVMs or remote hosts with stronger separation. Limit access to local files and cloud metadata credentials.

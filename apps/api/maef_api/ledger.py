@@ -112,6 +112,37 @@ MIGRATIONS = [
     """
     ALTER TABLE runs ADD COLUMN kind TEXT NOT NULL DEFAULT 'agent';
     """,
+    # Principals and audit (step 11). Only sha256 hashes of tokens are stored; audit_log is append-only.
+    """
+    CREATE TABLE api_tokens (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        scopes TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+    );
+    CREATE TABLE worker_credentials (
+        worker_id TEXT NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL,
+        revoked_at TEXT
+    );
+    CREATE INDEX worker_credentials_worker ON worker_credentials(worker_id);
+    CREATE TABLE audit_log (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        principal TEXT NOT NULL,
+        action TEXT NOT NULL,
+        target TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        client TEXT NOT NULL
+    );
+    CREATE TRIGGER audit_log_no_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+    CREATE TRIGGER audit_log_no_delete BEFORE DELETE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'audit_log is append-only'); END;
+    """,
 ]
 
 TERMINAL = ("succeeded", "failed", "cancelled")
@@ -356,7 +387,8 @@ class Ledger:
     # --- artifacts (bytes live in an ArtifactStore; the ledger holds refs) ---
 
     def check_artifact_room(self, run_id: str, token: int | None, size: int, *,
-                            digest: str | None = None, name: str | None = None) -> None:
+                            digest: str | None = None, name: str | None = None,
+                            worker_id: str | None = None) -> None:
         """Fencing and per-run limits, before any bytes are stored. An upload already recorded
         under the same (digest, name) only needs the fencing check."""
         with self.connect() as conn:
@@ -364,20 +396,20 @@ class Ledger:
                     "SELECT 1 FROM run_artifacts WHERE run_id=? AND digest=? AND name=?",
                     (run_id, digest, name)).fetchone():
                 if token is not None:
-                    _check_lease(conn, run_id, token)
+                    _check_lease(conn, run_id, token, worker_id)
                 return
-            _artifact_guard(conn, run_id, token, size)
+            _artifact_guard(conn, run_id, token, size, worker_id)
 
-    def add_artifact(self, run_id: str, token: int | None, ref: ArtifactRef) -> None:
+    def add_artifact(self, run_id: str, token: int | None, ref: ArtifactRef, *, worker_id: str | None = None) -> None:
         """Record a ref and emit `artifact.stored`. Idempotent for the same (digest, name), so a
         retried upload does not double count. `token=None` skips fencing (in-process use)."""
         with self._transaction() as conn:
             if conn.execute("SELECT 1 FROM run_artifacts WHERE run_id=? AND digest=? AND name=?",
                             (run_id, ref.digest, ref.name)).fetchone():
                 if token is not None:
-                    _check_lease(conn, run_id, token)
+                    _check_lease(conn, run_id, token, worker_id)
                 return
-            _artifact_guard(conn, run_id, token, ref.size)
+            _artifact_guard(conn, run_id, token, ref.size, worker_id)
             seq = conn.execute("SELECT COALESCE(MAX(seq), 0) + 1 FROM run_artifacts WHERE run_id=?", (run_id,)).fetchone()[0]
             conn.execute("INSERT INTO run_artifacts (run_id, seq, digest, size, mime, name) VALUES (?, ?, ?, ?, ?, ?)",
                          (run_id, seq, ref.digest, ref.size, ref.mime, ref.name))
@@ -396,6 +428,71 @@ class Ledger:
                 "SELECT digest, size, mime, name FROM run_artifacts WHERE digest=? ORDER BY rowid LIMIT 1",
                 (digest,)).fetchone()
         return ArtifactRef(**dict(row)) if row else None
+
+    # --- principals and audit (only token hashes are stored; see auth.py) ---
+
+    def register_api_token(self, name: str, scopes: "tuple[str, ...]", token_hash: str) -> str:
+        """Store the hash of a new API token and return its id. Idempotent for an existing hash."""
+        with self._transaction() as conn:
+            row = conn.execute("SELECT id FROM api_tokens WHERE token_hash=?", (token_hash,)).fetchone()
+            if row:
+                return row["id"]
+            token_id = uuid.uuid4().hex[:12]
+            conn.execute("INSERT INTO api_tokens (id, name, token_hash, scopes, created_at) VALUES (?, ?, ?, ?, ?)",
+                         (token_id, name, token_hash, ",".join(scopes), now()))
+        return token_id
+
+    def api_token_by_hash(self, token_hash: str) -> dict | None:
+        """The live (not revoked) token with this hash as {id, name, scopes, token_hash}, or None."""
+        with self.connect() as conn:
+            row = conn.execute("SELECT id, name, scopes, token_hash FROM api_tokens WHERE token_hash=? AND revoked_at IS NULL",
+                               (token_hash,)).fetchone()
+        return None if row is None else {**dict(row), "scopes": tuple(s for s in row["scopes"].split(",") if s)}
+
+    def list_api_tokens(self) -> "list[dict]":  # `list` is shadowed by Ledger.list
+        with self.connect() as conn:
+            rows = conn.execute("SELECT id, name, scopes, created_at, revoked_at FROM api_tokens ORDER BY created_at, rowid").fetchall()
+        return [{**dict(r), "scopes": [s for s in r["scopes"].split(",") if s]} for r in rows]
+
+    def revoke_api_token(self, token_id: str) -> bool:
+        """True when a live token was revoked."""
+        with self._transaction() as conn:
+            return conn.execute("UPDATE api_tokens SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
+                                (now(), token_id)).rowcount > 0
+
+    def register_worker_credential(self, worker_id: str, token_hash: str) -> None:
+        with self._transaction() as conn:
+            conn.execute("INSERT OR IGNORE INTO worker_credentials (worker_id, token_hash, created_at) VALUES (?, ?, ?)",
+                         (worker_id, token_hash, now()))
+
+    def worker_by_hash(self, token_hash: str) -> dict | None:
+        """The live credential with this hash as {worker_id, token_hash}, or None."""
+        with self.connect() as conn:
+            row = conn.execute("SELECT worker_id, token_hash FROM worker_credentials WHERE token_hash=? AND revoked_at IS NULL",
+                               (token_hash,)).fetchone()
+        return None if row is None else dict(row)
+
+    def list_worker_credentials(self) -> "list[dict]":
+        with self.connect() as conn:
+            rows = conn.execute("SELECT worker_id, created_at, revoked_at FROM worker_credentials ORDER BY created_at, rowid").fetchall()
+        return [dict(r) for r in rows]
+
+    def revoke_worker(self, worker_id: str) -> int:
+        """Revoke every live credential of `worker_id`; returns how many."""
+        with self._transaction() as conn:
+            return conn.execute("UPDATE worker_credentials SET revoked_at=? WHERE worker_id=? AND revoked_at IS NULL",
+                                (now(), worker_id)).rowcount
+
+    def audit(self, principal: str, action: str, target: str, outcome: str, client: str) -> None:
+        """Append one audit row. Callers pass identifiers only: never bodies, tokens or secrets."""
+        with self._transaction() as conn:
+            conn.execute("INSERT INTO audit_log (ts, principal, action, target, outcome, client) VALUES (?, ?, ?, ?, ?, ?)",
+                         (now(), principal, action[:200], target[:500], outcome[:200], client[:100]))
+
+    def audit_after(self, after: int = 0, limit: int = 100) -> "list[dict]":
+        with self.connect() as conn:
+            rows = conn.execute("SELECT * FROM audit_log WHERE seq>? ORDER BY seq LIMIT ?", (after, limit)).fetchall()
+        return [dict(r) for r in rows]
 
     # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
 
@@ -417,18 +514,19 @@ class Ledger:
             _append(conn, row["id"], "lease.granted", {"worker_id": worker_id, "fencing_token": token})
         return Lease(run_id=row["id"], fencing_token=token, expires_at=expires, task=TaskPayload.model_validate_json(row["task"]))
 
-    def heartbeat(self, run_id: str, token: int, lease_seconds: float, now: float) -> bool:
+    def heartbeat(self, run_id: str, token: int, lease_seconds: float, now: float, *,
+                  worker_id: str | None = None) -> bool:
         """Extend the lease and return whether cancellation was requested. An already-expired lease
         cannot be revived: the sweep settles it."""
         with self._transaction() as conn:
-            lease = _check_lease(conn, run_id, token)
+            lease = _check_lease(conn, run_id, token, worker_id)
             if lease["expires_at"] < now:
                 raise FencingError("lease expired")
             conn.execute("UPDATE leases SET expires_at=? WHERE run_id=?", (now + lease_seconds, run_id))
             return bool(lease["cancel_requested"])
 
     def report(self, run_id: str, token: int, wseq: int, type: str, payload: dict | None = None,
-               status: str | None = None) -> bool:
+               status: str | None = None, *, worker_id: str | None = None) -> bool:
         """Append a worker event exactly once (a duplicate wseq is ignored) and return whether
         cancellation was requested."""
         if type.startswith(RESERVED_PREFIXES):
@@ -436,7 +534,7 @@ class Ledger:
         if status is not None and status not in WORKER_STATUSES:
             raise ValueError(f"Workers may not set status {status}")
         with self._transaction() as conn:
-            lease = _check_lease(conn, run_id, token)
+            lease = _check_lease(conn, run_id, token, worker_id)
             last = lease["last_wseq"]
             if wseq <= last:
                 return bool(lease["cancel_requested"])
@@ -448,12 +546,13 @@ class Ledger:
             conn.execute("UPDATE leases SET last_wseq=? WHERE run_id=?", (wseq, run_id))
             return bool(lease["cancel_requested"])
 
-    def finish(self, run_id: str, token: int, *, tokens_used: int, status: str, terminal_reason: str) -> None:
+    def finish(self, run_id: str, token: int, *, tokens_used: int, status: str, terminal_reason: str,
+               worker_id: str | None = None) -> None:
         """Settle the run on behalf of the lease holder. A second finish is a FencingError.
 
         Charges max(reported tokens, sum of usage.recorded events) so a worker cannot under-report."""
         with self._transaction() as conn:
-            _check_lease(conn, run_id, token)
+            _check_lease(conn, run_id, token, worker_id)
             # Never charge less than the per-turn usage the worker already reported.
             recorded = sum(
                 json.loads(row["payload"]).get("total_tokens", 0)
@@ -479,17 +578,21 @@ class Ledger:
         return len(rows)
 
 
-def _check_lease(conn: sqlite3.Connection, run_id: str, token: int) -> sqlite3.Row:
+def _check_lease(conn: sqlite3.Connection, run_id: str, token: int, worker_id: str | None = None) -> sqlite3.Row:
+    """`worker_id` (the authenticated worker) must be the lease holder; None skips the check (in-process use)."""
     row = conn.execute(
         "SELECT l.*, r.status, r.cancel_requested FROM leases l JOIN runs r ON r.id = l.run_id WHERE l.run_id=?", (run_id,)).fetchone()
     if row is None or row["fencing_token"] != token or row["status"] in TERMINAL:
         raise FencingError(f"Stale or unknown lease for run {run_id}")
+    if worker_id is not None and row["worker_id"] != worker_id:
+        raise FencingError(f"Lease for run {run_id} is held by another worker")
     return row
 
 
-def _artifact_guard(conn: sqlite3.Connection, run_id: str, token: int | None, size: int) -> None:
+def _artifact_guard(conn: sqlite3.Connection, run_id: str, token: int | None, size: int,
+                    worker_id: str | None = None) -> None:
     if token is not None:
-        _check_lease(conn, run_id, token)
+        _check_lease(conn, run_id, token, worker_id)
     elif conn.execute("SELECT 1 FROM runs WHERE id=?", (run_id,)).fetchone() is None:
         raise ArtifactRejected("unknown_run")
     count, total = conn.execute(

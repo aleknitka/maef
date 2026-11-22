@@ -49,6 +49,19 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=600, metavar="SECONDS")
     s.add_argument("--json", action="store_true")
     sub.add_parser("mcp", help="run the stdio MCP gateway")
+    a = sub.add_parser("admin", help="bootstrap tokens and worker credentials (local, uses MAEF_DB directly)")
+    admin_sub = a.add_subparsers(dest="admin_cmd", required=True)
+    t = admin_sub.add_parser("token", help="API tokens").add_subparsers(dest="action", required=True)
+    s = t.add_parser("create", help="print a new API token once")
+    s.add_argument("--name", required=True)
+    s.add_argument("--scopes", required=True, metavar="a,b",
+                   help="comma list of: read, runs:write, decisions:write, authoring, admin (admin implies all)")
+    t.add_parser("list")
+    t.add_parser("revoke").add_argument("id")
+    w = admin_sub.add_parser("worker", help="worker credentials").add_subparsers(dest="action", required=True)
+    w.add_parser("create", help="print a new worker credential once").add_argument("--id", required=True)
+    w.add_parser("list")
+    w.add_parser("revoke").add_argument("id")
     s = sub.add_parser("lint", help="validate definition files (default: this repository)")
     s.add_argument("paths", nargs="*", metavar="PATH")
     s = sub.add_parser("schema", help="JSON Schemas of the definition formats")
@@ -283,6 +296,56 @@ def _has_changes(p: dict) -> bool:
         "budget_increases", "runtime_changes", "mcp_new_secrets", "mcp_network_open_added"))
 
 
+def _admin(args) -> int:
+    """Talks to the ledger DB directly (not over HTTP): this is the root of trust. Prints a token only at creation."""
+    from .auth import (
+        AuthError,
+        issue_api_token,
+        issue_worker_credential,
+        local_ledger,
+        parse_scopes,
+    )
+    ledger = local_ledger()
+    who, kind, action = "local-cli", args.admin_cmd, args.action
+    try:
+        if kind == "token" and action == "create":
+            scopes = parse_scopes(args.scopes)
+            token_id, token = issue_api_token(ledger, args.name, scopes)
+            ledger.audit(who, "token.create", f"token:{token_id}", "ok", "local")
+            _err(f"created token {token_id} ({args.name}; scopes {','.join(scopes)}); it is shown once")
+            print(token)
+        elif kind == "token" and action == "list":
+            for t in ledger.list_api_tokens():
+                print(f"{t['id']}\t{t['name']}\t{','.join(t['scopes'])}\t{t['created_at']}\t"
+                      f"{'revoked ' + t['revoked_at'] if t['revoked_at'] else 'active'}")
+        elif kind == "token":
+            ok = ledger.revoke_api_token(args.id)
+            ledger.audit(who, "token.revoke", f"token:{args.id}", "ok" if ok else "not_found", "local")
+            if not ok:
+                _err(f"no active token {args.id}")
+                return EXIT_ERROR
+            _err(f"revoked {args.id}")
+        elif action == "create":
+            token = issue_worker_credential(ledger, args.id)
+            ledger.audit(who, "worker.create", f"worker:{args.id}", "ok", "local")
+            _err(f"created credential for worker {args.id}; it is shown once")
+            print(token)
+        elif action == "list":
+            for c in ledger.list_worker_credentials():
+                print(f"{c['worker_id']}\t{c['created_at']}\t{'revoked ' + c['revoked_at'] if c['revoked_at'] else 'active'}")
+        else:
+            count = ledger.revoke_worker(args.id)
+            ledger.audit(who, "worker.revoke", f"worker:{args.id}", "ok" if count else "not_found", "local")
+            if not count:
+                _err(f"no active credential for worker {args.id}")
+                return EXIT_ERROR
+            _err(f"revoked {count} credential(s) of {args.id}")
+    except AuthError as exc:
+        _err(f"error: {exc}")
+        return EXIT_ERROR
+    return EXIT_OK
+
+
 def _dispatch(client: MaefClient, args) -> int:
     cmd = args.cmd
     if cmd == "agents":
@@ -337,6 +400,8 @@ def main(argv: list[str] | None = None, client: MaefClient | None = None) -> int
             return _lint(args)
         if args.cmd == "schema":
             return _schema_export(args)
+        if args.cmd == "admin":
+            return _admin(args)
         if args.cmd == "mcp":
             from .gateway import Gateway
             return Gateway(client or MaefClient(HttpTransport()), sys.stdin.buffer, sys.stdout.buffer).serve()

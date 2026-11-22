@@ -9,6 +9,7 @@ import uvicorn
 from fastapi.testclient import TestClient
 from maef_api import main
 from maef_api.adapters.base import ModelResponse
+from maef_api.auth import hash_token
 from maef_api.channel import HttpChannel, LocalChannel
 from maef_api.credentials import Secret
 from maef_api.definitions import compute_definition_digest
@@ -19,7 +20,7 @@ from maef_api.runs import Runs
 from maef_api.worker import Worker
 from test_run_execution import definition
 
-TOKEN = 'worker-secret'
+TOKEN = 'maefw_test-worker-credential'  # registered for worker 'w1' by the `api`/`http` fixtures
 AUTH = {'Authorization': f'Bearer {TOKEN}'}
 
 
@@ -74,7 +75,7 @@ def store(tmp_path):
 
 @pytest.fixture
 def api(store, monkeypatch):
-    monkeypatch.setenv('MAEF_WORKER_TOKEN', TOKEN)
+    store.register_worker_credential('w1', hash_token(TOKEN))
     monkeypatch.setattr(main, 'ledger', store)
     monkeypatch.setattr(main, 'runs', Runs(main.runs.definitions, store,
                                            execution_enabled=lambda: True, allow_dirty=lambda: True))
@@ -143,9 +144,9 @@ def test_fenced_report_stops_harness_without_finish(store):
 
 # --- HTTP routes ---
 
-def test_claim_refused_when_worker_token_unset(api, monkeypatch):
-    monkeypatch.delenv('MAEF_WORKER_TOKEN')
-    assert api.post('/api/v1/worker/claim', json={'worker_id': 'w1'}, headers=AUTH).status_code == 503
+def test_claim_refused_when_worker_credential_revoked(api, store):
+    store.revoke_worker('w1')
+    assert api.post('/api/v1/worker/claim', json={'worker_id': 'w1'}, headers=AUTH).status_code == 401
 
 
 def test_claim_with_wrong_bearer_is_401(api):

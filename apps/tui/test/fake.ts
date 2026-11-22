@@ -30,6 +30,9 @@ export function startFake() {
     submitError: null as null | { status: number; body: unknown },
     cancelError: null as null | { status: number; body: unknown },
     dropAfterFirst: false,
+    /** When set, requests must carry `Authorization: Bearer <requireToken>` or get 401. */
+    requireToken: null as null | string,
+    authHeaders: [] as (string | null)[],
   }
   const frame = (ev: any) => enc.encode(`id: ${ev.seq}\nevent: ${ev.type}\ndata: ${JSON.stringify(ev)}\n\n`)
   const json = (body: unknown, status = 200) => Response.json(body, { status })
@@ -41,6 +44,9 @@ export function startFake() {
       const url = new URL(req.url)
       const p = url.pathname
       let m: RegExpMatchArray | null
+      state.authHeaders.push(req.headers.get("authorization"))
+      if (state.requireToken && req.headers.get("authorization") !== `Bearer ${state.requireToken}`)
+        return json({ detail: "Missing, invalid or revoked API token." }, 401)
       if (p === "/api/v1/agents") return json(state.agents)
       if (p === "/api/v1/runs/preview" && req.method === "POST") {
         const b: any = await req.json()

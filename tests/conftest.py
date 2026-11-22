@@ -8,6 +8,44 @@ os.environ.setdefault("MAEF_DB", os.path.join(tempfile.mkdtemp(prefix="maef-test
 os.environ.setdefault("MAEF_ARTIFACTS_DIR", os.path.join(tempfile.mkdtemp(prefix="maef-test-art-"), "artifacts"))
 
 
+# --- Auth for the suite -------------------------------------------------------------------------
+# Every Ledger created during a test run is seeded with one admin token (TEST_ADMIN_TOKEN, name
+# "test-admin"), starlette's TestClient sends it by default, and MAEF_API_TOKEN carries it for
+# MaefClient/HttpTransport/AsgiTransport. A test that wants an unauthenticated request passes its own
+# `headers={"Authorization": ...}` to the TestClient or removes `client.headers["Authorization"]`.
+TEST_ADMIN_TOKEN = "maef_test-admin-token-not-a-secret"
+os.environ["MAEF_API_TOKEN"] = TEST_ADMIN_TOKEN
+
+
+def _install_test_auth() -> None:
+    from fastapi.testclient import TestClient
+    from maef_api.auth import hash_token
+    from maef_api.ledger import Ledger
+
+    original_ledger_init = Ledger.__init__
+
+    def ledger_init(self, *args, **kwargs):
+        original_ledger_init(self, *args, **kwargs)
+        self.register_api_token("test-admin", ("admin",), hash_token(TEST_ADMIN_TOKEN))
+
+    Ledger.__init__ = ledger_init
+
+    original_client_init = TestClient.__init__
+
+    def client_init(self, *args, **kwargs):
+        headers = dict(kwargs.pop("headers", None) or {})
+        headers.setdefault("Authorization", f"Bearer {TEST_ADMIN_TOKEN}")
+        original_client_init(self, *args, headers=headers, **kwargs)
+
+    TestClient.__init__ = client_init
+    # The API's own ledger was created at import time, before the patch above.
+    from maef_api import main
+    main.ledger.register_api_token("test-admin", ("admin",), hash_token(TEST_ADMIN_TOKEN))
+
+
+_install_test_auth()
+
+
 def copy_research_analyst(dest):
     """Copy the shipped research-analyst without its MCP server (needs a container runtime to run)."""
     import shutil

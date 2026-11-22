@@ -18,6 +18,7 @@ from maef_api.artifacts import (
     LocalArtifactStore,
     sha256_digest,
 )
+from maef_api.auth import hash_token
 from maef_api.channel import LocalChannel
 from maef_api.leases import FencingError
 from maef_api.ledger import Ledger
@@ -344,7 +345,7 @@ def test_failed_collection_is_recorded_and_run_still_succeeds(store, tmp_path):
 
 @pytest.fixture
 def http(store, tmp_path, monkeypatch):
-    monkeypatch.setenv('MAEF_WORKER_TOKEN', TOKEN)
+    store.register_worker_credential('w1', hash_token(TOKEN))
     blobs = LocalArtifactStore(tmp_path / 'http-blobs')
     monkeypatch.setattr(main, 'ledger', store)
     monkeypatch.setattr(main, 'runs', Runs(main.runs.definitions, store,
@@ -360,11 +361,11 @@ def upload(client, run_id, data, *, token=1, digest=None, auth=AUTH, name='out.t
                        content=data, headers=headers)
 
 
-def test_upload_refused_when_worker_token_unset(http, store, monkeypatch):
+def test_upload_refused_when_worker_credential_revoked(http, store):
     client, _ = http
     run_id, _ = claim_run(store)
-    monkeypatch.delenv('MAEF_WORKER_TOKEN')
-    assert upload(client, run_id, b'x').status_code == 503
+    store.revoke_worker('w1')
+    assert upload(client, run_id, b'x').status_code == 401
 
 
 def test_upload_with_wrong_or_missing_token_is_401(http, store):

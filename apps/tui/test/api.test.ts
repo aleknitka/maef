@@ -104,6 +104,17 @@ describe("error parsing", () => {
     expect(err.unreachable).toBe(false)
   })
 
+  test("the API token is sent as a bearer header and a 401 explains how to get one", async () => {
+    fake.state.requireToken = "maef_secret"
+    try {
+      const denied = await createApi(fake.url, fetch, 5, "").agents().catch((e) => e)
+      expect(denied.status).toBe(401)
+      expect(denied.message).toContain("MAEF_API_TOKEN")
+      expect(await createApi(fake.url, fetch, 5, "maef_secret").agents()).toHaveLength(2)
+      expect(fake.state.authHeaders.at(-1)).toBe("Bearer maef_secret")
+    } finally { fake.state.requireToken = null }
+  })
+
   test("a 500 with a non-JSON body surfaces through createApi as a generic error", async () => {
     queue.push(() => new Response("<pre>stack at /home/x/y.ts:1</pre>", { status: 500 }))
     const err = await createApi(scriptedUrl, fetch, 5).agents().catch((e) => e)

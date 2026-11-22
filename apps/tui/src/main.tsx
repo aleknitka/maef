@@ -11,4 +11,4 @@ if (!/^https?:\/\/[^/]+/.test(url)) {
 
 const renderer = await createCliRenderer({ exitOnCtrlC: false })
 const quit = () => { renderer.destroy(); process.exit(0) }
-createRoot(renderer).render(<App api={createApi(url)} onQuit={quit} />)
+createRoot(renderer).render(<App api={createApi(url, fetch, 500, process.env.MAEF_API_TOKEN)} onQuit={quit} />)

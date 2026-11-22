@@ -9,8 +9,8 @@ One file per profile in `model-profiles/<id>.yaml` (gitignored: profiles are loc
 ## TaskSubmission (preview implemented)
 `agent_id`, `instruction`, optional `budget`. Optional `agent_revision` (40-hex commit sha, or a branch/tag name resolved to a sha at submit time; see Definition authoring). Future: `context_refs`, `artifact_targets`, `priority`, `idempotency_key`, `approval_policy`, `worker_class`.
 
-## WorkerRegistration (planned; step 11)
-Not implemented: workers are identified only by the `worker_id` they send to `claim` and share one `MAEF_WORKER_TOKEN`.
+## WorkerRegistration (credentials implemented in step 11; the rest planned)
+Implemented: a worker is identified by its credential (see "Auth and audit"). Planned fields:
 `worker_id`, `worker_version`, `architecture`, `capabilities[]`, `sandbox_profiles[]`, `capacity`, `heartbeat_interval_seconds`.
 
 ## ExecutionLease (implemented subset)
@@ -41,7 +41,7 @@ SQLite ledger (`runs/maef.db`, override with `MAEF_DB`). `run_events` is append-
 
 **Run lifecycle:** `admitted` (queued, claimable) -> `leased` -> `running` -> `succeeded` | `failed` | `cancelled`. Queued runs survive an API restart.
 
-**Worker protocol (`/api/v1/worker/`, `Authorization: Bearer $MAEF_WORKER_TOKEN`; 503 if the token is unset, 401 if wrong; per-worker machine credentials are step 11):** `POST claim` {worker_id} -> 200 Lease | 204; `POST runs/{id}/heartbeat` {fencing_token}; `POST runs/{id}/events` {fencing_token, wseq, type, payload, status} -> {appended}; `POST runs/{id}/finish` {fencing_token, tokens_used, status, terminal_reason}. Conflicts are 409 `{detail: {code: "fencing" | "sequence_gap"}}`. `wseq` is the worker's own gapless counter from 1: a repeat is ignored (`appended: false`), a gap is refused. Workers may only set status `running` and may not write `task.*` or `lease.*` events. The ledger adds `lease.granted` and `lease.expired`. A lease that is not renewed within `MAEF_LEASE_SECONDS` (default 60) is swept (startup and every 10 s): the run fails as `worker_lost` and its whole reservation is charged. Before running, the worker recomputes the definition digest from the bytes in the lease; a mismatch finishes the run `failed`/`definition_mismatch` with 0 tokens and no model call. In-process execution (the ADR-0002 interim exception) is gone.
+**Worker protocol (`/api/v1/worker/`, `Authorization: Bearer $MAEF_WORKER_CREDENTIAL`, a per-worker credential; 401 if missing, wrong or revoked):** `POST claim` {} -> 200 Lease | 204 (a `worker_id` in the body is ignored: the lease binds to the credential's worker); `POST runs/{id}/heartbeat` {fencing_token}; `POST runs/{id}/events` {fencing_token, wseq, type, payload, status} -> {appended}; `POST runs/{id}/finish` {fencing_token, tokens_used, status, terminal_reason}. Conflicts are 409 `{detail: {code: "fencing" | "sequence_gap"}}`. `wseq` is the worker's own gapless counter from 1: a repeat is ignored (`appended: false`), a gap is refused. Workers may only set status `running` and may not write `task.*` or `lease.*` events. The ledger adds `lease.granted` and `lease.expired`. A lease that is not renewed within `MAEF_LEASE_SECONDS` (default 60) is swept (startup and every 10 s): the run fails as `worker_lost` and its whole reservation is charged. Before running, the worker recomputes the definition digest from the bytes in the lease; a mismatch finishes the run `failed`/`definition_mismatch` with 0 tokens and no model call. In-process execution (the ADR-0002 interim exception) is gone.
 
 ## Endpoint kinds (implemented)
 `endpoint.kind`: `amazon-bedrock`, `openai-compatible` (OpenAI or any local chat/completions server; `base_url`, `token_param`) and `anthropic` (Messages API). `api_dialect` must match the kind. `base_url` must be https, or http on loopback only, with no embedded credentials. `credential_ref` is `aws:default-chain`, `none:local` or `env:NAME`; the key is read from the environment at call time and never stored or logged. HTTP errors record status and class only, never bodies. A missing `usage` block fails the call, since the budget cannot be metered. Other endpoint kinds plug in by adding a kind and an adapter.
@@ -73,7 +73,7 @@ Agents reference servers as `mcp_servers: ["<id>@<version>"]`; `Definitions.reso
 
 **`AgentDefinition.permissions.network_open`** (default `false`): a manifest with `network: open` is only admitted when the agent sets it (`ResolveError` otherwise; the worker re-checks and rejects `network_not_permitted`). Each MCP server gets its own container (its image, the agent's sandbox-profile resource limits or conservative defaults, same hardening); `network: open` uses the runtime's default network.
 
-**Known gap:** there is no domain allowlist or egress proxy. An open-network server can reach any host the container runtime can, including the LAN and cloud metadata endpoints. Enforced egress is planned with step 11 (`BACKEND_PLAN.md`).
+**Known gap:** there is no domain allowlist or egress proxy. An open-network server can reach any host the container runtime can, including the LAN and cloud metadata endpoints. Enforced egress is planned as step 11b (`BACKEND_PLAN.md`).
 
 **Runtime (`mcp.py`):** newline-delimited JSON-RPC 2.0 over the spawned process (`Session.spawn(argv, env=) -> Process{write, readline(timeout), close}`): `initialize` (protocol `2025-06-18`), `notifications/initialized`, paginated `tools/list` (truncated to `max_tools`), `tools/call`. Tools are exposed as `mcp__<server_id>__<tool>`; descriptions are untrusted (control characters stripped, 1 KiB cap), a tool whose `inputSchema` is not an object is skipped, lines over 1 MiB and malformed JSON are errors, `invoke` never raises. `CompositeToolSet` merges tool sets and rejects duplicate names.
 
@@ -86,7 +86,7 @@ Agents reference servers as `mcp_servers: ["<id>@<version>"]`; `Definitions.reso
 
 **What becomes an artifact:** the final model text is stored as `output.md` (`text/markdown`); the `run.output` event now carries only the ref fields `{digest, size, mime, name}` (or `{error, bytes}` if it was refused), not the text. If the run had a built-in sandbox session, regular files directly under `/workspace/out/` (no recursion, symlinks skipped, each at most 8 MiB because of the sandbox read cap) are collected after the model loop with a mime guessed from the extension; problems are recorded as `outputs.collected` `{count, skipped:[{name, reason}]}` or `outputs.collection_failed` `{code}` and never fail the run. `ResultManifest.artifacts: list[ArtifactRef]` lists them all. Every stored artifact emits `artifact.stored` `{name, digest, size, mime}` (ledger-written; the `artifact.` event prefix is reserved) and a row in `run_artifacts(run_id, seq, digest, size, mime, name)` (ledger migration 4).
 
-**Upload (worker):** `POST /api/v1/worker/runs/{id}/artifacts?name=..&mime=..`, raw body, headers `Authorization: Bearer $MAEF_WORKER_TOKEN`, `X-Fencing-Token`, `X-Content-Digest: sha256:<hex>` -> 200 `ArtifactRef`. The server recomputes the digest: mismatch 400 `{code: "digest_mismatch"}`; over a limit 413 `{code: "too_large" | "run_limit"}`; stale lease 409 `{code: "fencing"}`. Repeating the same (digest, name) for a run is idempotent. `WorkerChannel.upload(lease, *, name, mime, data) -> ArtifactRef`.
+**Upload (worker):** `POST /api/v1/worker/runs/{id}/artifacts?name=..&mime=..`, raw body, headers `Authorization: Bearer $MAEF_WORKER_CREDENTIAL`, `X-Fencing-Token`, `X-Content-Digest: sha256:<hex>` -> 200 `ArtifactRef`. The server recomputes the digest: mismatch 400 `{code: "digest_mismatch"}`; over a limit 413 `{code: "too_large" | "run_limit"}`; stale lease 409 `{code: "fencing"}`. Repeating the same (digest, name) for a run is idempotent. `WorkerChannel.upload(lease, *, name, mime, data) -> ArtifactRef`.
 
 **Read:** `GET /api/v1/runs/{id}/artifacts` -> `ArtifactRef[]` (404 unknown run). `GET /api/v1/artifacts/{digest}` -> bytes, only for digests recorded for some run (404 otherwise); verified on read; headers `Content-Type` (stored mime), `Content-Disposition: attachment; filename="<name>"`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox`.
 
@@ -119,7 +119,7 @@ Details and verified wire formats: `docs/DECISION_MODELS.md`. Endpoint kinds `de
 
 **Pinned revision:** `RunRequest.agent_revision`. `Definitions.resolve(agent_id, revision=None)` with a revision reads agent.yaml, instructions, skills, the sandbox profile and MCP manifests from that commit's object store (`git ls-tree` + `git cat-file`; paths must be plain relative paths, only regular files, no symlinks). `git_rev` is the resolved sha and `dirty` is false; the digest algorithm is unchanged, so worker verification is the same. Model profiles are local and still read from disk. An unknown or malformed revision, or a definition missing at that commit, is a `ResolveError` (`POST /api/v1/runs` -> 409). Revision expressions such as `HEAD~1` are refused; only a sha, a branch or tag name, or `HEAD`.
 
-**Drafts (`drafts.Drafts(repo_root)`; routes need `MAEF_AUTHORING_ENABLED=1`, otherwise 501; the API has no auth until step 11, so enable it only on a trusted loopback):**
+**Drafts (`drafts.Drafts(repo_root)`; routes need `MAEF_AUTHORING_ENABLED=1`, otherwise 501; all draft routes need the `authoring` scope):**
 - `POST /api/v1/drafts` {`agent_id`} or {`new_agent_id`} -> 201 Draft {`id` (12 hex), `agent_id`, `branch` (`maef/draft/<agent>/<id>`), `base` (HEAD sha), `created_at`, `new_agent`, `published`}. A git worktree is created under `runs/drafts/<id>` (gitignored). `GET /api/v1/drafts` lists drafts.
 - `PUT /api/v1/drafts/{id}/files/{path}` (text/plain UTF-8 body, <= 256 KiB) writes `path`, a repo-relative file under `agents/<agent>/`. Rejected: `..`, absolute paths, other agents or directories, dot-files, symlinks, binary content (400 `invalid_path`/`invalid_content`, 413 `too_large`).
 - `GET /api/v1/drafts/{id}/review` -> Review {`base`, `diff` (unified diff of the agent directory vs base), `files`, `permissions`, `findings`, `publishable`}. `permissions`: `new_agent`, `tools_added/removed`, `mcp_servers_added/removed`, `network_open` {field, before, after} when `permissions.network_open` changed, `budget_increases` (each budget field that rose, or all for a new agent), `runtime_changes` (model/sandbox profile), `mcp_new_secrets` ({server ref: secret env names not present at base}), `mcp_network_open_added` (server refs whose manifest has open network and did not at base).
@@ -127,3 +127,25 @@ Details and verified wire formats: `docs/DECISION_MODELS.md`. Endpoint kinds `de
 - `DELETE /api/v1/drafts/{id}` removes the worktree and record, and the branch unless the draft was published (the published commit stays reachable).
 Client: `MaefClient.draft_create/draft_list/draft_write/draft_review/draft_publish/draft_discard`, `submit(..., agent_revision=)`, `schema(name)`; `Transport.request` takes an optional raw `data` body. CLI: `maef draft new [AGENT | --new-agent ID]`, `write ID PATH [FILE|-]`, `review ID`, `publish ID -m MSG`, `discard ID`, `list`; `maef run AGENT TASK --revision SHA`.
 
+## Auth and audit (implemented, BACKEND_PLAN step 11)
+**Tokens:** API tokens are `maef_<32 random bytes, urlsafe>`, worker credentials `maefw_<...>`. Each is shown once at creation; only its sha256 is stored (`api_tokens`, `worker_credentials`). Verification looks up the hash, then `hmac.compare_digest`. Create and revoke with the local bootstrap CLI, which opens the ledger (`MAEF_DB`) directly and is the root of trust: `maef admin token create --name N --scopes a,b | list | revoke ID`, `maef admin worker create --id ID | list | revoke ID` (revoking a worker id revokes all its credentials). Clients send `Authorization: Bearer $MAEF_API_TOKEN` (CLI, gateway, TUI); workers use `MAEF_WORKER_CREDENTIAL`. `MAEF_WORKER_TOKEN` no longer exists.
+
+**Scopes** (`admin` implies all): `read`, `runs:write`, `decisions:write`, `authoring`, `admin`. 401 (with `WWW-Authenticate: Bearer`) for a missing, invalid or revoked token; 403 for a valid token without the scope.
+
+| Route | Scope |
+|---|---|
+| `GET /health` | none (reports `auth_required`) |
+| `GET /api/v1/agents[/{id}[/files]]`, `model-profiles[/{id}]`, `schemas/{name}`, `runs`, `runs/{id}`, `runs/{id}/events`, `runs/{id}/artifacts`, `artifacts/{digest}`; `POST runs/preview` | `read` |
+| `POST /api/v1/runs`, `POST runs/{id}/cancel` | `runs:write` (audited) |
+| `POST /api/v1/decisions` | `decisions:write` (audited) |
+| `/api/v1/drafts` (list, review: GET; create, file write, publish, discard: audited) | `authoring` |
+| `GET /api/v1/audit?after=&limit=` | `admin` |
+| `/api/v1/worker/*` | worker credential (not an API token) |
+
+**Dev escape hatch:** `MAEF_AUTH_DISABLED=1` skips API-token checks only when `request.client.host` is loopback (principal `dev-unauthenticated`); a non-loopback client without a valid token gets 403. A warning is logged at startup. It never applies to worker routes.
+
+**Worker identity:** `claim` binds the lease to the authenticated worker; heartbeat, events, finish and artifact upload from a different worker are refused as 409 `fencing`.
+
+**Audit:** `audit_log(seq, ts, principal, action, target, outcome, client)`, append-only (UPDATE/DELETE triggers). `principal` is `token:<id>`, `worker:<id>`, `dev-unauthenticated`, `anonymous` or `local-cli` (bootstrap CLI). `action` is `METHOD /route/{template}` (CLI: `token.create|revoke`, `worker.create|revoke`); `target` the concrete path or `token:<id>`/`worker:<id>`; `outcome` `allowed`, `denied:401`, `denied:403` or `ok`/`not_found` (CLI). Recorded: every run submit/cancel, decision, draft create/write/publish/discard, worker lease grant and finish, every 401/403, and the CLI admin actions. Not recorded: bodies, tokens, idle claims, heartbeats, worker events (those are run events). `GET /api/v1/audit` returns rows after `seq`, oldest first (limit 1-1000). A mutating request whose audit row cannot be written is refused (500).
+
+**Auth refinements:** `MAEF_AUTH_DISABLED=1` applies only to loopback requests that send no `Authorization` header at all (a presented token must be valid) and never grants `admin`. Audit rows written by the auth dependency have outcome `authorized` (checked before the handler runs); run-creating routes add a `run.created` row whose target is the new run id.

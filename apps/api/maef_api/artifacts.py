@@ -212,14 +212,14 @@ class ArtifactIntake:
         self._log, self._store = log, store
 
     def accept(self, run_id: str, *, token: int | None, name: str, mime: str, data: bytes,
-               digest: str | None = None) -> ArtifactRef:
+               digest: str | None = None, worker_id: str | None = None) -> ArtifactRef:
         if len(data) > MAX_ARTIFACT_BYTES:
             raise ArtifactRejected("too_large")
         if digest is not None and digest != sha256_digest(data):
             raise ArtifactRejected("digest_mismatch")
         # A retry of an already-recorded upload is a no-op, even when the run is at its limit.
         self._log.check_artifact_room(run_id, token, len(data),
-                                      digest=sha256_digest(data), name=clean_name(name))
+                                      digest=sha256_digest(data), name=clean_name(name), worker_id=worker_id)
         ref = self._store.put(data, name=name, mime=mime)
-        self._log.add_artifact(run_id, token, ref)
+        self._log.add_artifact(run_id, token, ref, worker_id=worker_id)
         return ref

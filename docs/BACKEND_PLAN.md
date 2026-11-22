@@ -16,17 +16,16 @@ Approved 2026-11-22. Each step is self-contained: tests pass and it is committed
 | 9 | Decision models (Jev, Clef) | `DecisionAdapter.decide(state, questions)` | Jev, Clef, fake | decisions metered in the same ledger |
 | 10 | Definition authoring | JSON Schema export, Git-backed edit/publish | — | publish pins a commit with prompt/permission diffs |
 | 11 | Auth + audit | auth on all routes, audit events, worker machine credentials | — | safe to bind beyond 127.0.0.1 |
+| 11b | Enforced egress allowlist proxy for open-network MCP servers (needs a container runtime to verify) | proxy in front of `network: open` MCP containers | — | an open server can reach only allowlisted hosts |
 | 12 | Postgres + durable queue | second `Ledger` adapter | SQLite, Postgres | same suite passes on both |
 | 13 | Remote ephemeral workers | outbound HTTPS `WorkerChannel` | — | same task, equivalent manifest locally and on a disposable VM |
 | 14 | Observability + evals | OTel export from ledger events; golden tasks | — | agent versions compared on quality and tokens |
-
-- Step 11 also includes: enforced egress allowlist proxy for open-network MCP servers (step 5 only gates `network: open` behind `permissions.network_open`; an open server can reach any host).
 
 ## Front ends
 - [x] **F1 · TUI (`apps/tui`)** — OpenTUI (`@opentui/react` on Bun) over the HTTP API + SSE only: agents, preview/submit with budget, run list, live run view with cancel, result and artifacts. Runs on Linux, WSL2, macOS and over SSH. Built after step 8, before step 9.
 - **F2 · Native/web Studio** — Rune trial on one screen later; the React Studio stays until then.
 
-Ordering: 0→4 sequential; 5–9 depend on 4; 11 must land before any network exposure.
+Ordering: 0→4 sequential; 5–9 depend on 4; 11 must land before any network exposure (11b before enabling open-network MCP servers on a shared host).
 
 ## Status
-- [x] 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [x] 10 · [ ] 11 · [ ] 12 · [ ] 13 · [ ] 14
+- [x] 0 · [x] 1 · [x] 2 · [x] 3 · [x] 4 · [x] 5 · [x] 6 · [x] 7 · [x] 8 · [x] 9 · [x] 10 · [x] 11 · [ ] 11b · [ ] 12 · [ ] 13 · [ ] 14
