@@ -12,7 +12,7 @@ Python API, YAML registry, read-only Studio, task/budget preview, two agents, te
 
 ## Slice 2 — Real local execution
 - Worker daemon + worker lease protocol, one Linux Docker sandbox profile.
-- Minimal LLM harness with OpenAI-compatible adapter first and tool-call cycle.
+- Minimal LLM harness with a Bedrock Converse adapter first (matches the model endpoint profiles) and tool-call cycle. OpenAI-compatible follows.
 - Explicit skill attachment and static tools (MCP following in next slice).
 - Run event ledger, token/time/turn enforcement, quota reservations, cancellation and artifact publisher.
 - Run detail UI with live events and budget consumption.
@@ -21,9 +21,9 @@ Python API, YAML registry, read-only Studio, task/budget preview, two agents, te
 ## Slice 3 — MCPs and specialist test
 - MCP server manifests and per-run startup/shutdown; stdio first, streamable HTTP later.
 - Permission scopes, credential broker, tool invocation traces and policy-based tool filtering.
-- Hyperframes adapter pinned to tested CLI, render+probe validation, regression fixtures.
+- One pinned stdio MCP (e.g. fetch) attached to `research-analyst`, with tool-trace regression fixtures.
 - Host integration via small MCP gateway and CLI.
-**Exit:** Codex/Claude Code delegates a bounded animation task; returns inspected video and editable source without parent loading Hyperframes tools.
+**Exit:** Codex/Claude Code delegates a bounded research task to `research-analyst`; the result returns with tool traces and brokered credentials, without the parent loading the MCP.
 
 ## Slice 4 — Reliability and evaluations
 - Durable queue/leases with fencing and idempotent event processing.
@@ -48,7 +48,6 @@ Python API, YAML registry, read-only Studio, task/budget preview, two agents, te
 7. Add task trace view and SSE endpoint.
 8. Implement MCP manifest schema and prompt/tool-review UI.
 9. Implement CLI and host MCP gateway.
-10. Validate Hyperframes CLI against pinned release and implement renderer.
 
 ## Quality gates
 CI: format/lint, typecheck, unit tests, schema compatibility, sandbox integration tests before execution releases, dependency security checks and approval for expanded capabilities. Production rollouts require clear trust assumptions and a threat-model review.

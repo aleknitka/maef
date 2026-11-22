@@ -1,10 +1,11 @@
 from pathlib import Path
 import yaml
-from .models import AgentDefinition, ModelEndpointProfile
+from .models import AgentDefinition, ModelEndpointProfile, PriceSchedule
 
 ROOT = Path(__file__).resolve().parents[3]
 AGENTS_DIR = ROOT / "agents"
 MODEL_PROFILES_DIR = ROOT / "model-profiles"
+PRICE_SCHEDULES_DIR = ROOT / "price-schedules"
 _ID_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 
 class ModelProfileRegistry:
@@ -29,6 +30,19 @@ class ModelProfileRegistry:
     def _parse(path: Path) -> ModelEndpointProfile:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return ModelEndpointProfile.model_validate(data)
+
+class PriceScheduleRegistry:
+    def __init__(self, root: Path = PRICE_SCHEDULES_DIR):
+        self.root = Path(root).resolve()
+
+    def get_schedule(self, schedule_id: str) -> PriceSchedule | None:
+        if not schedule_id or not set(schedule_id) <= _ID_CHARS:
+            return None
+        path = self.root / f"{schedule_id}.yaml"
+        if not path.is_file() or path.is_symlink():
+            return None
+        schedule = PriceSchedule.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        return schedule if schedule.id == schedule_id else None
 
 class AgentRegistry:
     def __init__(self, root: Path = AGENTS_DIR):

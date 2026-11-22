@@ -8,7 +8,6 @@ instructions: SYSTEM.md
 skills: []
 mcp_servers: []
 runtime:
-  kind: openai-compatible
   model_profile: local-default
   sandbox_profile: restricted-local
 budget:

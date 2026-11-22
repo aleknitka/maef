@@ -23,3 +23,12 @@ One file per profile in `model-profiles/<id>.yaml` (gitignored: profiles are loc
 
 ## Compatibility policy
 Schemas carry explicit API versions. Unknown fields should be rejected on security-critical command contracts; preserve backward compatibility for at least one minor release once public. Worker/controller capability negotiation must prevent unsupported policy downgrades.
+
+## PriceSchedule (implemented v1alpha1)
+`price-schedules/<id>.yaml`, committed (prices are not secrets). `id`, `currency` (USD), `effective_from`, `input_usd_per_million_tokens`, `output_usd_per_million_tokens` (Decimal). Referenced by a profile's `price_schedule_id`; absent means unpriced and admission fails closed. Profiles also gain `max_output_tokens` to bound worst-case turn cost.
+
+## ResolvedDefinition (implemented, internal)
+An agent pinned for a run: `git_rev`, `dirty`, `definition_digest` (sha256 over agent.yaml, instructions and skills), `profile_digest`, resolved `price_schedule`. Unknown git state counts as dirty.
+
+## Changes in this revision
+`Budget.max_cost_usd` is a Decimal serialised as a string. `Runtime.kind` was removed: the dialect comes from the model profile.

@@ -13,7 +13,7 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 - Read-only FastAPI endpoints to inspect agent definitions and context files.
 - Task **preview** endpoint showing effective bounded budgets and selected runtime profile.
 - React Studio for inspecting agents, skills, model/sandbox profiles, outputs and task previews.
-- Two example agent definitions and API tests.
+- One example agent definition and API tests.
 - Architecture, contracts, ADRs, security considerations and phased roadmap.
 
 **Not implemented:** LLM calls, sandbox execution, MCP client/server, remote workers, actual spend enforcement, authentication, publishing, Git commit automation. POST `/api/v1/runs` deliberately returns HTTP 501. Studio clearly labels previews as non-executions.

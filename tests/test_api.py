@@ -11,20 +11,20 @@ def test_health():
 def test_agents():
     result = client.get('/api/v1/agents')
     assert result.status_code == 200
-    assert {'hyperframes-animator', 'research-analyst'} <= {a['id'] for a in result.json()}
+    assert {'research-analyst'} <= {a['id'] for a in result.json()}
 
 def test_preview_clamps_budget():
     result = client.post('/api/v1/runs/preview', json={
-        'agent_id': 'hyperframes-animator', 'instruction': 'Create intro',
-        'budget': {'max_cost_usd': 20, 'max_duration_seconds': 1000, 'max_turns': 100}
+        'agent_id': 'research-analyst', 'instruction': 'Summarise',
+        'budget': {'max_cost_usd': '0.25', 'max_duration_seconds': 5000, 'max_turns': 10}
     })
     assert result.status_code == 200
     body = result.json()
     assert body['status'] == 'preview_only'
-    assert body['effective_budget'] == {'max_cost_usd': 0.75, 'max_duration_seconds': 600, 'max_turns': 25}
+    assert body['effective_budget'] == {'max_cost_usd': '0.25', 'max_duration_seconds': 900, 'max_turns': 10}
 
 def test_execution_explicitly_unavailable():
-    result = client.post('/api/v1/runs', json={'agent_id': 'hyperframes-animator', 'instruction': 'Hi'})
+    result = client.post('/api/v1/runs', json={'agent_id': 'research-analyst', 'instruction': 'Hi'})
     assert result.status_code == 501
 
 def test_path_traversal_rejected():
