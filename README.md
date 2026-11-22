@@ -56,6 +56,18 @@ curl -X POST http://127.0.0.1:8000/api/v1/runs/$RUN_ID/cancel # 202 {"outcome": 
 
 A queued run is cancelled immediately; a running one stops within one worker heartbeat (15 s) or sooner, and is charged only for the usage so far.
 
+## Terminal UI
+
+A keyboard-first terminal front end (OpenTUI + React on Bun) over the HTTP API and SSE only. It works over SSH and in WSL2, macOS and Linux terminals.
+
+```bash
+cd apps/tui && bun install     # once
+# start the API and a worker as above, then from the repo root:
+make tui                       # MAEF_API_URL defaults to http://127.0.0.1:8000
+```
+
+Keys: `1`/`2`/`3` agents, new run, runs; `Enter` select; new run: `Tab` next field, `ctrl+p` preview, `ctrl+s` submit, `Esc` back; run detail: `c` cancel, `r` result, `a` artifacts, `Esc` back; `ctrl+r` retry after an API error; `q`/`ctrl+c` quit. Tests: `cd apps/tui && bun test`.
+
 ## Start the Studio (second terminal)
 
 ```bash

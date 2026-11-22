@@ -1,10 +1,12 @@
-.PHONY: api worker studio test test-oci
+.PHONY: api worker studio tui test test-oci
 api:
 	uvicorn maef_api.main:app --app-dir apps/api --reload --host 127.0.0.1 --port 8000
 worker:
 	cd apps/api && python -m maef_api.worker
 studio:
 	cd apps/studio && npm run dev
+tui:
+	cd apps/tui && bun run start
 test:
 	pytest -q
 test-oci:

@@ -23,7 +23,7 @@ Approved 2026-11-22. Each step is self-contained: tests pass and it is committed
 - Step 11 also includes: enforced egress allowlist proxy for open-network MCP servers (step 5 only gates `network: open` behind `permissions.network_open`; an open server can reach any host).
 
 ## Front ends
-- **F1 · TUI (`apps/tui`)** — OpenTUI (`@opentui/react` on Bun) over the HTTP API + SSE only: agents, preview/submit with budget, run list, live run view with cancel, result and artifacts. Runs on Linux, WSL2, macOS and over SSH. Built after step 8, before step 9.
+- [x] **F1 · TUI (`apps/tui`)** — OpenTUI (`@opentui/react` on Bun) over the HTTP API + SSE only: agents, preview/submit with budget, run list, live run view with cancel, result and artifacts. Runs on Linux, WSL2, macOS and over SSH. Built after step 8, before step 9.
 - **F2 · Native/web Studio** — Rune trial on one screen later; the React Studio stays until then.
 
 Ordering: 0→4 sequential; 5–9 depend on 4; 11 must land before any network exposure.
