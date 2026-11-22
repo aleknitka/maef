@@ -111,6 +111,8 @@ class AgentDefinition(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     instructions: str = "SYSTEM.md"
     skills: list[str] = Field(default_factory=list)
+    # Built-in tool names (see tools.BUILTIN_TOOL_NAMES), validated when the definition is pinned.
+    tools: list[str] = Field(default_factory=list)
     mcp_servers: list[str] = Field(default_factory=list)
     runtime: Runtime = Field(default_factory=Runtime)
     budget: Budget = Field(default_factory=Budget)

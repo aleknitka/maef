@@ -1,5 +1,6 @@
 import pytest
 from maef_api.adapters.anthropic import AnthropicAdapter
+from maef_api.adapters.base import Message
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import CredentialError, Credentials, Secret
 from test_http_adapters import OPENAI_OK, Fake, make_profile
@@ -49,7 +50,7 @@ def test_unknown_scheme_rejected():
 def test_openai_adapter_sends_resolved_bearer(fake):
     srv = fake([(200, OPENAI_OK)])
     p = make_profile("openai-compatible", srv.url + "/v1", cred="env:OPENAI_KEY")
-    OpenAICompatibleAdapter(p, Credentials({"OPENAI_KEY": "sk-1"})).converse(system="s", user="q", max_output_tokens=5, timeout_seconds=5)
+    OpenAICompatibleAdapter(p, Credentials({"OPENAI_KEY": "sk-1"})).converse(system="s", messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
     assert srv.requests[0][1]["authorization"] == "Bearer sk-1"
 
 
@@ -57,5 +58,5 @@ def test_anthropic_without_key_fails_before_http(fake):
     srv = fake([])
     p = make_profile("anthropic", srv.url, cred="none:local")
     with pytest.raises(CredentialError):
-        AnthropicAdapter(p, Credentials({})).converse(system="s", user="q", max_output_tokens=5, timeout_seconds=5)
+        AnthropicAdapter(p, Credentials({})).converse(system="s", messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
     assert srv.requests == []

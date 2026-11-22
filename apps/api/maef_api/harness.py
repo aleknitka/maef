@@ -1,16 +1,19 @@
-"""Minimal tool-less harness: one bounded model call per run.
+"""Harness: the turn loop. One bounded model call per turn, tool calls executed between turns.
 
-A tool-less agent finishes in a single turn, so there is no turn loop yet; max_turns
-becomes meaningful once tools exist. Prompts are not logged: events carry sizes and
-token counts only. The model's answer is stored once, in the `run.output` event.
+The BudgetGuard is consulted before every call. Prompts, tool arguments and tool results are
+never logged: events carry sizes and counts only. The model's final answer is stored once, in
+the `run.output` event.
 """
+import json
 import time
 from dataclasses import dataclass
 
-from .adapters.base import ModelAdapter
+from .adapters.base import Message, ModelAdapter, ToolCall, ToolSpec
 from .definitions import PinnedDefinition
+from .guard import BudgetGuard
 from .ledger import Ledger
 from .models import Budget, ResultManifest
+from .tools import BuiltinTools, ToolResult, ToolSet, spec_bytes
 
 
 @dataclass(frozen=True)
@@ -20,36 +23,77 @@ class PreparedRun:
     budget: Budget
     reserved_tokens: int
     instruction: str
+    tools: ToolSet | None = None  # None: no tools
+
+
+def _size(value: object) -> int:
+    return len(json.dumps(value, default=str).encode())
+
+
+def _prompt_bytes(system: str, messages: list[Message], specs: list[ToolSpec]) -> int:
+    """Bytes bound tokens. Must equal the admission estimate for the first turn."""
+    total = len(system.encode()) + spec_bytes(specs)
+    for m in messages:
+        total += len(m.text.encode()) + sum(len(c.name.encode()) + _size(c.arguments) for c in m.tool_calls)
+    return total
+
+
+def _invoke(tools: ToolSet, call: ToolCall) -> ToolResult:
+    if call.parse_error:
+        return ToolResult(call.parse_error, True)
+    return tools.invoke(call.name, call.arguments)
 
 
 def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.monotonic) -> None:
     """Run one prepared run to a terminal state. Never raises: failures are recorded."""
-    started = clock()
     pinned, profile = run.pinned, run.pinned.profile
+    tools = run.tools or BuiltinTools([], {})
+    specs = tools.specs()
+    guard = BudgetGuard(run.budget, run.reserved_tokens, profile.max_output_tokens, clock)
     in_tokens = out_tokens = 0
     status, reason = "failed", "internal_error"
+    messages = [Message("user", run.instruction)]
     try:
         ledger.append(run.run_id, "run.started", status="running")
-        prompt_bytes = len(pinned.instructions.encode()) + len(run.instruction.encode())
-
-        # Worst case for this call must fit in the reservation (prompt bytes bound tokens).
-        worst = prompt_bytes + profile.max_output_tokens
-        remaining = float(run.budget.max_duration_seconds) - (clock() - started)
-        if worst > run.reserved_tokens:
-            reason = "budget_exhausted"
-        elif remaining <= 0:
-            reason = "duration_exhausted"
-        else:
-            ledger.append(run.run_id, "model.request", {"profile": profile.id, "prompt_bytes": prompt_bytes,
-                                                         "max_output_tokens": profile.max_output_tokens})
+        while True:
+            prompt_bytes = _prompt_bytes(pinned.instructions, messages, specs)
+            stop = guard.check(prompt_bytes)
+            if stop:
+                reason = stop
+                break
+            turn = guard.turns + 1
+            ledger.append(run.run_id, "model.request", {
+                "turn": turn, "profile": profile.id, "prompt_bytes": prompt_bytes,
+                "max_output_tokens": profile.max_output_tokens, "tools": len(specs)})
             response = adapter.converse(
-                system=pinned.instructions, user=run.instruction,
+                system=pinned.instructions, messages=list(messages), tools=specs,
                 max_output_tokens=profile.max_output_tokens,
-                timeout_seconds=min(float(profile.timeout_seconds), remaining),
+                timeout_seconds=min(float(profile.timeout_seconds), guard.remaining_seconds()),
             )
-            in_tokens, out_tokens = response.input_tokens, response.output_tokens
-            ledger.append(run.run_id, "model.response", {"stop_reason": response.stop_reason})
-            ledger.append(run.run_id, "usage.recorded", {"input_tokens": in_tokens, "output_tokens": out_tokens, "total_tokens": in_tokens + out_tokens})
+            guard.record(response.input_tokens, response.output_tokens)
+            in_tokens += response.input_tokens
+            out_tokens += response.output_tokens
+            ledger.append(run.run_id, "model.response", {
+                "turn": turn, "stop_reason": response.stop_reason, "tool_calls": len(response.tool_calls)})
+            ledger.append(run.run_id, "usage.recorded", {
+                "turn": turn, "input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
+                "total_tokens": response.input_tokens + response.output_tokens})
+            messages.append(Message("assistant", response.text, response.tool_calls))
+
+            if response.stop_reason == "tool_use":
+                if not response.tool_calls:
+                    reason = "malformed_response"
+                    break
+                for call in response.tool_calls:
+                    ledger.append(run.run_id, "tool.call", {
+                        "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments)})
+                    result = _invoke(tools, call)
+                    ledger.append(run.run_id, "tool.result", {
+                        "turn": turn, "name": call.name, "result_bytes": len(result.content.encode()),
+                        "is_error": result.is_error})
+                    messages.append(Message("tool", result.content, tool_call_id=call.id, is_error=result.is_error))
+                continue
+
             ledger.append(run.run_id, "run.output", {"text": response.text})
             if response.stop_reason == "end_turn":
                 status, reason = "succeeded", "completed"
@@ -57,6 +101,7 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
                 reason = "output_truncated"
             else:
                 reason = f"unsupported_stop_reason:{response.stop_reason}"
+            break
     except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
         status, reason = "failed", f"model_error:{type(exc).__name__}"
 
@@ -67,7 +112,7 @@ def execute(ledger: Ledger, run: PreparedRun, adapter: ModelAdapter, clock=time.
         run_id=run.run_id, status=status, agent_id=pinned.agent.id,
         agent_revision=pinned.git_rev, dirty=pinned.dirty,
         definition_digest=pinned.definition_digest, model_profile_revision=pinned.profile_digest,
-        input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=in_tokens + out_tokens, terminal_reason=reason,
+        input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=guard.tokens_used, terminal_reason=reason,
     )
     ledger.append(run.run_id, "run.manifest", manifest.model_dump(mode="json"))
-    ledger.settle(run.run_id, tokens_used=in_tokens + out_tokens, status=status, terminal_reason=reason)
+    ledger.settle(run.run_id, tokens_used=guard.tokens_used, status=status, terminal_reason=reason)

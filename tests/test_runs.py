@@ -24,7 +24,7 @@ class FakeAdapter:
 
     def converse(self, **kwargs):
         self.calls.append(kwargs)
-        return ModelResponse(text='answer', stop_reason='end_turn', input_tokens=7, output_tokens=5)
+        return ModelResponse(text='answer', tool_calls=(), stop_reason='end_turn', input_tokens=7, output_tokens=5)
 
 
 def inline(fn):

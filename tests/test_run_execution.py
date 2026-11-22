@@ -6,7 +6,7 @@ import pytest
 from botocore.stub import Stubber
 from fastapi.testclient import TestClient
 from maef_api import main
-from maef_api.adapters.base import ModelResponse
+from maef_api.adapters.base import Message, ModelResponse
 from maef_api.adapters.bedrock import BedrockAdapter
 from maef_api.definitions import PinnedDefinition
 from maef_api.harness import PreparedRun, execute
@@ -51,7 +51,7 @@ def types(store, run_id):
 
 def test_successful_run(store):
     run = prepared(store)
-    adapter = FakeAdapter(ModelResponse('The answer.', 'end_turn', 1000, 200))
+    adapter = FakeAdapter(ModelResponse('The answer.', (), 'end_turn', 1000, 200))
     execute(store, run, adapter)
     detail = store.get(run.run_id)
     assert detail.status == 'succeeded' and detail.tokens_used == 1200
@@ -65,13 +65,13 @@ def test_successful_run(store):
 
 def test_prompts_not_logged(store):
     run = prepared(store)
-    execute(store, run, FakeAdapter(ModelResponse('ok', 'end_turn', 10, 1)))
+    execute(store, run, FakeAdapter(ModelResponse('ok', (), 'end_turn', 10, 1)))
     dump = json.dumps([e.model_dump() for e in store.get(run.run_id).events if e.type != 'run.output'])
     assert 'Question?' not in dump and 'You are an analyst' not in dump
 
 def test_truncated_output_fails_but_is_kept(store):
     run = prepared(store)
-    execute(store, run, FakeAdapter(ModelResponse('partial', 'max_tokens', 10, 4096)))
+    execute(store, run, FakeAdapter(ModelResponse('partial', (), 'max_tokens', 10, 4096)))
     detail = store.get(run.run_id)
     assert detail.status == 'failed' and detail.terminal_reason == 'output_truncated'
     assert 'run.output' in types(store, run.run_id)
@@ -87,7 +87,7 @@ def test_adapter_error_records_class_only_and_releases(store):
 def test_duration_exhausted_skips_model_call(store):
     run = prepared(store)
     ticks = iter([0, 10_000, 10_000])
-    adapter = FakeAdapter(ModelResponse('x', 'end_turn', 1, 1))
+    adapter = FakeAdapter(ModelResponse('x', (), 'end_turn', 1, 1))
     execute(store, run, adapter, clock=lambda: next(ticks))
     assert adapter.calls == [] and store.get(run.run_id).terminal_reason == 'duration_exhausted'
 
@@ -110,7 +110,7 @@ def test_bedrock_request_shape_and_usage_parsing():
             'modelId': 'global.test.model-1', 'system': [{'text': 'sys'}],
             'messages': [{'role': 'user', 'content': [{'text': 'q'}]}], 'inferenceConfig': {'maxTokens': 256},
         })
-        out = adapter.converse(system='sys', user='q', max_output_tokens=256, timeout_seconds=30)
+        out = adapter.converse(system='sys', messages=[Message('user', 'q')], tools=[], max_output_tokens=256, timeout_seconds=30)
     assert (out.text, out.stop_reason, out.input_tokens, out.output_tokens) == ('Hi there', 'end_turn', 12, 3)
 
 def test_bedrock_rejects_other_dialects_and_credentials():
@@ -125,7 +125,7 @@ def api(tmp_path, monkeypatch):
     monkeypatch.setenv('MAEF_ALLOW_DIRTY', '1')
     defs = main.runs.definitions
     monkeypatch.setattr(defs, 'resolve', lambda agent_id: definition(dirty=True))
-    adapter = FakeAdapter(ModelResponse('Done.', 'end_turn', 100, 10))
+    adapter = FakeAdapter(ModelResponse('Done.', (), 'end_turn', 100, 10))
     monkeypatch.setattr(main, 'runs', Runs(defs, s, lambda p: adapter, Runner().submit,
                                            execution_enabled=main.execution_enabled, allow_dirty=main.allow_dirty))
     return TestClient(main.app), s

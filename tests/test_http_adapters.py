@@ -5,6 +5,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 import yaml
 from maef_api.adapters.anthropic import AnthropicAdapter
+from maef_api.adapters.base import Message
 from maef_api.adapters.http import ModelHTTPError
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import CredentialError, Credentials
@@ -56,7 +57,7 @@ OPENAI_OK = {'choices': [{'message': {'content': 'Hi'}, 'finish_reason': 'stop'}
 def test_openai_request_and_parse(fake):
     srv = fake([(200, OPENAI_OK)])
     p = make_profile('openai-compatible', srv.url + '/v1', cred='env:OPENAI_API_KEY', extra_endpoint=', token_param: max_completion_tokens')
-    out = OpenAICompatibleAdapter(p, Credentials({'OPENAI_API_KEY': 'sk-test'})).converse(system='sys', user='q', max_output_tokens=50, timeout_seconds=5)
+    out = OpenAICompatibleAdapter(p, Credentials({'OPENAI_API_KEY': 'sk-test'})).converse(system='sys', messages=[Message('user', 'q')], tools=[], max_output_tokens=50, timeout_seconds=5)
     assert (out.text, out.stop_reason, out.input_tokens, out.output_tokens) == ('Hi', 'end_turn', 7, 2)
     path, headers, body = srv.requests[0]
     assert path == '/v1/chat/completions' and headers['authorization'] == 'Bearer sk-test'
@@ -65,33 +66,33 @@ def test_openai_request_and_parse(fake):
 
 def test_openai_keyless_local_sends_no_auth(fake):
     srv = fake([(200, OPENAI_OK)])
-    OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url + '/v1'), Credentials({})).converse(system='s', user='q', max_output_tokens=5, timeout_seconds=5)
+    OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url + '/v1'), Credentials({})).converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
     assert 'authorization' not in srv.requests[0][1] and srv.requests[0][2]['max_tokens'] == 5
 
 def test_openai_missing_usage_fails(fake):
     srv = fake([(200, {'choices': [{'message': {'content': 'x'}, 'finish_reason': 'stop'}]})])
     with pytest.raises(ModelHTTPError, match='missing_usage'):
-        OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url), Credentials({})).converse(system='s', user='q', max_output_tokens=5, timeout_seconds=5)
+        OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url), Credentials({})).converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
 
 def test_retries_5xx_then_succeeds_and_errors_hide_body(fake):
     srv = fake([(503, {'error': 'secret echo'}), (200, OPENAI_OK)])
     adapter = OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url), Credentials({}), sleep=lambda s: None)
-    assert adapter.converse(system='s', user='q', max_output_tokens=5, timeout_seconds=5).text == 'Hi'
+    assert adapter.converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5).text == 'Hi'
     srv2 = fake([(401, {'error': 'secret echo'})])
     with pytest.raises(ModelHTTPError) as e:
-        OpenAICompatibleAdapter(make_profile('openai-compatible', srv2.url), Credentials({})).converse(system='s', user='q', max_output_tokens=5, timeout_seconds=5)
+        OpenAICompatibleAdapter(make_profile('openai-compatible', srv2.url), Credentials({})).converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
     assert e.value.status == 401 and 'secret' not in str(e.value) and len(srv2.requests) == 1  # 4xx not retried
 
 def test_missing_env_key_names_variable_only():
     p = make_profile('openai-compatible', 'https://api.openai.com/v1', cred='env:OPENAI_API_KEY')
     with pytest.raises(CredentialError, match='missing_credential:OPENAI_API_KEY'):
-        OpenAICompatibleAdapter(p, Credentials({})).converse(system='s', user='q', max_output_tokens=5, timeout_seconds=5)
+        OpenAICompatibleAdapter(p, Credentials({})).converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
 
 def test_anthropic_request_and_parse(fake):
     srv = fake([(200, {'content': [{'type': 'text', 'text': 'A'}, {'type': 'text', 'text': 'B'}], 'stop_reason': 'max_tokens',
                        'usage': {'input_tokens': 11, 'output_tokens': 5}})])
     p = make_profile('anthropic', srv.url, cred='env:ANTHROPIC_API_KEY')
-    out = AnthropicAdapter(p, Credentials({'ANTHROPIC_API_KEY': 'ak-test'})).converse(system='sys', user='q', max_output_tokens=9, timeout_seconds=5)
+    out = AnthropicAdapter(p, Credentials({'ANTHROPIC_API_KEY': 'ak-test'})).converse(system='sys', messages=[Message('user', 'q')], tools=[], max_output_tokens=9, timeout_seconds=5)
     assert (out.text, out.stop_reason, out.input_tokens, out.output_tokens) == ('AB', 'max_tokens', 11, 5)
     path, headers, body = srv.requests[0]
     assert path == '/v1/messages' and headers['x-api-key'] == 'ak-test' and headers['anthropic-version'] == '2023-06-01'

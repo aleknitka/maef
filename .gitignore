@@ -11,4 +11,4 @@ runs/
 artifacts/
 .DS_Store
 # Local model endpoint profiles (machine-specific, never committed)
-model-profiles/
+/model-profiles/

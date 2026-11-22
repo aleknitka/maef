@@ -1,0 +1,17 @@
+schema_version: maef.dev/v1alpha1
+id: lmstudio-qwen3-8b
+version: 0.1.0
+display_name: LM Studio qwen3-8b
+vendor: LM Studio
+api_dialect: openai-compatible
+endpoint:
+  kind: openai-compatible
+  base_url: http://localhost:1234/v1
+  model_id: qwen3-8b
+  # allow_private_network: true  # only when LM Studio runs on another host (see README, WSL2)
+credential_ref: none:local
+capabilities:
+  input_modalities: [text]
+  streaming: false
+timeout_seconds: 300
+max_retries: 1

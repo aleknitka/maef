@@ -7,10 +7,11 @@ import subprocess
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .models import AgentDefinition, ModelEndpointProfile
 from .registry import AgentRegistry, ModelProfileRegistry
+from .tools import BUILTIN_TOOL_NAMES
 
 
 class ResolveError(Exception):
@@ -24,6 +25,8 @@ class PinnedDefinition(BaseModel):
     profile: ModelEndpointProfile
     # The system prompt, decoded from the exact bytes included in definition_digest.
     instructions: str
+    # Instructions and skills by agent-relative path, as pinned; tools read these, never the live tree.
+    files: dict[str, bytes] = Field(default_factory=dict)
     git_rev: str | None
     # True when the agent directory has uncommitted changes; the digest still pins the content.
     dirty: bool
@@ -58,6 +61,9 @@ class Definitions:
         if agent is None:
             raise ResolveError(f"Unknown agent: {agent_id}")
         base = (self.agents.root / agent_id).resolve()
+        for tool in agent.tools:
+            if tool not in BUILTIN_TOOL_NAMES:
+                raise ResolveError(f"Unknown tool: {tool}")
 
         # Only files inside the agent directory may be pinned; symlinks could escape it.
         names = ["agent.yaml", agent.instructions, *sorted(agent.skills)]
@@ -86,6 +92,7 @@ class Definitions:
             agent=agent,
             profile=profile,
             instructions=instructions,
+            files={n: d for n, d in parts if n != "agent.yaml"},
             git_rev=_git(base, "rev-parse", "HEAD"),
             dirty=status is None or status != "",  # unknown git state counts as dirty
             definition_digest=_digest(parts),

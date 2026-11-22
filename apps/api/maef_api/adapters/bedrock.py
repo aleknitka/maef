@@ -1,5 +1,22 @@
 from ..models import ModelEndpointProfile
-from .base import ModelResponse
+from .base import Message, ModelResponse, ToolCall, ToolSpec, grouped, normalise_stop
+
+_STOP = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
+
+
+def _wire_messages(messages: list[Message]) -> list[dict]:
+    out = []
+    for role, batch in grouped(messages):
+        if role == "tool":
+            out.append({"role": "user", "content": [
+                {"toolResult": {"toolUseId": m.tool_call_id, "content": [{"text": m.text}],
+                                "status": "error" if m.is_error else "success"}} for m in batch]})
+            continue
+        for m in batch:
+            blocks = [{"text": m.text}] if m.text else []
+            blocks += [{"toolUse": {"toolUseId": c.id, "name": c.name, "input": c.arguments}} for c in m.tool_calls]
+            out.append({"role": m.role, "content": blocks})
+    return out
 
 
 class BedrockAdapter:
@@ -31,17 +48,25 @@ class BedrockAdapter:
             )
         return self._client
 
-    def converse(self, *, system: str, user: str, max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
+    def converse(self, *, system: str, messages: list[Message], tools: list[ToolSpec],
+                 max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
+        kwargs = {}
+        if tools:
+            kwargs["toolConfig"] = {"tools": [{"toolSpec": {
+                "name": t.name, "description": t.description, "inputSchema": {"json": t.input_schema}}} for t in tools]}
         reply = self._get_client(timeout_seconds).converse(
             modelId=self.profile.endpoint.model_id,
             system=[{"text": system}],
-            messages=[{"role": "user", "content": [{"text": user}]}],
+            messages=_wire_messages(messages),
             inferenceConfig={"maxTokens": max_output_tokens},
+            **kwargs,
         )
         blocks = reply["output"]["message"]["content"]
         return ModelResponse(
             text="".join(b["text"] for b in blocks if "text" in b),
-            stop_reason=reply["stopReason"],
+            tool_calls=tuple(ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"]["input"])
+                             for b in blocks if "toolUse" in b),
+            stop_reason=normalise_stop(reply["stopReason"], _STOP),
             input_tokens=reply["usage"]["inputTokens"],
             output_tokens=reply["usage"]["outputTokens"],
         )

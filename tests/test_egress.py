@@ -3,6 +3,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
+from maef_api.adapters.base import Message
 from maef_api.adapters.http import ModelHTTPError, post_json
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import Credentials
@@ -123,5 +124,5 @@ def test_adapter_denies_metadata_resolution_before_request(fake):
     p = make_profile("openai-compatible", srv.url + "/v1")
     policy = EgressPolicy(resolver=resolver_for("169.254.169.254"))
     with pytest.raises(ModelHTTPError, match="egress_denied"):
-        OpenAICompatibleAdapter(p, Credentials({}), policy=policy).converse(system="s", user="q", max_output_tokens=5, timeout_seconds=5)
+        OpenAICompatibleAdapter(p, Credentials({}), policy=policy).converse(system="s", messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
     assert srv.requests == []

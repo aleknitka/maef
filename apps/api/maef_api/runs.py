@@ -13,6 +13,7 @@ from .models import (
     RunRecord,
     RunRequest,
 )
+from .tools import BuiltinTools, spec_bytes
 
 
 class RunsError(Exception):
@@ -99,17 +100,21 @@ class Runs:
         except ResolveError as exc:
             raise DefinitionConflict(str(exc)) from exc
         adapter = self._adapter_factory(pinned.profile)
+        try:
+            tools = BuiltinTools(pinned.agent.tools, pinned.files)
+        except ValueError as exc:
+            raise DefinitionConflict(str(exc)) from exc
         budget = effective_budget(agent.budget, req.budget)
         try:
             run_id = self.ledger.admit(
                 pinned, budget,
-                prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()),
+                prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(tools.specs()),
                 allow_dirty=self._allow_dirty(),
             )
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
-        prepared = PreparedRun(run_id, pinned, budget, record.reserved_tokens, req.instruction)
+        prepared = PreparedRun(run_id, pinned, budget, record.reserved_tokens, req.instruction, tools)
         self._executor(lambda: execute(self.ledger, prepared, adapter))
         current = self.ledger.get(run_id)
         return RunRecord.model_validate(current.model_dump(exclude={"events"}))
