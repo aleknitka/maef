@@ -1,12 +1,17 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from .models import AgentDefinition, ModelEndpointProfile, RunRequest, RunPreview, Budget
-from .registry import AgentRegistry, ModelProfileRegistry
+import json
+import os
+from .models import AgentDefinition, ModelEndpointProfile, RunDetail, RunRecord, RunRequest, RunPreview, Budget
+from .registry import AgentRegistry, ModelProfileRegistry, ROOT
+from .store import Store
 
 app = FastAPI(title="MAEF Control Plane", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 registry = AgentRegistry()
 model_profiles = ModelProfileRegistry()
+# Ledger lives under the gitignored runs/ directory unless overridden.
+store = Store(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
 
 @app.get("/health")
 def health():
@@ -71,6 +76,21 @@ def preview_run(request: RunRequest):
         skills=agent.skills,
         mcp_servers=agent.mcp_servers,
     )
+
+def _record(row: dict) -> dict:
+    return {**row, "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"]),
+            "reserved_micro_usd": row["reserved_micro"], "cost_micro_usd": row["cost_micro"]}
+
+@app.get("/api/v1/runs", response_model=list[RunRecord])
+def list_runs():
+    return [_record(r) for r in store.list_runs()]
+
+@app.get("/api/v1/runs/{run_id}", response_model=RunDetail)
+def get_run(run_id: str):
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    return _record(run)
 
 @app.post("/api/v1/runs", status_code=501)
 def start_run(_: RunRequest):

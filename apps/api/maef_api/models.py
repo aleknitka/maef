@@ -100,3 +100,42 @@ class ResolvedDefinition(BaseModel):
     model_profile_id: str
     profile_digest: str
     price_schedule: PriceSchedule | None
+
+class ExecutionEvent(BaseModel):
+    run_id: str
+    seq: int
+    type: str
+    ts: str
+    payload: dict = Field(default_factory=dict)
+
+class RunRecord(BaseModel):
+    id: str
+    status: Literal["admitted", "running", "succeeded", "failed", "cancelled"]
+    agent_id: str
+    git_rev: str | None
+    dirty: bool
+    definition_digest: str
+    profile_digest: str
+    effective_budget: Budget
+    reserved_micro_usd: int
+    cost_micro_usd: int | None
+    terminal_reason: str | None
+    created_at: str
+    finished_at: str | None
+
+class RunDetail(RunRecord):
+    events: list[ExecutionEvent]
+
+class ResultManifest(BaseModel):
+    """Written as the final run event. Cost is integer micro-USD (1 USD = 1_000_000)."""
+    run_id: str
+    status: Literal["succeeded", "failed", "cancelled"]
+    agent_id: str
+    agent_revision: str | None
+    dirty: bool
+    definition_digest: str
+    model_profile_revision: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_micro_usd: int
+    terminal_reason: str

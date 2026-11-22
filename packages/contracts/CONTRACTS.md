@@ -32,3 +32,6 @@ An agent pinned for a run: `git_rev`, `dirty`, `definition_digest` (sha256 over 
 
 ## Changes in this revision
 `Budget.max_cost_usd` is a Decimal serialised as a string. `Runtime.kind` was removed: the dialect comes from the model profile.
+
+## ExecutionEvent, ResultManifest, run ledger (implemented)
+SQLite ledger (`runs/maef.db`, override with `MAEF_DB`). `run_events` is append-only (triggers reject UPDATE/DELETE) with gapless `seq` per run. Money is integer micro-USD. Admission reserves `min(budget cap, worst-case cost)` in one `BEGIN IMMEDIATE` transaction and fails closed on unpriced profiles and dirty or unknown git state (dirty allowed only with an explicit flag, recorded in the `task.created` event). `settle` charges the actual cost and returns the remainder. Read-only `GET /api/v1/runs` and `GET /api/v1/runs/{id}`.
