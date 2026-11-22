@@ -1,4 +1,3 @@
-import json
 import os
 
 from fastapi import FastAPI, HTTPException
@@ -7,11 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from .adapters.anthropic import AnthropicAdapter
 from .adapters.bedrock import BedrockAdapter
 from .adapters.openai_compatible import OpenAICompatibleAdapter
-from .admission import AdmissionError, admit
-from .harness import PreparedRun
+from .definitions import Definitions
+from .ledger import Ledger
 from .models import (
     AgentDefinition,
-    Budget,
     ModelEndpointProfile,
     RunDetail,
     RunPreview,
@@ -19,24 +17,27 @@ from .models import (
     RunRequest,
 )
 from .registry import ROOT, AgentRegistry, ModelProfileRegistry
-from .resolve import ResolveError, resolve_definition
 from .runner import Runner
-from .store import Store
+from .runs import (
+    AdmissionRejected,
+    AgentNotFound,
+    DefinitionConflict,
+    ExecutionDisabled,
+    Runs,
+    UnsupportedDialect,
+)
 
 app = FastAPI(title="MAEF Control Plane", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"], allow_methods=["GET", "POST"], allow_headers=["Content-Type"])
 registry = AgentRegistry()
 model_profiles = ModelProfileRegistry()
-# Ledger lives under the gitignored runs/ directory unless overridden.
-store = Store(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
-
-store.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
-runner = Runner(store)
-runner.sweep_orphans()
 
 def execution_enabled() -> bool:
     # Off by default: the API must be opted in to spend money.
     return os.environ.get("MAEF_EXECUTION_ENABLED") == "1"
+
+def allow_dirty() -> bool:
+    return os.environ.get("MAEF_ALLOW_DIRTY") == "1"
 
 def adapter_factory(profile: ModelEndpointProfile):
     if profile.api_dialect == "bedrock-converse":
@@ -45,7 +46,17 @@ def adapter_factory(profile: ModelEndpointProfile):
         return OpenAICompatibleAdapter(profile)
     if profile.api_dialect == "anthropic":
         return AnthropicAdapter(profile)
-    raise HTTPException(status_code=501, detail=f"No adapter for dialect {profile.api_dialect}")
+    raise UnsupportedDialect(f"No adapter for dialect {profile.api_dialect}")
+
+# Ledger lives under the gitignored runs/ directory unless overridden.
+ledger = Ledger(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+ledger.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
+runner = Runner()
+runs = Runs(
+    Definitions(registry, model_profiles), ledger, adapter_factory, runner.submit,
+    execution_enabled=lambda: execution_enabled(), allow_dirty=lambda: allow_dirty(),
+)
+runs.recover()
 
 @app.get("/health")
 def health():
@@ -89,70 +100,34 @@ def agent_files(agent_id: str):
             results.append({"path": relative, "content": path.read_text(encoding="utf-8")})
     return results
 
-def effective_budget(ceiling: Budget, requested: Budget | None) -> Budget:
-    """A request may only tighten the agent's budget, never raise it."""
-    if requested is None:
-        return ceiling
-    return Budget(
-        max_tokens=min(ceiling.max_tokens, requested.max_tokens),
-        max_duration_seconds=min(ceiling.max_duration_seconds, requested.max_duration_seconds),
-        max_turns=min(ceiling.max_turns, requested.max_turns),
-    )
-
 @app.post("/api/v1/runs/preview", response_model=RunPreview)
 def preview_run(request: RunRequest):
-    agent = registry.get_agent(request.agent_id)
-    if agent is None:
+    try:
+        return runs.preview(request)
+    except AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found")
-    b = effective_budget(agent.budget, request.budget)
-    return RunPreview(
-        agent_id=agent.id,
-        instruction=request.instruction,
-        effective_budget=b,
-        model_profile=agent.runtime.model_profile,
-        sandbox_profile=agent.runtime.sandbox_profile,
-        skills=agent.skills,
-        mcp_servers=agent.mcp_servers,
-    )
-
-def _record(row: dict) -> dict:
-    return {**row, "dirty": bool(row["dirty"]), "effective_budget": json.loads(row["effective_budget"]),
-            "reserved_tokens": row["reserved_tokens"], "tokens_used": row["tokens_used"]}
 
 @app.get("/api/v1/runs", response_model=list[RunRecord])
 def list_runs():
-    return [_record(r) for r in store.list_runs()]
+    return runs.list()
 
 @app.get("/api/v1/runs/{run_id}", response_model=RunDetail)
 def get_run(run_id: str):
-    run = store.get_run(run_id)
+    run = runs.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    return _record(run)
+    return run
 
 @app.post("/api/v1/runs", status_code=202)
 def start_run(request: RunRequest):
-    if not execution_enabled():
-        raise HTTPException(status_code=501, detail="Execution disabled. Set MAEF_EXECUTION_ENABLED=1 or use /api/v1/runs/preview.")
-    agent = registry.get_agent(request.agent_id)
-    if agent is None:
+    try:
+        record = runs.submit(request)
+    except (ExecutionDisabled, UnsupportedDialect) as exc:
+        raise HTTPException(status_code=501, detail=str(exc))
+    except AgentNotFound:
         raise HTTPException(status_code=404, detail="Agent not found")
-    try:
-        definition = resolve_definition(agent.id, registry, model_profiles)
-    except ResolveError as exc:
+    except DefinitionConflict as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    profile = model_profiles.get_profile(definition.model_profile_id)
-    adapter = adapter_factory(profile)
-    system_prompt = (registry.root / agent.id / agent.instructions).read_text(encoding="utf-8")
-    budget = effective_budget(agent.budget, request.budget)
-    try:
-        run_id = admit(
-            store, definition, budget, instruction=request.instruction,
-            system_prompt_bytes=len(system_prompt.encode()), max_output_tokens=profile.max_output_tokens,
-            allow_dirty=os.environ.get("MAEF_ALLOW_DIRTY") == "1",
-        )
-    except AdmissionError as exc:
-        raise HTTPException(status_code=409, detail={"code": exc.code, "message": str(exc)})
-    reserved = store.get_run(run_id)["reserved_tokens"]
-    runner.submit(PreparedRun(run_id, definition, profile, budget, reserved, system_prompt, request.instruction), adapter)
-    return {"run_id": run_id, "status": "admitted"}
+    except AdmissionRejected as exc:
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
+    return {"run_id": record.id, "status": record.status}

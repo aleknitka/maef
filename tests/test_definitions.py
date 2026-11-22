@@ -1,9 +1,9 @@
 import shutil
 
 import pytest
+from maef_api.definitions import Definitions, ResolveError
 from maef_api.models import Budget
 from maef_api.registry import AgentRegistry, ModelProfileRegistry
-from maef_api.resolve import ResolveError, resolve_definition
 from test_api import PROFILE
 
 
@@ -17,7 +17,7 @@ def env(tmp_path):
 
 def resolve(env):
     agents, profiles = env
-    return resolve_definition('research-analyst', AgentRegistry(agents), ModelProfileRegistry(profiles))
+    return Definitions(AgentRegistry(agents), ModelProfileRegistry(profiles)).resolve('research-analyst')
 
 def test_digest_stable_and_content_sensitive(env):
     first = resolve(env)
@@ -42,3 +42,7 @@ def test_outside_git_counts_as_dirty(env):
 
 def test_budget_is_token_based():
     assert Budget().max_tokens == 100_000
+
+def test_instructions_come_from_digested_bytes(env):
+    (env[0] / 'research-analyst' / 'SYSTEM.md').write_text('pinned prompt')
+    assert resolve(env).instructions == 'pinned prompt'

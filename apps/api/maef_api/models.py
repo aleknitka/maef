@@ -121,17 +121,6 @@ class RunPreview(BaseModel):
     status: Literal["preview_only"] = "preview_only"
     message: str = "No model invocation or sandbox execution has occurred."
 
-class ResolvedDefinition(BaseModel):
-    """An agent definition pinned to exact content, ready for admission."""
-    agent_id: str
-    agent_version: str
-    git_rev: str | None
-    # True when the agent directory has uncommitted changes; the digest still pins the content.
-    dirty: bool
-    definition_digest: str
-    model_profile_id: str
-    profile_digest: str
-
 class ExecutionEvent(BaseModel):
     run_id: str
     seq: int

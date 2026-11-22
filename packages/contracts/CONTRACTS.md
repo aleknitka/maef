@@ -25,8 +25,8 @@ One file per profile in `model-profiles/<id>.yaml` (gitignored: profiles are loc
 Schemas carry explicit API versions. Unknown fields should be rejected on security-critical command contracts; preserve backward compatibility for at least one minor release once public. Worker/controller capability negotiation must prevent unsupported policy downgrades.
 
 
-## ResolvedDefinition (implemented, internal)
-An agent pinned for a run: `git_rev`, `dirty`, `definition_digest` (sha256 over agent.yaml, instructions and skills), `profile_digest`. Unknown git state counts as dirty.
+## PinnedDefinition (implemented, internal)
+An agent and its model profile pinned for a run (`Definitions.resolve`): `agent`, `profile`, `instructions` (decoded from the digested bytes), `git_rev`, `dirty`, `definition_digest` (sha256 over agent.yaml, instructions and skills), `profile_digest`. Unknown git state counts as dirty.
 
 ## Changes in this revision
 `Budget.max_cost_usd` was replaced by `max_tokens` (total input + output tokens); there are no price schedules. `Runtime.kind` was removed: the dialect comes from the model profile.
