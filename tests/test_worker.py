@@ -217,3 +217,58 @@ def test_http_worker_runs_admitted_run(api, store):
         server.should_exit = True
         thread.join(timeout=5)
     assert store.get(run_id).status == 'succeeded'
+
+
+# --- Sandbox integration (fake adapter) ---
+
+from maef_api.models import AgentDefinition, SandboxProfile
+from maef_api.sandbox import ExecResult, FakeSandbox
+
+SANDBOX = SandboxProfile(schema_version='maef.dev/v1alpha1', id='restricted-local', image='docker.io/library/busybox:1.37',
+                         cpus=1, memory_mb=64, pids_limit=32, workspace_mb=8)
+
+
+def admit_sandboxed(store, sandbox=SANDBOX):
+    d = definition()
+    agent = AgentDefinition(**{**d.agent.model_dump(), 'tools': ['run_command']})
+    d = d.model_copy(update={'agent': agent, 'sandbox': sandbox, 'definition_digest': compute_definition_digest(b'', {})})
+    return store.admit(d, Budget(max_tokens=500_000, max_turns=2), prompt_bytes=28, instruction='go')
+
+
+class ToolThenAnswer:
+    def __init__(self):
+        self.n = 0
+
+    def converse(self, **kw):
+        self.n += 1
+        if self.n == 1:
+            from maef_api.adapters.base import ToolCall
+            return ModelResponse(text='', tool_calls=(ToolCall('c1', 'run_command', {'argv': ['echo', 'hi']}),),
+                                 stop_reason='tool_use', input_tokens=3, output_tokens=2)
+        return ModelResponse(text='done', tool_calls=(), stop_reason='end_turn', input_tokens=3, output_tokens=2)
+
+
+def test_sandboxed_run_provisions_executes_and_tears_down(store):
+    run_id = admit_sandboxed(store)
+    sandbox = FakeSandbox(lambda argv, stdin: ExecResult(0, b'hi\n', b''))
+    worker = Worker(LocalChannel(store), lambda p: ToolThenAnswer(), worker_id='w1', sandbox=sandbox)
+    assert worker.run_once() is True
+    detail = store.get(run_id)
+    assert detail.status == 'succeeded'
+    ev = {e.type: e.payload for e in detail.events}
+    assert ev['sandbox.provisioned']['profile'] == 'restricted-local'
+    assert ev['sandbox.provisioned']['unpinned_image_allowed'] is True
+    assert 'sandbox.torn_down' in ev
+    session = sandbox.sessions[0]
+    assert session.execs == [['echo', 'hi']] and session.torn_down
+    assert 0 < session.timeouts[0] <= 30
+
+
+@pytest.mark.parametrize('sandbox', [None, FakeSandbox(fail='runtime_not_rootless')])
+def test_sandboxed_run_without_usable_sandbox_fails_before_model_call(store, sandbox):
+    run_id = admit_sandboxed(store)
+    adapter = FakeAdapter()
+    assert Worker(LocalChannel(store), lambda p: adapter, worker_id='w1', sandbox=sandbox).run_once() is True
+    detail = store.get(run_id)
+    assert (detail.status, detail.terminal_reason) == ('failed', 'sandbox_unavailable')
+    assert adapter.calls == []

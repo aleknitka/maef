@@ -1,3 +1,4 @@
+import re
 from ipaddress import ip_address
 from typing import Annotated, Literal
 from urllib.parse import urlparse
@@ -93,6 +94,27 @@ class ModelEndpointProfile(BaseModel):
         if _KIND_DIALECT[self.endpoint.kind] != self.api_dialect:
             raise ValueError(f"api_dialect {self.api_dialect} does not match endpoint kind {self.endpoint.kind}")
         return self
+
+_PINNED_IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*@sha256:[0-9a-f]{64}$")
+
+def is_pinned_image(image: str) -> bool:
+    return _PINNED_IMAGE.fullmatch(image) is not None
+
+class SandboxProfile(BaseModel):
+    """Sandbox profile: the OCI image and resource limits a run's commands execute under.
+    Never embeds credentials or mounts. Tag-only images are checked at provisioning time
+    (they need MAEF_ALLOW_UNPINNED_IMAGES=1 in the worker environment)."""
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal["maef.dev/v1alpha1"]
+    id: str = Field(pattern=PROFILE_ID_PATTERN)
+    image: str = Field(min_length=1, max_length=300, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/:@-]*$")
+    cpus: float = Field(gt=0, le=64)
+    memory_mb: int = Field(ge=16, le=262_144)
+    pids_limit: int = Field(ge=8, le=65_536)
+    workspace_mb: int = Field(ge=1, le=65_536)
+    network: Literal["none"] = "none"
+    require_rootless: bool = True
+    user: str = Field(default="65534:65534", pattern=r"^[0-9]+(:[0-9]+)?$")
 
 class Budget(BaseModel):
     # Total model tokens (input + output) a run may use. Integers: exact and provider-neutral.

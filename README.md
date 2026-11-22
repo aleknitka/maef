@@ -18,7 +18,7 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 
 **Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a SQLite ledger (`MAEF_DB`, default `runs/maef.db`); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
 
-**Not implemented:** sandbox execution, external tools, MCP client/server, remote worker machine credentials and sandboxes (the worker is a plain process using one shared token), actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
+**Not implemented:** external tools, MCP client/server, remote worker machine credentials and sandboxes (the worker is a plain process using one shared token), actual spend enforcement, authentication, publishing, Git commit automation. Studio clearly labels previews as non-executions.
 
 ## Requirements
 - Python >=3.11
@@ -70,6 +70,16 @@ Edit `model_id` to a model you have pulled, then set an agent's `runtime.model_p
 
 - **WSL2:** if the server runs on the Windows host, `localhost` will not reach it. Use the host IP from `ip route | awk '/default/ {print $3}'` as `base_url` host and set `allow_private_network: true` in the profile. On macOS and Linux use `localhost`.
 - **Tools:** an agent with `tools:` needs a model that supports tool calling (for example `qwen3`); models without it will ignore or fail the tool definitions. Tool-less agents work with any chat model.
+
+## Sandbox runtimes
+
+Agents that list `run_command` execute inside an OCI container (one per run: read-only root, all capabilities dropped, no network, no mounts, memory/CPU/pids limits, tmpfs `/workspace`). The worker uses only the CLI surface shared by `podman` and `docker` (no runtime API socket) and prefers Podman. Set `MAEF_OCI_RUNTIME=podman|docker` to force one. Profiles live in `sandbox-profiles/`; images need POSIX `sh`, `cat`, `mkdir` and `sleep infinity`.
+
+- **Linux:** `sudo apt install podman` or `sudo dnf install podman` (rootless by default).
+- **WSL2:** install Podman inside the distro, same as Linux. Docker Desktop's WSL integration also works with `MAEF_OCI_RUNTIME=docker`, but Docker Desktop is rootful inside its VM, so use a profile with `require_rootless: false`.
+- **macOS:** `brew install podman && podman machine init && podman machine start` (rootless by default).
+
+A profile with `require_rootless: true` fails closed (`sandbox_unavailable`) on a rootful runtime. Images must be digest-pinned (`image@sha256:...`); `restricted-local` uses the tag `busybox:1.37`, so in development start the worker with `MAEF_ALLOW_UNPINNED_IMAGES=1` until it is pinned (recorded in the `sandbox.provisioned` event). The worker removes leftover `maef.run`-labelled containers at startup, so run one worker per host. `make test-oci` runs the real-runtime tests; they skip when no runtime is installed.
 
 ## Validate
 

@@ -14,7 +14,7 @@ from .models import (
     RunRecord,
     RunRequest,
 )
-from .tools import BuiltinTools, spec_bytes
+from .tools import builtin_specs, spec_bytes
 
 
 class RunsError(Exception):
@@ -103,14 +103,14 @@ class Runs:
         if pinned.profile.api_dialect not in self._supported_dialects:
             raise UnsupportedDialect(f"No adapter for dialect {pinned.profile.api_dialect}")
         try:
-            tools = BuiltinTools(pinned.agent.tools, pinned.files)
+            specs = builtin_specs(pinned.agent.tools)
         except ValueError as exc:
             raise DefinitionConflict(str(exc)) from exc
         budget = effective_budget(agent.budget, req.budget)
         try:
             run_id = self.ledger.admit(
                 pinned, budget,
-                prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(tools.specs()),
+                prompt_bytes=len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(specs),
                 instruction=req.instruction,
                 allow_dirty=self._allow_dirty(),
             )

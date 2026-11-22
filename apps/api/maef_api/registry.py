@@ -2,11 +2,12 @@ from pathlib import Path
 
 import yaml
 
-from .models import AgentDefinition, ModelEndpointProfile
+from .models import AgentDefinition, ModelEndpointProfile, SandboxProfile
 
 ROOT = Path(__file__).resolve().parents[3]
 AGENTS_DIR = ROOT / "agents"
 MODEL_PROFILES_DIR = ROOT / "model-profiles"
+SANDBOX_PROFILES_DIR = ROOT / "sandbox-profiles"
 _ID_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 
 class ModelProfileRegistry:
@@ -31,6 +32,28 @@ class ModelProfileRegistry:
     def _parse(path: Path) -> ModelEndpointProfile:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return ModelEndpointProfile.model_validate(data)
+
+class SandboxProfileRegistry:
+    def __init__(self, root: Path = SANDBOX_PROFILES_DIR):
+        self.root = Path(root).resolve()
+
+    def list_profiles(self) -> list[SandboxProfile]:
+        if not self.root.exists():
+            return []
+        return [self._parse(p) for p in sorted(self.root.glob("*.yaml")) if not p.is_symlink()]
+
+    def get_profile(self, profile_id: str) -> SandboxProfile | None:
+        if not profile_id or not set(profile_id) <= _ID_CHARS:
+            return None
+        path = self.root / f"{profile_id}.yaml"
+        if not path.is_file() or path.is_symlink():
+            return None
+        profile = self._parse(path)
+        return profile if profile.id == profile_id else None
+
+    @staticmethod
+    def _parse(path: Path) -> SandboxProfile:
+        return SandboxProfile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 class AgentRegistry:
     def __init__(self, root: Path = AGENTS_DIR):

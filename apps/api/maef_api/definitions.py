@@ -10,9 +10,9 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .models import AgentDefinition, ModelEndpointProfile
-from .registry import AgentRegistry, ModelProfileRegistry
-from .tools import BUILTIN_TOOL_NAMES
+from .models import AgentDefinition, ModelEndpointProfile, SandboxProfile
+from .registry import AgentRegistry, ModelProfileRegistry, SandboxProfileRegistry
+from .tools import BUILTIN_TOOL_NAMES, SANDBOXED_TOOLS
 
 
 class ResolveError(Exception):
@@ -36,6 +36,9 @@ class PinnedDefinition(BaseModel):
     dirty: bool
     definition_digest: str
     profile_digest: str
+    # The sandbox profile pinned the same way; None when the agent uses no sandboxed tools and none was found.
+    sandbox: SandboxProfile | None = None
+    sandbox_digest: str | None = None
 
 
 def _git(root: Path, *args: str) -> str | None:
@@ -62,9 +65,24 @@ def compute_definition_digest(agent_yaml: bytes, files: Mapping[str, bytes]) -> 
 
 
 class Definitions:
-    def __init__(self, agents: AgentRegistry, profiles: ModelProfileRegistry):
+    def __init__(self, agents: AgentRegistry, profiles: ModelProfileRegistry,
+                 sandboxes: SandboxProfileRegistry | None = None):
         self.agents = agents
         self.profiles = profiles
+        self.sandboxes = sandboxes
+
+    def _pin_sandbox(self, profile_id: str, required: bool) -> tuple[SandboxProfile | None, str | None]:
+        try:
+            if self.sandboxes is None or self.sandboxes.get_profile(profile_id) is None:
+                raise ResolveError(f"Sandbox profile not found: {profile_id}")
+            data = (self.sandboxes.root / f"{profile_id}.yaml").read_bytes()
+            return SandboxProfile.model_validate(yaml.safe_load(data)), hashlib.sha256(data).hexdigest()
+        except (ResolveError, OSError, yaml.YAMLError, ValidationError) as exc:
+            if required:
+                if isinstance(exc, ResolveError):
+                    raise
+                raise ResolveError(f"Sandbox profile unreadable or invalid: {profile_id}") from None
+            return None, None
 
     def resolve(self, agent_id: str) -> PinnedDefinition:
         agent = self.agents.get_agent(agent_id)
@@ -97,6 +115,9 @@ class Definitions:
         except (OSError, yaml.YAMLError, ValidationError):
             raise ResolveError(f"Model profile unreadable or invalid: {profile_id}") from None
 
+        sandbox, sandbox_digest = self._pin_sandbox(
+            agent.runtime.sandbox_profile, required=any(t in SANDBOXED_TOOLS for t in agent.tools))
+
         status = _git(base, "status", "--porcelain", "--", ".")
         files = {n: d for n, d in parts if n != "agent.yaml"}
         agent_yaml = dict(parts)["agent.yaml"]
@@ -110,4 +131,6 @@ class Definitions:
             dirty=status is None or status != "",  # unknown git state counts as dirty
             definition_digest=compute_definition_digest(agent_yaml, files),
             profile_digest=hashlib.sha256(profile_bytes).hexdigest(),
+            sandbox=sandbox,
+            sandbox_digest=sandbox_digest,
         )

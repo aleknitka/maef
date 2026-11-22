@@ -46,3 +46,13 @@ def test_budget_is_token_based():
 def test_instructions_come_from_digested_bytes(env):
     (env[0] / 'research-analyst' / 'SYSTEM.md').write_text('pinned prompt')
     assert resolve(env).instructions == 'pinned prompt'
+
+
+def test_sandbox_profile_is_pinned_when_available(env):
+    from maef_api.registry import SandboxProfileRegistry
+    agents, profiles = env
+    sandboxes = AgentRegistry().root.parent / 'sandbox-profiles'
+    pinned = Definitions(AgentRegistry(agents), ModelProfileRegistry(profiles),
+                         SandboxProfileRegistry(sandboxes)).resolve('research-analyst')
+    assert pinned.sandbox.id == 'restricted-local' and len(pinned.sandbox_digest) == 64
+    assert resolve(env).sandbox is None  # no registry, no sandboxed tools: optional

@@ -21,7 +21,7 @@ from .models import (
     RunRecord,
     RunRequest,
 )
-from .registry import ROOT, AgentRegistry, ModelProfileRegistry
+from .registry import ROOT, AgentRegistry, ModelProfileRegistry, SandboxProfileRegistry
 from .runs import (
     AdmissionRejected,
     AgentNotFound,
@@ -72,7 +72,7 @@ def allow_dirty() -> bool:
 ledger = Ledger(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
 ledger.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
 runs = Runs(
-    Definitions(registry, model_profiles), ledger,
+    Definitions(registry, model_profiles, SandboxProfileRegistry()), ledger,
     execution_enabled=lambda: execution_enabled(), allow_dirty=lambda: allow_dirty(),
 )
 

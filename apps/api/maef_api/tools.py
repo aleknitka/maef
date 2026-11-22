@@ -7,10 +7,15 @@ from pathlib import Path
 from typing import Protocol
 
 from .adapters.base import ToolSpec
+from .sandbox import SandboxError, Session
 
 # Single source of truth for valid `tools:` names in an agent definition.
-BUILTIN_TOOL_NAMES = ("current_time", "read_agent_file")
+BUILTIN_TOOL_NAMES = ("current_time", "read_agent_file", "run_command")
+# Tools that execute in a sandbox; an agent listing any of them needs a sandbox profile.
+SANDBOXED_TOOLS = frozenset({"run_command"})
+DEFAULT_EXEC_TIMEOUT = 30.0
 MAX_RESULT_BYTES = 32 * 1024
+_STREAM_CAP = 12 * 1024
 _MARKER = "\n[truncated]"
 
 _SPECS = {
@@ -20,7 +25,23 @@ _SPECS = {
         "read_agent_file",
         "Read one of this agent's own files (its instructions or a listed skill) by relative path.",
         {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+    "run_command": ToolSpec(
+        "run_command",
+        "Run a command in an isolated sandbox with no network. Working directory /workspace is "
+        "writable; everything else is read-only. Returns JSON {exit_code, stdout, stderr, timed_out}.",
+        {"type": "object",
+         "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                        "stdin": {"type": "string"}},
+         "required": ["argv"]}),
 }
+
+
+def builtin_specs(names: list[str]) -> list[ToolSpec]:
+    """Specs for `names` without constructing tools (used at admission); ValueError on unknown names."""
+    unknown = [n for n in names if n not in BUILTIN_TOOL_NAMES]
+    if unknown:
+        raise ValueError(f"Unknown builtin tool: {unknown[0]}")
+    return [_SPECS[n] for n in dict.fromkeys(names)]
 
 
 @dataclass(frozen=True)
@@ -46,12 +67,15 @@ def _cap(text: str) -> str:
 
 class BuiltinTools:
     def __init__(self, names: list[str], files: Mapping[str, bytes],
-                 clock: Callable[[], datetime] = lambda: datetime.now(UTC)):
+                 clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+                 session: Session | None = None,
+                 exec_timeout: Callable[[], float] = lambda: DEFAULT_EXEC_TIMEOUT):
         """`files` are the pinned instructions and skills (agent-relative path -> bytes); read_agent_file
         serves only these, so a run sees exactly what was digested and never touches the filesystem."""
-        unknown = [n for n in names if n not in BUILTIN_TOOL_NAMES]
-        if unknown:
-            raise ValueError(f"Unknown builtin tool: {unknown[0]}")
+        builtin_specs(names)  # validates
+        if session is None and any(n in SANDBOXED_TOOLS for n in names):
+            raise ValueError("Sandboxed tools require a sandbox session")
+        self._session, self._exec_timeout = session, exec_timeout
         self._names = list(dict.fromkeys(names))
         self._clock = clock
         self._files = dict(files)
@@ -63,13 +87,36 @@ class BuiltinTools:
         try:
             if name not in self._names:
                 return ToolResult("unknown_tool", True)
-            result = self._current_time() if name == "current_time" else self._read_agent_file(arguments)
+            if name == "current_time":
+                result = self._current_time()
+            elif name == "run_command":
+                result = self._run_command(arguments)
+            else:
+                result = self._read_agent_file(arguments)
             return ToolResult(_cap(result.content), result.is_error)
         except Exception:  # noqa: BLE001  # the contract is never to raise
             return ToolResult("tool_failed", True)
 
     def _current_time(self) -> ToolResult:
         return ToolResult(self._clock().astimezone(UTC).isoformat())
+
+    def _run_command(self, arguments: dict) -> ToolResult:
+        argv = arguments.get("argv") if isinstance(arguments, dict) else None
+        stdin = arguments.get("stdin") if isinstance(arguments, dict) else None
+        if (not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv)
+                or not (stdin is None or isinstance(stdin, str))):
+            return ToolResult("invalid_arguments: argv must be a non-empty list of strings", True)
+        timeout = min(DEFAULT_EXEC_TIMEOUT, self._exec_timeout())
+        if timeout <= 0:
+            return ToolResult("duration_exhausted", True)
+        try:
+            res = self._session.exec(argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout)
+        except (SandboxError, ValueError):
+            return ToolResult("sandbox_error", True)
+        # Each stream is capped so the JSON stays valid after the overall result cap.
+        body = {"exit_code": res.exit_code, "stdout": res.stdout[:_STREAM_CAP].decode("utf-8", errors="replace"),
+                "stderr": res.stderr[:_STREAM_CAP].decode("utf-8", errors="replace"), "timed_out": res.timed_out}
+        return ToolResult(json.dumps(body), res.timed_out)
 
     def _read_agent_file(self, arguments: dict) -> ToolResult:
         path = arguments.get("path") if isinstance(arguments, dict) else None

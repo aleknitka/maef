@@ -20,8 +20,9 @@ from .credentials import Credentials, Secret
 from .definitions import compute_definition_digest
 from .harness import PreparedRun, SinkFailure, execute
 from .leases import ChannelError, FencingError, Lease, SequenceGap
-from .models import ModelEndpointProfile
-from .tools import BuiltinTools
+from .models import ModelEndpointProfile, is_pinned_image
+from .sandbox import Sandbox, SandboxError, detect_sandbox
+from .tools import SANDBOXED_TOOLS, BuiltinTools
 
 log = logging.getLogger("maef.worker")
 
@@ -78,6 +79,27 @@ class ChannelSink:
             self._lease, tokens_used=tokens_used, status=status, terminal_reason=terminal_reason))
 
 
+class _TeardownSink:
+    """Wraps a sink so the session is torn down, and `sandbox.torn_down` recorded, before the
+    terminal event (nothing can be appended once the run is terminal)."""
+
+    def __init__(self, inner: ChannelSink, session, profile_id: str):
+        self._inner, self._session, self._profile_id, self._done = inner, session, profile_id, False
+
+    def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
+        self._inner.append(type, payload, status=status)
+
+    def teardown(self) -> None:
+        if not self._done:
+            self._done = True
+            self._session.teardown()
+            self._inner.append("sandbox.torn_down", {"profile": self._profile_id})
+
+    def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
+        self.teardown()
+        self._inner.complete(tokens_used=tokens_used, status=status, terminal_reason=terminal_reason)
+
+
 class _Heartbeat(threading.Thread):
     def __init__(self, channel: WorkerChannel, lease: Lease, interval: float):
         super().__init__(name=f"maef-heartbeat-{lease.run_id[:8]}", daemon=True)
@@ -102,9 +124,10 @@ class _Heartbeat(threading.Thread):
 
 class Worker:
     def __init__(self, channel: WorkerChannel, adapter_factory: AdapterFactory, *, worker_id: str,
-                 heartbeat_seconds: float = 15, clock=time.monotonic):
+                 heartbeat_seconds: float = 15, clock=time.monotonic, sandbox: Sandbox | None = None):
         self._channel, self._adapter_factory = channel, adapter_factory
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
+        self._sandbox = sandbox
 
     def run_once(self) -> bool:
         """Claim and run at most one lease. Returns whether a lease was run."""
@@ -133,13 +156,32 @@ class Worker:
 
         if compute_definition_digest(pinned.definition_bytes, pinned.files) != pinned.definition_digest:
             return reject("definition_mismatch")
+        needs_sandbox = any(t in SANDBOXED_TOOLS for t in pinned.agent.tools)
+        if needs_sandbox and (self._sandbox is None or pinned.sandbox is None):
+            return reject("sandbox_unavailable")
+        deadline = self._clock() + task.budget.max_duration_seconds
+        session = None
         try:
-            adapter = self._adapter_factory(pinned.profile)
-            tools = BuiltinTools(pinned.agent.tools, pinned.files)
-        except Exception as exc:  # noqa: BLE001  # class name only; messages may carry secrets
-            return reject(f"setup_error:{type(exc).__name__}")
-        run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools)
-        execute(sink, run, adapter, self._clock)
+            try:
+                adapter = self._adapter_factory(pinned.profile)
+                if needs_sandbox:
+                    session = self._sandbox.provision(pinned.sandbox, lease.run_id)
+                tools = BuiltinTools(pinned.agent.tools, pinned.files, session=session,
+                                     exec_timeout=lambda: deadline - self._clock())
+            except SandboxError:
+                return reject("sandbox_unavailable")
+            except Exception as exc:  # noqa: BLE001  # class name only; messages may carry secrets
+                return reject(f"setup_error:{type(exc).__name__}")
+            if session is not None:
+                sink.append("sandbox.provisioned", {
+                    **self._sandbox.info(), "profile": pinned.sandbox.id,
+                    "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image)})
+            run_sink = _TeardownSink(sink, session, pinned.sandbox.id) if session is not None else sink
+            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools)
+            execute(run_sink, run, adapter, self._clock)
+        finally:
+            if session is not None:
+                session.teardown()  # idempotent; covers abandoned runs and exceptions
 
     def serve(self, stop: threading.Event, poll_seconds: float = 2) -> None:
         """Run leases until `stop` is set; an in-flight run is finished first."""
@@ -163,7 +205,13 @@ def main() -> int:
         os.environ.get("MAEF_API_URL", "http://127.0.0.1:8000"), Secret(token),
         allow_private=os.environ.get("MAEF_API_ALLOW_PRIVATE") == "1")
     worker_id = os.environ.get("MAEF_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
-    worker = Worker(channel, default_adapter_factory(Credentials()), worker_id=worker_id)
+    sandbox = detect_sandbox()
+    if sandbox is None:
+        log.warning("no OCI runtime (podman or docker) found; runs needing a sandbox will fail")
+    else:
+        removed = sandbox.cleanup_orphans()
+        log.info("sandbox runtime %s; removed %d orphaned containers", sandbox.info(), removed)
+    worker = Worker(channel, default_adapter_factory(Credentials()), worker_id=worker_id, sandbox=sandbox)
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
