@@ -91,6 +91,8 @@ def run_to_spans(run: RunDetail) -> list[Span]:
             "gen_ai.request.model": profile,
             "gen_ai.usage.input_tokens": _sum(events, "usage.recorded", "input_tokens"),
             "gen_ai.usage.output_tokens": _sum(events, "usage.recorded", "output_tokens"),
+            "gen_ai.usage.cache_read.input_tokens": _sum(events, "usage.recorded", "cache_read_tokens"),
+            "gen_ai.usage.cache_creation.input_tokens": _sum(events, "usage.recorded", "cache_write_tokens"),
             "maef.run_id": run.id, "maef.run.kind": run.kind, "maef.run.status": run.status,
             "maef.agent_revision": run.git_rev, "maef.dirty": run.dirty,
             "maef.terminal_reason": run.terminal_reason, "maef.tokens_used": run.tokens_used,
@@ -121,6 +123,8 @@ def run_to_spans(run: RunDetail) -> list[Span]:
             "gen_ai.response.finish_reasons": [resp["stop_reason"]] if "stop_reason" in resp else None,
             "gen_ai.usage.input_tokens": usage.get("input_tokens"),
             "gen_ai.usage.output_tokens": usage.get("output_tokens"),
+            "gen_ai.usage.cache_read.input_tokens": usage.get("cache_read_tokens"),
+            "gen_ai.usage.cache_creation.input_tokens": usage.get("cache_write_tokens"),
             "maef.turn": turn, "maef.model_profile": p.get("profile"), "maef.stop_reason": resp.get("stop_reason"),
             "maef.prompt_bytes": p.get("prompt_bytes"), "maef.tools_offered": p.get("tools"),
             "maef.tool_calls": resp.get("tool_calls")})

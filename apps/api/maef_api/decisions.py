@@ -39,13 +39,15 @@ def execute_decision(sink: RunSink, run_id: str, task: TaskPayload, adapter: Dec
                 if str(exc).startswith("invalid_decision"):
                     in_tokens = request.request_bytes()  # the provider answered (and likely billed): fail closed
                     sink.append("usage.recorded", {"turn": 1, "input_tokens": in_tokens, "output_tokens": 0,
-                                                   "total_tokens": in_tokens})
+                                                   "total_tokens": in_tokens,
+                                                   "cache_read_tokens": 0, "cache_write_tokens": 0})
                 raise
             in_tokens = decision.input_tokens if decision.input_tokens is not None else request.request_bytes()
             out_tokens = decision.output_tokens or 0
             sink.append("usage.recorded", {
                 "turn": 1, "input_tokens": in_tokens, "output_tokens": out_tokens,
-                "total_tokens": in_tokens + out_tokens, "reported": decision.input_tokens is not None})
+                "total_tokens": in_tokens + out_tokens, "reported": decision.input_tokens is not None,
+                "cache_read_tokens": 0, "cache_write_tokens": 0})
             body = json.dumps({"answers": {n: a.model_dump(exclude_none=True) for n, a in decision.answers.items()}},
                               indent=2).encode()
             try:

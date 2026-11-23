@@ -1,5 +1,13 @@
 from ..models import ModelEndpointProfile
-from .base import Message, ModelResponse, ToolCall, ToolSpec, grouped, normalise_stop
+from .base import (
+    Message,
+    ModelResponse,
+    ToolCall,
+    ToolSpec,
+    grouped,
+    normalise_stop,
+    token_count,
+)
 
 _STOP = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
 
@@ -62,11 +70,16 @@ class BedrockAdapter:
             **kwargs,
         )
         blocks = reply["output"]["message"]["content"]
+        usage = reply["usage"]
+        cache_read = token_count(usage.get("cacheReadInputTokens"))
+        cache_write = token_count(usage.get("cacheWriteInputTokens"))
         return ModelResponse(
             text="".join(b["text"] for b in blocks if "text" in b),
             tool_calls=tuple(ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"]["input"])
                              for b in blocks if "toolUse" in b),
             stop_reason=normalise_stop(reply["stopReason"], _STOP),
-            input_tokens=reply["usage"]["inputTokens"],
-            output_tokens=reply["usage"]["outputTokens"],
+            # Converse inputTokens excludes cache reads and writes; normalise to include them.
+            input_tokens=usage["inputTokens"] + cache_read + cache_write,
+            output_tokens=usage["outputTokens"],
+            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         )

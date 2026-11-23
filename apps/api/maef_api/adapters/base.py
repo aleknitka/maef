@@ -37,8 +37,20 @@ class ModelResponse:
     tool_calls: tuple[ToolCall, ...]
     # Normalised: end_turn | tool_use | max_tokens | other:<raw>
     stop_reason: str
+    # Normalised usage, identical for every provider:
+    #   input_tokens       = ALL prompt tokens processed, INCLUDING cache reads and cache writes
+    #                        (budgets charge input_tokens + output_tokens, so this is conservative).
+    #   cache_read_tokens  = the part of input_tokens served from the prompt cache.
+    #   cache_write_tokens = the part of input_tokens written to the prompt cache.
     input_tokens: int
     output_tokens: int
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+
+def token_count(value) -> int:
+    """A non-negative int from provider JSON; anything else (None, bool, str, float, negative) is 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
 
 
 def normalise_stop(raw: str | None, mapping: dict[str, str]) -> str:

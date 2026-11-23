@@ -398,7 +398,9 @@ class Ledger:
         with self.connect() as conn:
             one = lambda sql: conn.execute(sql).fetchone()
             usage = one(f"SELECT COALESCE(SUM({d.json_int('payload', 'input_tokens')}), 0) AS i, "
-                        f"COALESCE(SUM({d.json_int('payload', 'output_tokens')}), 0) AS o "
+                        f"COALESCE(SUM({d.json_int('payload', 'output_tokens')}), 0) AS o, "
+                        f"COALESCE(SUM({d.json_int('payload', 'cache_read_tokens')}), 0) AS cr, "
+                        f"COALESCE(SUM({d.json_int('payload', 'cache_write_tokens')}), 0) AS cw "
                         "FROM run_events WHERE type='usage.recorded'")
             duration = one(f"SELECT COUNT(*) AS n, COALESCE(SUM({d.seconds_between('created_at', 'finished_at')}), 0) AS s "
                            "FROM runs WHERE finished_at IS NOT NULL")
@@ -406,6 +408,7 @@ class Ledger:
                 "runs": {(r["status"], r["kind"]): r["n"] for r in conn.execute(
                     "SELECT status, kind, COUNT(*) AS n FROM runs GROUP BY status, kind")},
                 "tokens": {"input": int(usage["i"]), "output": int(usage["o"])},
+                "cached_tokens": {"read": int(usage["cr"]), "write": int(usage["cw"])},
                 "tokens_reserved_open": int(one("SELECT COALESCE(SUM(reserved_tokens), 0) AS n FROM reservations WHERE settled_tokens IS NULL")["n"]),
                 "duration_count": duration["n"], "duration_sum": max(float(duration["s"]), 0.0),
                 "exhaustions": {r["terminal_reason"].removesuffix("_exhausted"): r["n"] for r in conn.execute(

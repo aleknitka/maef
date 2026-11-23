@@ -3,7 +3,14 @@ import json
 from ..credentials import Credentials
 from ..egress import EgressPolicy
 from ..models import ModelEndpointProfile, OpenAICompatibleEndpoint
-from .base import Message, ModelResponse, ToolCall, ToolSpec, normalise_stop
+from .base import (
+    Message,
+    ModelResponse,
+    ToolCall,
+    ToolSpec,
+    normalise_stop,
+    token_count,
+)
 from .http import ModelHTTPError, post_json
 
 _STOP = {"stop": "end_turn", "length": "max_tokens", "tool_calls": "tool_use"}
@@ -71,7 +78,15 @@ class OpenAICompatibleAdapter:
         finish = choice.get("finish_reason")
         # Local servers may say "stop" alongside tool calls; but "length" means the call was cut off.
         stop = "tool_use" if calls and finish != "length" else normalise_stop(finish, _STOP)
+        # prompt_tokens already includes cached tokens. Local servers may omit or mangle the details.
+        details = usage.get("prompt_tokens_details")
+        details = details if isinstance(details, dict) else {}
+        prompt = usage["prompt_tokens"]
+        cap = token_count(prompt)
+        cache_read = min(token_count(details.get("cached_tokens")), cap)
+        cache_write = min(token_count(details.get("cache_write_tokens")), cap - cache_read)
         return ModelResponse(
             text=message.get("content") or "", tool_calls=calls, stop_reason=stop,
-            input_tokens=usage["prompt_tokens"], output_tokens=usage["completion_tokens"],
+            input_tokens=prompt, output_tokens=usage["completion_tokens"],
+            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         )

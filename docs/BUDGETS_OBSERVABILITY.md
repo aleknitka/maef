@@ -22,6 +22,8 @@ Each event includes `task_id`, `run_id`, `agent_id`, `agent_revision`, `worker_i
 - Success/failure/cancellation by agent version and runtime.
 - Queue wait, sandbox start time, execution wall time, model latency.
 - Input/output/cache/reasoning token counts where providers expose them.
+- Token normalisation: `input_tokens` is every prompt token processed, including cache reads and cache writes. `cache_read_tokens` and `cache_write_tokens` are the parts of it served from or written to the prompt cache. Anthropic and Bedrock report input excluding cache tokens, so the adapters add them back; OpenAI-style providers already include them. Budgets still charge `input_tokens + output_tokens`.
+- MAEF does not yet request caching. Anthropic and Bedrock need explicit cache markers; OpenAI-style providers cache long prompts automatically. Until markers are added, those two will mostly report 0.
 - Spent/reserved USD, cost per successful artefact, budget exhaustions.
 - Tool invocations, errors, retries and timeouts.
 - Worker utilisation, memory/CPU peaks and crash/restart rates.
@@ -33,8 +35,8 @@ Use OpenTelemetry GenAI semantic conventions where stable and pin semantic conve
 Studio should support structured timelines, live stream of task events (SSE initially), run comparison, cost breakdown, logs with redaction and direct links to artefacts. An audit trail must survive worker deletion.
 
 ## Implemented (BACKEND_PLAN step 14)
-- **Traces:** `otel.run_to_spans(run)` maps a run's ledger events to OpenTelemetry-shaped spans (mapping in `packages/contracts/CONTRACTS.md`). Ids are sha256 truncations of run id and event seq, so re-export is idempotent. Spans carry identifiers, sizes and token counts only, never prompt, argument or result content (the events do not contain any).
+- **Traces:** `otel.run_to_spans(run)` maps a run's ledger events to OpenTelemetry-shaped spans (mapping in `packages/contracts/CONTRACTS.md`). Ids are sha256 truncations of run id and event seq, so re-export is idempotent. Model spans also carry `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_creation.input_tokens`; the `maef.run` span carries their sums. Spans carry identifiers, sizes and token counts only, never prompt, argument or result content (the events do not contain any).
 - **Export:** `maef otel export --endpoint URL [--since ISO] [--run ID]` (reads through `MaefClient`, so it needs a `read` token) and an optional background exporter in the API: with `MAEF_OTLP_ENDPOINT` set, a daemon thread exports each terminal run once (`otel_exports` ledger table); failures are logged and retried on the next 15 s tick and never affect runs. OTLP/HTTP JSON only, through the egress policy: loopback only for a loopback endpoint, private networks only with `MAEF_OTLP_ALLOW_PRIVATE=1` / `--allow-private`. Auth headers come from a credential ref (`MAEF_OTLP_HEADERS_REF=env:NAME`, value `Name=value,Name2=value2`).
-- **Metrics:** `GET /api/v1/metrics` (scope `read`), Prometheus text, computed by one `Ledger.metrics()` SQL pass.
+- **Metrics:** `GET /api/v1/metrics` (scope `read`), Prometheus text, computed by one `Ledger.metrics()` SQL pass. `maef_cached_input_tokens_total{kind=read|write}` counts cached input tokens. It is a subset of `maef_tokens_used_total{kind="input"}`, so do not add the two.
 - **Evals:** `evals/<suite>.yaml`, `maef eval run`, comparison of agent revisions on pass rate and tokens.
-- **Not implemented:** latency histograms (queue wait, model latency), cache/reasoning token counts, per-agent-revision metric labels, OTel metrics export, a cost (USD) view. The model span's `gen_ai.request.model` is the model *profile id* (events do not record the provider model id).
+- **Not implemented:** latency histograms (queue wait, model latency), reasoning token counts, per-agent-revision metric labels, OTel metrics export, a cost (USD) view. The model span's `gen_ai.request.model` is the model *profile id* (events do not record the provider model id).

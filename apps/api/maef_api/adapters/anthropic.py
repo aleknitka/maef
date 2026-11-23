@@ -1,7 +1,15 @@
 from ..credentials import CredentialError, Credentials
 from ..egress import EgressPolicy
 from ..models import AnthropicEndpoint, ModelEndpointProfile
-from .base import Message, ModelResponse, ToolCall, ToolSpec, grouped, normalise_stop
+from .base import (
+    Message,
+    ModelResponse,
+    ToolCall,
+    ToolSpec,
+    grouped,
+    normalise_stop,
+    token_count,
+)
 from .http import post_json
 
 _STOP = {"end_turn": "end_turn", "tool_use": "tool_use", "max_tokens": "max_tokens"}
@@ -57,10 +65,15 @@ class AnthropicAdapter:
             ToolCall(b["id"], b["name"], b["input"]) if isinstance(b.get("input"), dict)
             else ToolCall(b["id"], b["name"], {}, parse_error="invalid_arguments")
             for b in reply["content"] if b.get("type") == "tool_use")
+        usage = reply["usage"]
+        cache_read = token_count(usage.get("cache_read_input_tokens"))
+        cache_write = token_count(usage.get("cache_creation_input_tokens"))
         return ModelResponse(
             tool_calls=calls,
             text="".join(b.get("text", "") for b in reply["content"] if b.get("type") == "text"),
             stop_reason=normalise_stop(reply["stop_reason"], _STOP),
-            input_tokens=reply["usage"]["input_tokens"],
-            output_tokens=reply["usage"]["output_tokens"],
+            # Anthropic's input_tokens excludes cache reads and writes; normalise to include them.
+            input_tokens=usage["input_tokens"] + cache_read + cache_write,
+            output_tokens=usage["output_tokens"],
+            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
         )

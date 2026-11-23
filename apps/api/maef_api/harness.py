@@ -148,7 +148,8 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                 "turn": turn, "stop_reason": response.stop_reason, "tool_calls": len(response.tool_calls)})
             sink.append("usage.recorded", {
                 "turn": turn, "input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
-                "total_tokens": response.input_tokens + response.output_tokens})
+                "total_tokens": response.input_tokens + response.output_tokens,
+                "cache_read_tokens": response.cache_read_tokens, "cache_write_tokens": response.cache_write_tokens})
             messages.append(Message("assistant", response.text, response.tool_calls))
 
             if response.stop_reason == "tool_use":

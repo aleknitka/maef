@@ -108,3 +108,21 @@ def test_dialect_must_match_endpoint_and_secrets_rejected():
         make_profile('anthropic', 'https://api.anthropic.com', cred='env:K_KEY', dialect='openai-compatible')
     with pytest.raises(ValidationError):
         make_profile('anthropic', 'https://api.anthropic.com', cred='sk-live-abc123')
+
+def _call(adapter):
+    return adapter.converse(system='s', messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
+
+def test_openai_cache_tokens_tolerant_and_clamped(fake):
+    usage = {'prompt_tokens': 2270, 'completion_tokens': 5, 'prompt_tokens_details': {'cached_tokens': 2176, 'cache_write_tokens': 0}}
+    odd = [{'prompt_tokens': 10, 'completion_tokens': 1, 'prompt_tokens_details': d}
+           for d in (None, {'cached_tokens': 'x', 'cache_write_tokens': True}, {'cached_tokens': 99, 'cache_write_tokens': 5})]
+    srv = fake([(200, {**OPENAI_OK, 'usage': u}) for u in [usage, *odd]])
+    adapter = OpenAICompatibleAdapter(make_profile('openai-compatible', srv.url), Credentials({}))
+    got = [(r.input_tokens, r.cache_read_tokens, r.cache_write_tokens) for r in (_call(adapter) for _ in range(4))]
+    assert got == [(2270, 2176, 0), (10, 0, 0), (10, 0, 0), (10, 10, 0)]
+
+def test_anthropic_input_includes_cache_tokens(fake):
+    srv = fake([(200, {'content': [{'type': 'text', 'text': 'A'}], 'stop_reason': 'end_turn',
+                       'usage': {'input_tokens': 3, 'output_tokens': 2, 'cache_read_input_tokens': 100, 'cache_creation_input_tokens': None}})])
+    out = _call(AnthropicAdapter(make_profile('anthropic', srv.url, cred='env:KEY_X'), Credentials({'KEY_X': 'k'})))
+    assert (out.input_tokens, out.cache_read_tokens, out.cache_write_tokens) == (103, 100, 0)

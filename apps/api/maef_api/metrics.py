@@ -22,6 +22,10 @@ def render_prometheus(m: dict) -> str:
         (f'maef_runs_total{{status="{_label(s)}",kind="{_label(k)}"}}', n) for (s, k), n in sorted(runs.items())])
     metric("maef_tokens_used_total", "counter", "Model tokens reported by providers.", [
         (f'maef_tokens_used_total{{kind="{k}"}}', m["tokens"][k]) for k in ("input", "output")])
+    metric("maef_cached_input_tokens_total", "counter",
+           'Input tokens served from (read) or written to (write) the prompt cache. A subset of '
+           'maef_tokens_used_total{kind="input"}; do not add them together.', [
+        (f'maef_cached_input_tokens_total{{kind="{k}"}}', m["cached_tokens"][k]) for k in ("read", "write")])
     metric("maef_tokens_reserved_open", "gauge", "Tokens reserved by runs that have not settled.",
            [("maef_tokens_reserved_open", m["tokens_reserved_open"])])
     metric("maef_run_duration_seconds", "summary", "Wall time of finished runs, created to finished.", [
