@@ -69,7 +69,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--json", action="store_true")
     s.add_argument("--out", metavar="FILE", help="write the markdown report here")
     s = sub.add_parser("init", help="set up a fully local install: local-default model profile, artifacts dir, SQLite ledger")
-    s.add_argument("--backend", choices=("ollama", "lmstudio"), default="ollama")
+    s.add_argument("--backend", choices=("ollama", "lmstudio", "openrouter"), default="ollama")
     s.add_argument("--model-id", help="model name as the local server knows it (default from the example)")
     s.add_argument("--base-url", help="OpenAI-compatible URL (default localhost); a non-loopback host enables allow_private_network")
     s.add_argument("--force", action="store_true", help="overwrite an existing model-profiles/local-default.yaml")

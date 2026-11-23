@@ -16,7 +16,9 @@ from .models import ModelEndpointProfile
 from .registry import MODEL_PROFILES_DIR, ROOT
 
 PROFILE_ID = "local-default"
-BACKENDS = {"ollama": "ollama.yaml", "lmstudio": "lmstudio.yaml"}
+BACKENDS = {"ollama": "ollama.yaml", "lmstudio": "lmstudio.yaml", "openrouter": "openrouter.yaml"}
+VENDORS = {"ollama": "Ollama", "lmstudio": "LM Studio", "openrouter": "OpenRouter"}
+REMOTE_BACKENDS = {"openrouter": "OPENROUTER_API_KEY"}
 EXAMPLES_DIR = ROOT / "examples" / "model-profiles"
 
 
@@ -50,7 +52,7 @@ def render_profile(backend: str, model_id: str | None = None, base_url: str | No
     text = _set_line(text, "id", PROFILE_ID)
     if model_id:
         text = _set_line(text, "model_id", model_id, "  ")
-        text = _set_line(text, "display_name", f"{'Ollama' if backend == 'ollama' else 'LM Studio'} {model_id}")
+        text = _set_line(text, "display_name", f"{VENDORS[backend]} {model_id}")
     if base_url:
         text = _set_line(text, "base_url", base_url, "  ")
         if not _is_loopback(base_url):
@@ -80,6 +82,10 @@ def init_local(backend: str = "ollama", model_id: str | None = None, base_url: s
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
         report["profile"] = {"path": str(path), "action": "written", "backend": backend}
+        if backend in REMOTE_BACKENDS:
+            key = REMOTE_BACKENDS[backend]
+            report["warnings"].append(f"{VENDORS[backend]} is a hosted service: prompts and tool results leave this "
+                                      f"machine. Export {key} in the worker's environment.")
 
     if os.environ.get("MAEF_ARTIFACTS_URL"):
         report["warnings"].append("MAEF_ARTIFACTS_URL is set: artifacts go to S3, not this machine. "

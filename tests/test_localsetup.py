@@ -13,7 +13,7 @@ import pytest
 from maef_api import localsetup
 from maef_api.cli import main
 from maef_api.ledger import Ledger
-from maef_api.localsetup import InitError, init_local
+from maef_api.localsetup import InitError, init_local, render_profile
 from maef_api.registry import ModelProfileRegistry
 
 REPO = Path(__file__).resolve().parents[1]
@@ -272,3 +272,28 @@ def test_local_first_import_works_without_boto3(tmp_path):
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "ok"
+
+
+def test_openrouter_backend_writes_https_profile_with_env_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("MAEF_ARTIFACTS_URL", raising=False)
+    report = init_local("openrouter", "qwen/qwen3.7-flash", profiles_dir=tmp_path / "mp",
+                        artifacts_dir=tmp_path / "a", db=tmp_path / "m.db")
+    profile = ModelProfileRegistry(tmp_path / "mp").get_profile("local-default")
+    assert profile.endpoint.base_url == "https://openrouter.ai/api/v1"
+    assert profile.endpoint.model_id == "qwen/qwen3.7-flash"
+    assert profile.credential_ref == "env:OPENROUTER_API_KEY"
+    assert profile.endpoint.allow_private_network is False
+    assert profile.display_name == "OpenRouter qwen/qwen3.7-flash"
+    assert any("OPENROUTER_API_KEY" in w and "leave this machine" in w for w in report["warnings"])
+
+
+def test_openrouter_default_model_is_a_free_one(tmp_path):
+    text = render_profile("openrouter")
+    assert "model_id: google/gemma-4-31b-it:free" in text
+    assert "id: local-default" in text
+
+
+def test_local_backends_do_not_warn_about_hosted_services(tmp_path, monkeypatch):
+    monkeypatch.delenv("MAEF_ARTIFACTS_URL", raising=False)
+    report = init_local("ollama", profiles_dir=tmp_path / "mp", artifacts_dir=tmp_path / "a", db=tmp_path / "m.db")
+    assert not any("hosted service" in w for w in report["warnings"])

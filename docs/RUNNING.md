@@ -50,7 +50,20 @@ an agent at the new `id`. Agents with tools need a model that supports tool call
   (`ip route | awk '/default/ {print $3}'`) in `base_url` and set `allow_private_network: true`.
 - Plain `http://` is only accepted for localhost or with `allow_private_network: true`; anything else must be `https://`.
 
-**OpenAI** (or any OpenAI-compatible service):
+**OpenRouter** (one key, hundreds of models, including free ones): create a key at https://openrouter.ai/keys,
+then
+
+```bash
+export OPENROUTER_API_KEY=...            # in the worker's terminal; never put it in a file in the repo
+maef init --backend openrouter --force   # free default: google/gemma-4-31b-it:free
+maef init --backend openrouter --model-id qwen/qwen3.7-flash --force   # cheap paid alternative
+```
+
+Free models (ids ending in `:free`) are rate-limited and their providers may log prompts, so use them only for tests
+and non-sensitive work. Agents with tools need a model whose OpenRouter page lists tool support. Prompts and tool
+results leave your machine.
+
+**OpenAI** (or any other OpenAI-compatible service):
 
 ```yaml
 schema_version: maef.dev/v1alpha1

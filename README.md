@@ -41,7 +41,9 @@ maef init                           # sets up the local model profile, results f
 | Results folder | `artifacts/` | every result file, named by its fingerprint (sha256) |
 | Database | `runs/maef.db` | the log of every run, event and token spent |
 
-Use `maef init --backend lmstudio --model-id <name>` for LM Studio. On **WSL2** with the model server running on
+Use `maef init --backend lmstudio --model-id <name>` for LM Studio. No local model? `maef init --backend openrouter`
+uses a free hosted model through [OpenRouter](https://openrouter.ai) (export `OPENROUTER_API_KEY` first; prompts then
+leave your machine). On **WSL2** with the model server running on
 Windows, add `--base-url http://<windows-ip>:11434/v1` (find the IP with `ip route | awk '/default/ {print $3}'`).
 
 Now create access keys and start the two processes:
