@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Isolation and the network</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #14171c;
+      --color-ink:     #e4e7ec;
+      --color-muted:   #a3acba;
+      --color-accent:  #5b9bff;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+    .frame { max-width: 1320px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; color: var(--color-ink); margin-bottom: 1.5rem; }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Secure paved road</p>
+    <h1>Isolation and the network</h1>
+    <div class="diagram-container">
+<svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="isolation-dark-title isolation-dark-desc">
+<title id="isolation-dark-title">Isolation and the network</title>
+<desc id="isolation-dark-desc">Architecture diagram of one run on the worker machine: the worker reaches the model over HTTPS, runs commands in a networkless sandbox, and sends tool traffic through a private per-run network whose only exit, the egress proxy, allows public sites and blocks private addresses and cloud metadata.</desc>
+<defs>
+<marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#a3acba"/></marker>
+<marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b9bff"/></marker>
+<marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8db3e2"/></marker>
+<pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(228,231,236,0.06)"/></pattern>
+</defs>
+<rect width="100%" height="100%" fill="#14171c"/>
+<rect width="100%" height="100%" fill="url(#dots)"/>
+
+<!-- Zones -->
+<rect x="32" y="56" width="1032" height="520" rx="8" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.18)" stroke-width="1"/>
+<rect x="496" y="50" width="104" height="12" rx="2" fill="#14171c"/>
+<text x="548" y="59" fill="#8e98a8" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">WORKER MACHINE</text>
+
+<rect x="336" y="224" width="648" height="184" rx="8" fill="rgba(91,155,255,0.04)" stroke="rgba(91,155,255,0.5)" stroke-width="1" stroke-dasharray="6,4"/>
+<rect x="572" y="218" width="176" height="12" rx="2" fill="#14171c"/>
+<text x="660" y="227" fill="#8e98a8" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.14em">PRIVATE PER-RUN NETWORK</text>
+
+
+<!-- Arrows first -->
+<path d="M 144,256 V 148 Q 144,140 152,140 H 1096" fill="none" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+<line x1="232" y1="292" x2="384" y2="292" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="144" y1="328" x2="144" y2="416" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="544" y1="292" x2="736" y2="292" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+<line x1="912" y1="280" x2="1096" y2="280" stroke="#8db3e2" stroke-width="1.4" marker-end="url(#arrow-link)"/>
+<path d="M 824,360 V 440 Q 824,448 832,448 H 1044" fill="none" stroke="#a3acba" stroke-width="1" stroke-dasharray="4,3"/>
+<line x1="1052" y1="434" x2="1052" y2="462" stroke="#a3acba" stroke-width="2.4"/>
+
+<!-- Labels -->
+<rect x="376" y="120" width="48" height="12" rx="2" fill="#14171c"/>
+<text x="400" y="129" fill="#8db3e2" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">HTTPS</text>
+
+<text x="640" y="164" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">http only to localhost · no redirects · no metadata addresses</text>
+<rect x="254" y="272" width="68" height="12" rx="2" fill="#14171c"/>
+<text x="288" y="281" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">TOOL CALLS</text>
+
+<rect x="266" y="300" width="44" height="12" rx="2" fill="#14171c"/>
+<text x="288" y="309" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">STDIO</text>
+
+<rect x="608" y="272" width="64" height="12" rx="2" fill="#14171c"/>
+<text x="640" y="281" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">OUTBOUND</text>
+
+<rect x="1000" y="256" width="56" height="12" rx="2" fill="#14171c"/>
+<text x="1028" y="265" fill="#8db3e2" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">ALLOWED</text>
+
+<rect x="916" y="420" width="56" height="12" rx="2" fill="#14171c"/>
+<text x="944" y="429" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">BLOCKED</text>
+
+<rect x="154" y="364" width="84" height="12" rx="2" fill="#14171c"/>
+<text x="196" y="373" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">RUN_COMMAND</text>
+
+
+<!-- Nodes -->
+<rect x="56" y="256" width="176" height="72" rx="6" fill="#14171c"/>
+<rect x="56" y="256" width="176" height="72" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+<rect x="64" y="264" width="44" height="12" rx="2" fill="transparent" stroke="#e4e7ec" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="86" y="273" fill="#e4e7ec" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">WORKER</text>
+<text x="144" y="296" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Worker process</text>
+<text x="144" y="312" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">runs the agent loop</text>
+
+<rect x="56" y="416" width="176" height="128" rx="6" fill="#14171c"/>
+<rect x="56" y="416" width="176" height="128" rx="6" fill="rgba(228,231,236,0.05)" stroke="rgba(228,231,236,0.5)" stroke-width="1" stroke-dasharray="4,4"/>
+<rect x="64" y="424" width="44" height="12" rx="2" fill="transparent" stroke="#a3acba" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="86" y="433" fill="#a3acba" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">SANDBOX</text>
+<text x="144" y="456" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Sandbox container</text>
+<text x="144" y="472" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">read-only root</text>
+<text x="144" y="486" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">no capabilities · no network</text>
+<text x="144" y="500" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">unprivileged user</text>
+<text x="144" y="514" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">temp /workspace</text>
+
+<rect x="384" y="256" width="160" height="72" rx="6" fill="#14171c"/>
+<rect x="384" y="256" width="160" height="72" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+<rect x="392" y="264" width="28" height="12" rx="2" fill="transparent" stroke="#e4e7ec" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="406" y="273" fill="#e4e7ec" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">MCP</text>
+<text x="464" y="296" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">MCP server</text>
+<text x="464" y="312" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">own container</text>
+
+<rect x="736" y="256" width="176" height="104" rx="6" fill="#14171c"/>
+<rect x="736" y="256" width="176" height="104" rx="6" fill="rgba(91,155,255,0.12)" stroke="#5b9bff" stroke-width="1"/>
+<rect x="744" y="264" width="32" height="12" rx="2" fill="transparent" stroke="#5b9bff" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="760" y="273" fill="#5b9bff" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">GATE</text>
+<text x="824" y="296" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Egress proxy</text>
+<text x="824" y="312" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">allowed hosts and ports</text>
+<text x="824" y="326" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">public IPs only</text>
+
+<rect x="1096" y="104" width="160" height="72" rx="6" fill="#14171c"/>
+<rect x="1096" y="104" width="160" height="72" rx="6" fill="rgba(228,231,236,0.03)" stroke="rgba(228,231,236,0.3)" stroke-width="1"/>
+<rect x="1104" y="112" width="28" height="12" rx="2" fill="transparent" stroke="#8e98a8" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="1118" y="121" fill="#8e98a8" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+<text x="1176" y="144" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Model endpoint</text>
+<text x="1176" y="160" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">local or hosted</text>
+
+<rect x="1096" y="244" width="160" height="72" rx="6" fill="#14171c"/>
+<rect x="1096" y="244" width="160" height="72" rx="6" fill="rgba(228,231,236,0.03)" stroke="rgba(228,231,236,0.3)" stroke-width="1"/>
+<rect x="1104" y="252" width="28" height="12" rx="2" fill="transparent" stroke="#8e98a8" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="1118" y="261" fill="#8e98a8" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">EXT</text>
+<text x="1176" y="284" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Allowed sites</text>
+<text x="1176" y="300" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">allowlisted hosts</text>
+
+<rect x="1096" y="400" width="160" height="96" rx="6" fill="#14171c"/>
+<rect x="1096" y="400" width="160" height="96" rx="6" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.35)" stroke-width="1" stroke-dasharray="4,3"/>
+<rect x="1104" y="408" width="44" height="12" rx="2" fill="transparent" stroke="#8e98a8" stroke-opacity="0.5" stroke-width="0.8"/>
+<text x="1126" y="417" fill="#8e98a8" font-size="7" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.08em">DENIED</text>
+<text x="1176" y="440" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Blocked targets</text>
+<text x="1176" y="456" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">LAN / private IPs</text>
+<text x="1176" y="470" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">169.254.169.254</text>
+<text x="1176" y="484" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">non-allowlisted hosts</text>
+
+
+<!-- Legend -->
+<line x1="32" y1="608" x2="1248" y2="608" stroke="rgba(228,231,236,0.12)" stroke-width="0.8"/>
+<text x="32" y="632" fill="#a3acba" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" letter-spacing="0.14em">LEGEND</text>
+<line x1="120" y1="628" x2="152" y2="628" stroke="#8db3e2" stroke-width="1.4" marker-end="url(#arrow-link)"/>
+<text x="164" y="631" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">permitted route</text>
+<path d="M 320,628 H 344" fill="none" stroke="#a3acba" stroke-width="1" stroke-dasharray="4,3"/>
+<line x1="352" y1="620" x2="352" y2="636" stroke="#a3acba" stroke-width="2.4"/>
+<text x="364" y="631" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">blocked route, stops here</text>
+<rect x="600" y="620" width="32" height="16" rx="3" fill="rgba(91,155,255,0.04)" stroke="rgba(91,155,255,0.5)" stroke-dasharray="6,4"/>
+<text x="644" y="631" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace">trust boundary around the only exit</text>
+</svg>
+    </div>
+  </div>
+</body>
+</html>

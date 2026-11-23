@@ -3,12 +3,13 @@
 This page explains how MAEF is built, in plain terms. Setup details are in [RUNNING.md](RUNNING.md); exact formats
 are in [CONTRACTS.md](../packages/contracts/CONTRACTS.md).
 
-The diagrams are drawn from the Mermaid sources in [`diagrams/`](diagrams/). After editing a `.mmd` file, run
-`make diagrams` to redraw the SVGs.
+The diagrams in [`diagrams/design/`](diagrams/design/) were drawn with the diagram-design skill (open the `.html`
+files in a browser for the full-quality version; the `.svg` files are exports). The code map is generated from a
+Mermaid source (`diagrams/code-map.mmd`, `make diagrams` redraws it).
 
 ## The big picture
 
-![How MAEF fits together](diagrams/overview.svg)
+![How MAEF fits together](diagrams/design/architecture-dark.svg)
 
 MAEF has two halves that never run in the same process:
 
@@ -33,7 +34,7 @@ Around them:
 
 ## What happens during a run
 
-![Run lifecycle](diagrams/run-lifecycle.svg)
+![Run lifecycle](diagrams/design/run-lifecycle-dark.svg)
 
 1. **Request.** A client sends an agent id, an instruction and an optional tighter budget.
 2. **Admission.** The API resolves the agent at its Git revision and records digests of every file the run will use
@@ -49,7 +50,7 @@ Around them:
 
 ### Run states
 
-![Run states](diagrams/run-states.svg)
+![Run states](diagrams/design/run-states-dark.svg)
 
 A run only moves forward. `succeeded`, `failed` and `cancelled` are final. If a worker stops sending heartbeats, its
 lease expires and the run fails as `worker_lost`. Leases are *fenced*: a worker that comes back late cannot write to a
@@ -57,7 +58,7 @@ run that has moved on, and repeated reports (retries) are recognised and ignored
 
 ## Budgets
 
-![Token budget](diagrams/budget.svg)
+![Token budget](diagrams/design/token-budget-dark.svg)
 
 Budgets are in tokens only, with limits on turns and time as well. Before a run starts, the API reserves the most it
 could possibly use: the agent's `max_tokens`, or less if the turn and output limits make a smaller worst case
@@ -68,7 +69,7 @@ together. Details: [BUDGETS_OBSERVABILITY.md](BUDGETS_OBSERVABILITY.md).
 
 ## Isolation and the network
 
-![Sandbox and network](diagrams/network.svg)
+![Sandbox and network](diagrams/design/isolation-dark.svg)
 
 The agent loop itself runs in the worker process. What the model asks to *do* runs in containers:
 

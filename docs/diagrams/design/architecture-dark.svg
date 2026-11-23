@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1280 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="architecture-dark-title architecture-dark-desc" id="architecture-dark-root">
+        <title id="architecture-dark-title">How MAEF fits together</title>
+        <desc id="architecture-dark-desc">Clients call the MAEF API, which keeps the ledger, artifacts and agent definitions, while a separate worker talks only to the API and runs models, a sandbox and tool containers.</desc>
+        <defs>
+      <style>#architecture-dark-root { --color-paper:   #14171c;
+      --color-paper-2: #1c2027;
+      --color-ink:     #e4e7ec;
+      --color-muted:   #a3acba;
+      --color-accent:  #5b9bff;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', 'Noto Serif KR', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #architecture-dark-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #architecture-dark-root .diagram-container { width: 100%; overflow-x: auto; }
+      @media print {
+#architecture-dark-root .diagram-container { overflow-x: visible; }
+}</style>
+          <marker id="architecture-dark-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#a3acba"/></marker>
+          <marker id="architecture-dark-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b9bff"/></marker>
+          <marker id="architecture-dark-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8db3e2"/></marker>
+          <pattern id="architecture-dark-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="#e4e7ec" fill-opacity="0.06"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#14171c"/>
+        <rect width="100%" height="100%" fill="url(#architecture-dark-dots)" opacity="0.55"/>
+
+        <rect x="272" y="32" width="968" height="296" rx="8" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.12"/>
+        <text x="288" y="51" fill="#8e98a8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">CONTROL PLANE</text>
+        <rect x="272" y="368" width="968" height="296" rx="8" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="0.8" fill-opacity="0.02" stroke-opacity="0.12"/>
+        <text x="288" y="387" fill="#8e98a8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">WORKER MACHINE</text>
+        <line x1="200" y1="188" x2="312" y2="188" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#architecture-dark-arrow-link)"/>
+        <line x1="544" y1="100" x2="920" y2="100" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <line x1="544" y1="188" x2="920" y2="188" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <line x1="544" y1="276" x2="920" y2="276" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <line x1="428" y1="416" x2="428" y2="296" stroke="#5b9bff" stroke-width="1.4" marker-end="url(#architecture-dark-arrow-accent)"/>
+        <line x1="544" y1="436" x2="920" y2="436" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#architecture-dark-arrow-link)"/>
+        <line x1="544" y1="524" x2="920" y2="524" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <line x1="544" y1="612" x2="920" y2="612" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <rect x="212.0" y="168" width="88" height="12" rx="2" fill="#14171c"/>
+        <text x="256" y="177" fill="#8db3e2" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HTTPS + TOKEN</text>
+        <rect x="688.0" y="80" width="88" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="89" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RUNS · EVENTS</text>
+        <rect x="688.0" y="168" width="88" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="177" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE RESULTS</text>
+        <rect x="694.0" y="256" width="76" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="265" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PIN VERSION</text>
+        <rect x="436.0" y="350" width="92" height="12" rx="2" fill="#14171c"/>
+        <text x="482" y="359" fill="#5b9bff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLAIM · EVENTS</text>
+        <rect x="694.0" y="416" width="76" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="425" fill="#8db3e2" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HTTPS + KEY</text>
+        <rect x="696.0" y="504" width="72" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="513" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">NO NETWORK</text>
+        <rect x="686.0" y="592" width="92" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="601" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ALLOWLIST ONLY</text>
+        <text x="412" y="359" fill="#a3acba" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">The worker never touches the database</text>
+        <rect x="40" y="148" width="160" height="80" rx="6" fill="#14171c"/>
+        <rect x="40" y="148" width="160" height="80" rx="6" fill="#a3acba" stroke="#8e98a8" stroke-width="1" fill-opacity="0.10"/>
+        <rect x="48" y="156" width="44" height="12" rx="2" fill="none" stroke="#8e98a8" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="70.0" y="165" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+        <text x="120.0" y="184" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Clients</text>
+        <text x="120.0" y="200" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">maef CLI · TUI</text>
+        <text x="120.0" y="214" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Claude Code · maef mcp</text>
+        <rect x="312" y="80" width="232" height="216" rx="6" fill="#14171c"/>
+        <rect x="312" y="80" width="232" height="216" rx="6" fill="#5b9bff" stroke="#5b9bff" stroke-width="1" fill-opacity="0.12"/>
+        <rect x="320" y="88" width="29" height="12" rx="2" fill="none" stroke="#5b9bff" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="334.5" y="97" fill="#5b9bff" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+        <text x="428.0" y="184.0" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MAEF API</text>
+        <text x="428.0" y="200.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Control plane</text>
+        <text x="428.0" y="214.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Admission · budgets</text>
+        <text x="428.0" y="228.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Leases · auth</text>
+        <rect x="920" y="64" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="64" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#a3acba" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="928" y="72" width="39" height="12" rx="2" fill="none" stroke="#a3acba" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="947.5" y="81" fill="#a3acba" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="1060.0" y="102" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ledger</text>
+        <text x="1060.0" y="118" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">SQLite or Postgres</text>
+        <text x="1060.0" y="132" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Runs · events · budgets</text>
+        <rect x="920" y="152" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="152" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#a3acba" stroke-width="1" fill-opacity="0.05"/>
+        <rect x="928" y="160" width="39" height="12" rx="2" fill="none" stroke="#a3acba" stroke-width="0.8" stroke-opacity="0.50"/>
+        <text x="947.5" y="169" fill="#a3acba" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="1060.0" y="190" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Artifact store</text>
+        <text x="1060.0" y="206" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Local folder or S3</text>
+        <text x="1060.0" y="220" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Files named by sha256</text>
+        <rect x="920" y="240" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="240" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <rect x="928" y="248" width="29" height="12" rx="2" fill="none" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.22"/>
+        <text x="942.5" y="257" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GIT</text>
+        <text x="1060.0" y="278" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Agent definitions</text>
+        <text x="1060.0" y="294" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">agents/&lt;id&gt;/ in Git</text>
+        <text x="1060.0" y="308" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">agent.yaml + instructions</text>
+        <rect x="312" y="416" width="232" height="216" rx="6" fill="#14171c"/>
+        <rect x="312" y="416" width="232" height="216" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <rect x="320" y="424" width="44" height="12" rx="2" fill="none" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.40"/>
+        <text x="342.0" y="433" fill="#e4e7ec" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORKER</text>
+        <text x="428.0" y="520.0" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Worker</text>
+        <text x="428.0" y="536.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Agent loop</text>
+        <text x="428.0" y="550.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Budget guard</text>
+        <text x="428.0" y="564.0" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Talks only to the API</text>
+        <rect x="920" y="400" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="400" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <rect x="928" y="408" width="39" height="12" rx="2" fill="none" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.22"/>
+        <text x="947.5" y="417" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MODEL</text>
+        <text x="1060.0" y="438" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Model endpoints</text>
+        <text x="1060.0" y="454" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Ollama · LM Studio · OpenRouter</text>
+        <text x="1060.0" y="468" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OpenAI · Anthropic · Bedrock</text>
+        <rect x="920" y="488" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="488" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" stroke-dasharray="4,4" fill-opacity="0.02" stroke-opacity="0.50"/>
+        <rect x="928" y="496" width="54" height="12" rx="2" fill="none" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.30"/>
+        <text x="955.0" y="505" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ISOLATED</text>
+        <text x="1060.0" y="526" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Sandbox container</text>
+        <text x="1060.0" y="542" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">run_command tool · read-only</text>
+        <text x="1060.0" y="556" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">All capabilities dropped</text>
+        <rect x="920" y="576" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="576" width="280" height="72" rx="6" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" stroke-dasharray="4,4" fill-opacity="0.02" stroke-opacity="0.50"/>
+        <rect x="928" y="584" width="54" height="12" rx="2" fill="none" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.30"/>
+        <text x="955.0" y="593" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ISOLATED</text>
+        <text x="1060.0" y="614" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">MCP tool containers</text>
+        <text x="1060.0" y="630" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">One container per server</text>
+        <text x="1060.0" y="644" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Egress proxy · allowed hosts only</text>
+        <line x1="40" y1="692" x2="1240" y2="692" stroke="#e4e7ec" stroke-width="0.8" stroke-opacity="0.12"/>
+        <text x="40" y="708" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="724" width="14" height="10" rx="2" fill="#a3acba" stroke="#8e98a8" stroke-width="1" fill-opacity="0.10"/>
+        <text x="60" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Client</text>
+        <rect x="136" y="724" width="14" height="10" rx="2" fill="#5b9bff" stroke="#5b9bff" stroke-width="1" fill-opacity="0.12"/>
+        <text x="156" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Focal · control plane</text>
+        <rect x="300" y="724" width="14" height="10" rx="2" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="320" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Worker</text>
+        <rect x="388" y="724" width="14" height="10" rx="2" fill="#e4e7ec" stroke="#a3acba" stroke-width="1" fill-opacity="0.05"/>
+        <text x="408" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Store</text>
+        <rect x="468" y="724" width="14" height="10" rx="2" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <text x="488" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">External</text>
+        <rect x="568" y="724" width="14" height="10" rx="2" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" stroke-dasharray="4,4" fill-opacity="0.02" stroke-opacity="0.50"/>
+        <text x="588" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Isolated · sandboxed</text>
+        <line x1="740" y1="729" x2="768" y2="729" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#architecture-dark-arrow-link)"/>
+        <text x="776" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">HTTPS call</text>
+        <line x1="868" y1="729" x2="896" y2="729" stroke="#5b9bff" stroke-width="1.4" marker-end="url(#architecture-dark-arrow-accent)"/>
+        <text x="904" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Worker protocol</text>
+        <line x1="1020" y1="729" x2="1048" y2="729" stroke="#a3acba" stroke-width="1.2" marker-end="url(#architecture-dark-arrow)"/>
+        <text x="1056" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Internal call</text>
+      </svg>

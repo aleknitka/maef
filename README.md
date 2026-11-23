@@ -19,7 +19,7 @@ Everything works **offline-first**: the database is a file, results go into a lo
 Ollama or LM Studio, and containers run in Podman. Cloud services (OpenAI, Anthropic, AWS Bedrock, S3, Postgres) are
 optional extras you switch on when you want them.
 
-![How MAEF fits together](docs/diagrams/overview.svg)
+![How MAEF fits together](docs/diagrams/design/architecture-dark.svg)
 
 ## Quick start (no cloud account)
 
@@ -120,7 +120,7 @@ model-profiles/      your local model settings (not committed; `maef init` creat
 examples/            example model profiles and requests
 evals/               evaluation suites
 schemas/             JSON Schemas for the definition files
-docs/                documentation and diagrams (docs/diagrams/*.mmd, `make diagrams` to redraw)
+docs/                documentation and diagrams (docs/diagrams/design/: diagram-design; code map: `make diagrams`)
 tests/               Python tests
 ```
 

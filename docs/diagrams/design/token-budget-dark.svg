@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="token-budget-dark-title token-budget-dark-desc" id="token-budget-dark-root">
+        <title id="token-budget-dark-title">How token budgets work</title>
+        <desc id="token-budget-dark-desc">Flowchart showing a run being refused or admitted, a worst-case token reservation, a budget check before every model call, and settlement of the real usage at the end.</desc>
+        <defs>
+      <style>#token-budget-dark-root { --color-paper:   #14171c;
+      --color-ink:     #e4e7ec;
+      --color-muted:   #a3acba;
+      --color-accent:  #5b9bff;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #token-budget-dark-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #token-budget-dark-root .diagram-container { width: 100%; overflow-x: auto; }
+      @media print {
+#token-budget-dark-root .diagram-container { overflow-x: visible; }
+}</style>
+          <marker id="token-budget-dark-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#a3acba"/></marker>
+          <marker id="token-budget-dark-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b9bff"/></marker>
+          <marker id="token-budget-dark-arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8db3e2"/></marker>
+        </defs>
+        <rect width="100%" height="100%" fill="#14171c"/>
+        <path d="M248,200 H296" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M472,200 H520" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M696,200 H744" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M936,200 H984" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M384,260 V332" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M840,260 V332" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M1084,160 V108 Q1084,100 1076,100 H848 Q840,100 840,108 V140" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M1084,240 V332" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <path d="M1084,388 V460" fill="none" stroke="#a3acba" stroke-width="1.2" marker-end="url(#token-budget-dark-arrow)"/>
+        <rect x="482" y="180" width="28" height="12" rx="2" fill="#14171c"/>
+        <text x="496" y="189" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
+        <rect x="946" y="180" width="28" height="12" rx="2" fill="#14171c"/>
+        <text x="960" y="189" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">YES</text>
+        <rect x="394" y="290" width="24" height="12" rx="2" fill="#14171c"/>
+        <text x="406" y="299" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+        <rect x="850" y="290" width="24" height="12" rx="2" fill="#14171c"/>
+        <text x="862" y="299" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NO</text>
+        <rect x="930" y="78" width="64" height="12" rx="2" fill="#14171c"/>
+        <text x="962" y="87" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">NEXT CALL</text>
+        <rect x="1096" y="278" width="60" height="12" rx="2" fill="#14171c"/>
+        <text x="1126" y="287" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.06em">RUN ENDS</text>
+        <rect x="88" y="172" width="160" height="56" rx="20" fill="#14171c"/>
+        <rect x="88" y="172" width="160" height="56" rx="20" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <text x="168" y="198" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Run requested</text>
+        <text x="168" y="214" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">token, turn, time limits</text>
+        <polygon points="384,140 472,200 384,260 296,200" fill="#14171c"/>
+        <polygon points="384,140 472,200 384,260 296,200" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="384" y="176" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">ACCOUNT CAP</text>
+        <text x="384" y="208" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Covers the</text>
+        <text x="384" y="224" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">worst case?</text>
+        <rect x="304" y="332" width="160" height="56" rx="20" fill="#14171c"/>
+        <rect x="304" y="332" width="160" height="56" rx="20" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <text x="384" y="358" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Refused</text>
+        <text x="384" y="374" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">insufficient_budget</text>
+        <rect x="520" y="172" width="176" height="56" rx="6" fill="#14171c"/>
+        <rect x="520" y="172" width="176" height="56" rx="6" fill="#5b9bff" stroke="#5b9bff" stroke-width="1" fill-opacity="0.12"/>
+        <text x="608" y="198" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Reserve worst case</text>
+        <text x="608" y="214" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">capped at max_tokens</text>
+        <polygon points="840,140 936,200 840,260 744,200" fill="#14171c"/>
+        <polygon points="840,140 936,200 840,260 744,200" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="840" y="176" fill="#8e98a8" font-size="8" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle" letter-spacing="0.12em">BUDGET GUARD</text>
+        <text x="840" y="208" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Turns, time and</text>
+        <text x="840" y="224" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">tokens left?</text>
+        <rect x="740" y="332" width="200" height="56" rx="20" fill="#14171c"/>
+        <rect x="740" y="332" width="200" height="56" rx="20" fill="#e4e7ec" stroke="#e4e7ec" stroke-width="1" fill-opacity="0.03" stroke-opacity="0.30"/>
+        <text x="840" y="358" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Stop the run</text>
+        <text x="840" y="374" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">tokens / turns / duration</text>
+        <rect x="984" y="160" width="200" height="80" rx="6" fill="#14171c"/>
+        <rect x="984" y="160" width="200" height="80" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="1084" y="190" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Model call</text>
+        <text x="1084" y="206" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">input (incl. cached), output</text>
+        <text x="1084" y="220" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">cache read, cache write</text>
+        <rect x="984" y="332" width="200" height="56" rx="6" fill="#14171c"/>
+        <rect x="984" y="332" width="200" height="56" rx="6" fill="#5b9bff" stroke="#5b9bff" stroke-width="1" fill-opacity="0.12"/>
+        <text x="1084" y="358" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Settle</text>
+        <text x="1084" y="374" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">charge max(reported, recorded)</text>
+        <rect x="984" y="460" width="200" height="56" rx="6" fill="#14171c"/>
+        <rect x="984" y="460" width="200" height="56" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="1084" y="486" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', system-ui, sans-serif" text-anchor="middle">Release unused tokens</text>
+        <text x="1084" y="502" fill="#a3acba" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">back to the account</text>
+        <text x="88" y="620" fill="#e4e7ec" font-size="14" font-style="italic" font-family="'Instrument Serif', 'Noto Serif', serif">Cached tokens still count as input — budgets never undercount.</text>
+      </svg>

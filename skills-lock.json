@@ -22,6 +22,13 @@
       "skillPath": "cursor-team-kit/skills/deslop/SKILL.md",
       "computedHash": "104e1041830c5ad58da3805289a77dbba4eee7dd96d4547b3eaeecbd761618d8"
     },
+    "diagram-design": {
+      "source": "cathrynlavery/diagram-design",
+      "commit": "0eeda75a708f419560d5e032693618bb9954f17b",
+      "sourceType": "github",
+      "skillPath": "skills/diagram-design/SKILL.md",
+      "computedHash": "f5f88973e37f06c0f73afed09341205aa7175c45e41dac1259868428e77bf6bb"
+    },
     "impeccable": {
       "source": "pbakaus/impeccable",
       "commit": "b49177d32788f2dc585c42831d845dacf1ebed2c",

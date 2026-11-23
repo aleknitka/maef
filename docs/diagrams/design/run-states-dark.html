@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Run states · State machine</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #14171c;
+      --color-paper-2: #1c2027;
+      --color-ink:     #e4e7ec;
+      --color-muted:   #a3acba;
+      --color-accent:  #5b9bff;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', 'Noto Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body { font-family: var(--font-sans); background: var(--color-paper); color: var(--color-ink); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 3rem 2rem; }
+    .frame { max-width: 1320px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 400; letter-spacing: -0.02em; line-height: 1.15; color: var(--color-ink); margin-bottom: 1.5rem; }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+    svg text { font-family: 'Geist', sans-serif; }
+    .band { fill: rgba(228,231,236,0.035); stroke: rgba(163,172,186,0.28); }
+    .flow { fill: none; stroke: #a3acba; stroke-width: 1.2; }
+    .flow.accent { stroke: #5b9bff; stroke-width: 1.4; }
+    .mask { fill: #14171c; }
+    .phase { fill: #1c2027; stroke: #e4e7ec; }
+    .terminal { fill: rgba(228,231,236,0.04); stroke: #a3acba; }
+    .terminal.failed { stroke-width: 1.5; stroke-dasharray: 3 3; }
+    .mono { font-family: 'Geist Mono', monospace; }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">State machine · Lifecycle phase map</p>
+    <h1>Run states</h1>
+    <div class="diagram-container">
+    <svg viewBox="0 0 1280 720" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="run-states-dark-title run-states-dark-desc">
+      <title id="run-states-dark-title">Run states</title>
+      <desc id="run-states-dark-desc">A run moves from admitted to leased to running, and ends as succeeded, failed or cancelled; a lost worker fails the run, and a cancel can end it while queued or running.</desc>
+      <defs>
+        <pattern id="run-states-dark-dots" width="22" height="22" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="0.9" fill="rgba(228,231,236,0.06)"/></pattern>
+        <marker id="run-states-dark-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#a3acba"/></marker>
+        <marker id="run-states-dark-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#5b9bff"/></marker>
+      </defs>
+      <rect width="100%" height="100%" fill="#14171c"/>
+      <rect width="100%" height="100%" fill="url(#run-states-dark-dots)"/>
+
+      <rect class="band" x="24" y="152" width="1232" height="144" rx="8"/>
+      <rect class="band" x="24" y="376" width="1232" height="224" rx="8"/>
+      <g fill="#a3acba" font-size="8" font-family="'Geist Mono',monospace" letter-spacing="0.14em"><text x="40" y="172">PRIMARY PHASES</text><text x="40" y="396">TERMINAL OUTCOMES</text></g>
+
+      <!-- arrows first -->
+      <line class="flow" x1="54" y1="236" x2="192" y2="236" marker-end="url(#run-states-dark-arrow)"/>
+      <line class="flow" x1="352" y1="236" x2="496" y2="236" marker-end="url(#run-states-dark-arrow)"/>
+      <line class="flow" x1="656" y1="236" x2="800" y2="236" marker-end="url(#run-states-dark-arrow)"/>
+      <path class="flow" d="M272 200 V128 Q272 120 280 120 H1152 Q1160 120 1160 128 V424" marker-end="url(#run-states-dark-arrow)"/>
+      <line class="flow" x1="576" y1="272" x2="576" y2="424" marker-end="url(#run-states-dark-arrow)"/>
+      <path class="flow" d="M840 272 V340 Q840 348 832 348 H680 Q672 348 672 356 V424" marker-end="url(#run-states-dark-arrow)"/>
+      <line class="flow accent" x1="880" y1="272" x2="880" y2="424" marker-end="url(#run-states-dark-arrow-accent)"/>
+      <path class="flow" d="M920 272 V340 Q920 348 928 348 H1080 Q1088 348 1088 356 V424" marker-end="url(#run-states-dark-arrow)"/>
+
+      <!-- label masks -->
+      <g font-family="'Geist Mono',monospace" font-size="8" text-anchor="middle" letter-spacing="0.08em" fill="#a3acba">
+        <rect class="mask" x="67" y="230" width="112" height="12" rx="2"/><text x="123" y="239">TOKENS RESERVED</text>
+        <rect class="mask" x="376" y="230" width="96" height="12" rx="2"/><text x="424" y="239">WORKER CLAIMS</text>
+        <rect class="mask" x="680" y="230" width="96" height="12" rx="2"/><text x="728" y="239">WORKER STARTS</text>
+        <rect class="mask" x="668" y="114" width="96" height="12" rx="2"/><text x="716" y="123">CANCEL QUEUED</text>
+        <rect class="mask" x="588" y="316" width="80" height="12" rx="2"/><text x="628" y="325">WORKER LOST</text>
+        <rect class="mask" x="704" y="342" width="104" height="12" rx="2"/><text x="756" y="351">BUDGET · ERROR</text>
+        <rect class="mask" x="978" y="342" width="52" height="12" rx="2"/><text x="1004" y="351">CANCEL</text>
+        <rect class="mask" x="892" y="380" width="68" height="12" rx="2"/><text x="926" y="389" fill="#5b9bff">COMPLETED</text>
+      </g>
+      <circle cx="48" cy="236" r="6" fill="#e4e7ec"/>
+
+      <!-- primary phases -->
+      <g text-anchor="middle">
+        <g><rect class="phase" x="192" y="200" width="160" height="72" rx="8"/><text x="272" y="231" fill="#e4e7ec" font-size="12" font-weight="600">admitted</text><text x="272" y="250" fill="#a3acba" font-size="9" class="mono" style="font-family:'Geist Mono',monospace">tokens reserved</text></g>
+        <g><rect class="phase" x="496" y="200" width="160" height="72" rx="8"/><text x="576" y="231" fill="#e4e7ec" font-size="12" font-weight="600">leased</text><text x="576" y="250" fill="#a3acba" font-size="9" style="font-family:'Geist Mono',monospace">60 s lease held</text></g>
+        <g><rect x="800" y="200" width="160" height="72" rx="8" fill="rgba(91,155,255,0.12)" stroke="#5b9bff"/><text x="880" y="231" fill="#e4e7ec" font-size="12" font-weight="600">running</text><text x="880" y="250" fill="#a3acba" font-size="9" style="font-family:'Geist Mono',monospace">agent loop active</text></g>
+      </g>
+
+      <!-- terminals -->
+      <g text-anchor="middle">
+        <g><rect class="terminal failed" x="448" y="424" width="256" height="144" rx="8"/><rect x="458" y="434" width="56" height="12" rx="2" fill="none" stroke="rgba(163,172,186,0.50)"/><text x="486" y="443" fill="#a3acba" font-size="8" style="font-family:'Geist Mono',monospace" text-anchor="middle">TERMINAL</text><text x="576" y="467" fill="#e4e7ec" font-size="12" font-weight="600">failed</text>
+          <g fill="#a3acba" font-size="9" style="font-family:'Geist Mono',monospace"><text x="576" y="486">tokens_exhausted</text><text x="576" y="499">turns_exhausted</text><text x="576" y="512">duration_exhausted</text><text x="576" y="525">output_truncated</text><text x="576" y="538">model_error:…:http_NNN</text><text x="576" y="551">worker_lost</text></g></g>
+        <g><rect x="800" y="424" width="160" height="72" rx="8" fill="rgba(91,155,255,0.12)" stroke="#5b9bff"/><rect x="810" y="434" width="56" height="12" rx="2" fill="none" stroke="rgba(91,155,255,0.60)"/><text x="838" y="443" fill="#a3acba" font-size="8" style="font-family:'Geist Mono',monospace">TERMINAL</text><text x="880" y="467" fill="#e4e7ec" font-size="12" font-weight="600">succeeded</text><text x="880" y="482" fill="#a3acba" font-size="9" style="font-family:'Geist Mono',monospace">reason: completed</text></g>
+        <g><rect class="terminal" x="1048" y="424" width="160" height="72" rx="8"/><rect x="1058" y="434" width="56" height="12" rx="2" fill="none" stroke="rgba(163,172,186,0.50)"/><text x="1086" y="443" fill="#a3acba" font-size="8" style="font-family:'Geist Mono',monospace">TERMINAL</text><text x="1128" y="467" fill="#e4e7ec" font-size="12" font-weight="600">cancelled</text><text x="1128" y="482" fill="#a3acba" font-size="9" style="font-family:'Geist Mono',monospace">stopped on request</text></g>
+      </g>
+
+      <!-- callout -->
+      <g font-family="'Instrument Serif','Noto Serif',serif" font-style="italic" font-size="14" fill="#e4e7ec">
+        <text x="40" y="476">Runs only move forward.</text>
+        <text x="40" y="496">A late report from a lost worker</text>
+        <text x="40" y="516">is rejected (fenced leases).</text>
+      </g>
+      <path d="M284 496 H440" fill="none" stroke="rgba(228,231,236,0.40)" stroke-width="1" stroke-dasharray="4,3"/>
+      <circle cx="448" cy="496" r="2" fill="#e4e7ec"/>
+    </svg>
+    </div>
+  </div>
+</body>
+</html>
