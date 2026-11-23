@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from .adapters.base import Message, ModelAdapter, ToolCall, ToolSpec
+from .adapters.base import Message, ModelAdapter, ToolCall, ToolSpec, model_error_reason
 from .artifacts import (
     ArtifactIntake,
     ArtifactRef,
@@ -184,7 +184,7 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     except SinkFailure:
         raise
     except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
-        status, reason = "failed", f"model_error:{type(exc).__name__}"
+        status, reason = "failed", model_error_reason(exc)
 
     if run.outputs is not None:
         _collect_outputs(sink, run.outputs, artifacts)

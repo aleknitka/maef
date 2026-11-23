@@ -63,3 +63,14 @@ class ModelAdapter(Protocol):
                  max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
         """One model call. Raises on transport or service errors."""
         ...
+
+
+def model_error_reason(exc: BaseException) -> str:
+    """Terminal reason for a failed model call: the exception class plus the HTTP status when known
+    (`model_error:ModelHTTPError:http_429`). Never the message: provider text may echo prompts or keys."""
+    status = getattr(exc, "status", None)
+    response = getattr(exc, "response", None)
+    if status is None and isinstance(response, dict):  # botocore ClientError
+        status = (response.get("ResponseMetadata") or {}).get("HTTPStatusCode")
+    name = f"model_error:{type(exc).__name__}"
+    return f"{name}:http_{status}" if isinstance(status, int) and 100 <= status <= 599 else name

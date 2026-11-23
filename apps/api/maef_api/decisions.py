@@ -7,6 +7,7 @@ tokens (a token is at least one byte), so an unmetered response cannot be free.
 import json
 from collections.abc import Callable
 
+from .adapters.base import model_error_reason
 from .adapters.decision import DecisionAdapter
 from .adapters.http import ModelHTTPError
 from .artifacts import ArtifactRejected
@@ -60,9 +61,9 @@ def execute_decision(sink: RunSink, run_id: str, task: TaskPayload, adapter: Dec
     except ModelHTTPError as exc:
         # The kind is a fixed code (never provider text), so it is safe to record.
         status = "failed"
-        reason = "invalid_decision" if str(exc).startswith("invalid_decision") else f"model_error:{type(exc).__name__}"
+        reason = "invalid_decision" if str(exc).startswith("invalid_decision") else model_error_reason(exc)
     except Exception as exc:  # noqa: BLE001  # class name only; messages may echo prompts or keys
-        status, reason = "failed", f"model_error:{type(exc).__name__}"
+        status, reason = "failed", model_error_reason(exc)
     used = in_tokens + out_tokens
     manifest = ResultManifest(
         run_id=run_id, status=status, agent_id=f"decision:{profile.id}", agent_revision=None, dirty=False,

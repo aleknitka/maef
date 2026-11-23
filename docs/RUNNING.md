@@ -55,7 +55,7 @@ then
 
 ```bash
 export OPENROUTER_API_KEY=...            # in the worker's terminal; never put it in a file in the repo
-maef init --backend openrouter --force   # free default: google/gemma-4-31b-it:free
+maef init --backend openrouter --force   # free default: nvidia/nemotron-3.5-lightning:free
 maef init --backend openrouter --model-id qwen/qwen3.7-flash --force   # cheap paid alternative
 ```
 

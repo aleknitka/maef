@@ -1,7 +1,7 @@
 schema_version: maef.dev/v1alpha1
-id: openrouter-gemma-4-31b-free
+id: openrouter-nemotron-lightning-free
 version: 0.1.0
-display_name: OpenRouter google/gemma-4-31b-it:free
+display_name: OpenRouter nvidia/nemotron-3.5-lightning:free
 vendor: OpenRouter
 api_dialect: openai-compatible
 endpoint:
@@ -9,7 +9,7 @@ endpoint:
   base_url: https://openrouter.ai/api/v1
   # Free models end in ":free" (rate-limited; providers may log prompts). Cheap paid alternative: qwen/qwen3.7-flash.
   # The agent's tools need a model whose OpenRouter page lists "tools" support.
-  model_id: google/gemma-4-31b-it:free
+  model_id: nvidia/nemotron-3.5-lightning:free
 credential_ref: env:OPENROUTER_API_KEY
 capabilities:
   input_modalities: [text]

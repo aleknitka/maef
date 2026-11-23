@@ -289,7 +289,7 @@ def test_openrouter_backend_writes_https_profile_with_env_key(tmp_path, monkeypa
 
 def test_openrouter_default_model_is_a_free_one(tmp_path):
     text = render_profile("openrouter")
-    assert "model_id: google/gemma-4-31b-it:free" in text
+    assert "model_id: nvidia/nemotron-3.5-lightning:free" in text
     assert "id: local-default" in text
 
 
