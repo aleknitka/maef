@@ -279,14 +279,14 @@ def test_teardown_removes_container_once(tmp_path):
     session = sandbox(tmp_path, 'podman').provision(profile(), RUN_ID)
     session.teardown()
     session.teardown()
-    assert [c for c in calls(tmp_path, 'podman') if c[:2] == ['rm', '-f']] == [['rm', '-f', session.name]]
+    assert [c for c in calls(tmp_path, 'podman') if c[:2] == ['rm', '-f']] == [['rm', '-f', '-t', '0', session.name]]
 
 
 def test_teardown_never_raises_when_removal_fails(tmp_path):
     session = sandbox(tmp_path, 'podman', 'case "$1" in rm) exit 1 ;; esac').provision(profile(), RUN_ID)
     session.teardown()
     session.teardown()  # second call is a no-op: the session is already marked down
-    assert [c for c in calls(tmp_path, 'podman') if c[:2] == ['rm', '-f']] == [['rm', '-f', session.name]]
+    assert [c for c in calls(tmp_path, 'podman') if c[:2] == ['rm', '-f']] == [['rm', '-f', '-t', '0', session.name]]
 
 
 def test_cleanup_orphans_removes_each_labelled_container(tmp_path):
@@ -295,7 +295,7 @@ def test_cleanup_orphans_removes_each_labelled_container(tmp_path):
     assert sb.cleanup_orphans() == 2
     log = calls(tmp_path, 'podman')
     assert ['ps', '-a', '-q', '--filter', 'label=maef.run'] in log
-    assert ['rm', '-f', 'abc123'] in log and ['rm', '-f', 'def456'] in log
+    assert ['rm', '-f', '-t', '0', 'abc123'] in log and ['rm', '-f', '-t', '0', 'def456'] in log
 
 
 def test_cleanup_orphans_with_no_labelled_containers_removes_nothing(tmp_path):

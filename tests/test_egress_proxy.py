@@ -674,7 +674,7 @@ def test_teardown_removes_proxy_mcp_container_and_network(tmp_path):
     cl = calls(tmp_path, "podman")
     proxy = session._proxy
     assert ["rm", "-f", "-t", "0", proxy] in cl
-    assert ["rm", "-f", session.name] in cl
+    assert ["rm", "-f", "-t", "0", session.name] in cl
     assert ["network", "rm", "-f", session._network] in cl
     assert session._network.startswith("maef-egress-") and proxy.startswith("maef-proxy-")
 
@@ -684,5 +684,5 @@ def test_cleanup_orphans_removes_labelled_networks_and_containers(tmp_path):
     assert sb.cleanup_orphans() == 1
     cl = calls(tmp_path, "podman")
     assert first(cl, lambda c: c[:4] == ["ps", "-a", "-q", "--filter"])[-1] == "label=maef.run"
-    assert ["rm", "-f", "cid-orphan"] in cl
+    assert ["rm", "-f", "-t", "0", "cid-orphan"] in cl
     assert ["network", "rm", "-f", "maef-egress-old-1"] in cl

@@ -272,17 +272,19 @@ class OciCliSandbox:
 
     def _remove_egress(self, net: str | None, proxy: str | None) -> None:
         if proxy:
-            self._rm(proxy, kill=True)
+            self._rm(proxy)
         if net:
             try:
                 self._run(["network", "rm", "-f", net])
             except (OSError, subprocess.SubprocessError):
                 pass
 
-    def _rm(self, name: str, *, kill: bool = False) -> None:
-        """`kill`: no stop grace period (podman); for the proxy, whose PID 1 ignores SIGTERM."""
+    def _rm(self, name: str) -> None:
+        """Remove without a stop grace period. Every MAEF container's PID 1 (`sleep infinity`, the proxy) ignores
+        SIGTERM and holds no state worth flushing, so podman's default 10 s wait would only delay teardown.
+        `docker rm -f` already kills immediately."""
         try:
-            self._run(["rm", "-f", "-t", "0", name] if kill and self.runtime == "podman" else ["rm", "-f", name])
+            self._run(["rm", "-f", "-t", "0", name] if self.runtime == "podman" else ["rm", "-f", name])
         except (OSError, subprocess.SubprocessError):
             pass
 

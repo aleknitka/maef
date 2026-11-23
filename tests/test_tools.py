@@ -183,4 +183,4 @@ def test_oci_provision_builds_hardened_command_line(tmp_path):
         assert flag in run
     assert '-v ' not in run and '--volume' not in run and '.sock' not in run
     assert sb.info() == {'runtime': 'podman', 'version': '5.2.1', 'rootless': True}
-    assert log.read_text().count(f'rm -f {session.name}') == 1
+    assert log.read_text().count(f'rm -f -t 0 {session.name}') == 1
