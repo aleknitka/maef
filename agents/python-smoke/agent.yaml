@@ -1,0 +1,20 @@
+schema_version: maef.dev/v1alpha1
+id: python-smoke
+version: 0.1.0
+display_name: Python Smoke Test
+description: Writes one small Python script, runs it in the sandbox and reports the output. Used to test a model connection end to end.
+capabilities: [python, smoke-test]
+instructions: SYSTEM.md
+skills: []
+tools: [run_command]
+mcp_servers: []
+permissions:
+  network_open: false
+runtime:
+  model_profile: local-default
+  sandbox_profile: python-sandbox
+budget:
+  max_tokens: 40000
+  max_duration_seconds: 300
+  max_turns: 8
+outputs: [script-python, report-markdown]

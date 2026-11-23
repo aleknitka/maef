@@ -1,0 +1,13 @@
+# End-to-end model check: `maef eval run python-smoke` (needs a running API, worker, execution enabled,
+# a model profile `local-default` that supports tool calling, and podman or docker).
+schema_version: maef.dev/v1alpha1
+id: python-smoke
+tasks:
+  - id: squares
+    agent_id: python-smoke
+    instruction: Write a Python script that prints the squares of the whole numbers 1 to 5, one per line, then run it.
+    budget: {max_tokens: 40000, max_turns: 8}
+    checks:
+      - status: succeeded
+      - regex: "1\\s+4\\s+9\\s+16\\s+25"
+      - max_tokens: 40000
