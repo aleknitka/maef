@@ -34,6 +34,32 @@ pip install -e '.[dev]'
 
 **Running on Postgres.** Install the optional driver (`pip install -e '.[postgres]'`) and point every process (API, workers, `maef admin`) at one database: `MAEF_DB=postgresql://user:pass@host/db`. The schema is created on first start. Local throwaway server: `podman run -d --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=maef docker.io/library/postgres:17-alpine`, then `MAEF_DB=postgresql://postgres:maef@127.0.0.1/postgres`. `make test-pg` runs the ledger suite on Postgres (starts a podman container, or uses `MAEF_TEST_POSTGRES_URL`).
 
+**Storing artifacts in S3.** Install the extra (`pip install -e '.[s3]'`) and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the API and every worker that uploads artifacts; without it artifacts stay in `MAEF_ARTIFACTS_DIR`. Objects are content-addressed (`<prefix>/sha256/<aa>/<rest>`), written once, and re-verified on every read. Optional: `MAEF_S3_ENDPOINT_URL`, `MAEF_S3_REGION`, `MAEF_S3_ADDRESSING_STYLE=path` (needed by most S3-compatible servers), `MAEF_S3_SSE=0` (servers without SSE support), `MAEF_S3_ALLOW_PRIVATE=1` (endpoint on a private network), and `MAEF_S3_ACCESS_KEY_REF=env:NAME` / `MAEF_S3_SECRET_KEY_REF=env:NAME` (otherwise the default AWS credential chain). Details: `packages/contracts/CONTRACTS.md`.
+
+On AWS: projects use a single selected Region, so create the bucket in that Region (AWS Settings > View all projects > Overview > Additional Info > Region) and set `MAEF_S3_REGION` to it. Turn Block Public Access on, keep default encryption on, and give the API and workers a least-privilege policy (object-level `s3:GetObject` and `s3:PutObject` on the prefix, plus `s3:ListBucket` on the bucket limited to the prefix — see below):
+
+```json
+{"Version": "2012-10-17", "Statement": [
+  {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": "arn:aws:s3:::<bucket>/<prefix>*"},
+  {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::<bucket>",
+   "Condition": {"StringLike": {"s3:prefix": "<prefix>*"}}}]}
+```
+
+`HeadObject` is authorised by `s3:GetObject`. Without `s3:ListBucket`, S3 answers a HEAD or GET of a missing key with 403 instead of 404, which the store reports as `store_unavailable`; a first put of a new digest therefore also needs `s3:ListBucket` on `arn:aws:s3:::<bucket>` (add it, ideally with an `s3:prefix` condition) or a bucket policy that returns 404s.
+
+Local testing against SeaweedFS (S3 on 127.0.0.1:8333, pinned image):
+
+```bash
+podman run -d --rm -p 127.0.0.1:8333:8333 -e AWS_ACCESS_KEY_ID=maef -e AWS_SECRET_ACCESS_KEY=maefsecret \
+  docker.io/chrislusf/seaweedfs@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15 \
+  server -s3 -s3.port=8333 -volume.max=20 -master.volumeSizeLimitMB=64
+export AWS_ACCESS_KEY_ID=maef AWS_SECRET_ACCESS_KEY=maefsecret   # create the bucket once with any S3 client
+MAEF_ARTIFACTS_URL=s3://maef-artifacts/artifacts MAEF_S3_ENDPOINT_URL=http://127.0.0.1:8333 \
+  MAEF_S3_ADDRESSING_STYLE=path MAEF_S3_SSE=0 MAEF_S3_REGION=us-east-1 make api
+```
+
+`make test-s3` runs the artifact suite against SeaweedFS in podman (or `MAEF_TEST_S3_ENDPOINT` + `MAEF_TEST_S3_ACCESS_KEY` / `MAEF_TEST_S3_SECRET_KEY`, optional `MAEF_TEST_S3_BUCKET`).
+
 Every `/api/v1/*` route needs a bearer token. Create tokens with the local bootstrap CLI (it opens the ledger, `MAEF_DB`, directly and prints each secret once):
 
 ```bash

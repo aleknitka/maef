@@ -38,10 +38,12 @@ def store(ledger_target):
     return s
 
 
-@pytest.fixture(params=['local', 'memory'])
+@pytest.fixture(params=['local', 'memory', pytest.param('s3', marks=pytest.mark.s3)])
 def blobs(request, tmp_path):
     if request.param == 'local':
         return LocalArtifactStore(tmp_path / 'blobs')
+    if request.param == 's3':
+        return request.getfixturevalue('s3_store')
     return InMemoryArtifactStore()
 
 
@@ -49,6 +51,9 @@ def corrupt(store, digest):
     if isinstance(store, LocalArtifactStore):
         hex_ = digest.removeprefix('sha256:')
         (store.root / 'sha256' / hex_[:2] / hex_[2:]).write_bytes(b'tampered')
+    elif hasattr(store, '_client'):
+        hex_ = digest.removeprefix('sha256:')
+        store._client.put_object(Bucket=store.bucket, Key=f'{store.prefix}sha256/{hex_[:2]}/{hex_[2:]}', Body=b'tampered')
     else:
         store._blobs[digest] = b'tampered'
 

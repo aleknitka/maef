@@ -10,6 +10,7 @@ maef = "maef_api.cli:main"
 
 [project.optional-dependencies]
 bedrock = ["boto3>=1.35,<2"]
+s3 = ["boto3>=1.35,<2"]
 postgres = ["psycopg[binary]>=3.2,<4"]
 dev = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.8,<1", "boto3>=1.35,<2", "psycopg[binary]>=3.2,<4"]
 
@@ -21,5 +22,6 @@ pythonpath = ["apps/api"]
 testpaths = ["tests"]
 markers = [
     "oci: needs a real podman or docker runtime (make test-oci); skipped when none is installed",
+    "s3: runs against an S3-compatible server (podman SeaweedFS, or MAEF_TEST_S3_ENDPOINT); skipped when neither is available (make test-s3)",
     "pg: runs against PostgreSQL (podman, or MAEF_TEST_POSTGRES_URL); skipped when neither is available (make test-pg)",
 ]

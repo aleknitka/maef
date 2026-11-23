@@ -189,7 +189,27 @@ class LocalArtifactStore:
         return bool(DIGEST_RE.match(digest)) and self._path(digest).is_file()
 
 
-def default_artifact_store() -> LocalArtifactStore:
+def default_artifact_store() -> "ArtifactStore":
+    """`MAEF_ARTIFACTS_URL=s3://bucket/prefix` selects the S3 store (MAEF_S3_ENDPOINT_URL, MAEF_S3_REGION,
+    MAEF_S3_ADDRESSING_STYLE, MAEF_S3_SSE=0 to disable SSE, MAEF_S3_ALLOW_PRIVATE=1, MAEF_S3_ACCESS_KEY_REF /
+    MAEF_S3_SECRET_KEY_REF as env: refs); otherwise the local directory store."""
+    url = os.environ.get("MAEF_ARTIFACTS_URL")
+    if url:
+        from urllib.parse import urlparse
+
+        from .artifacts_s3 import DEFAULT_CREDENTIALS_REF, S3ArtifactStore
+        parsed = urlparse(url)
+        if parsed.scheme != "s3" or not parsed.netloc:
+            raise ValueError("MAEF_ARTIFACTS_URL must look like s3://bucket/prefix")
+        env = os.environ.get
+        return S3ArtifactStore(
+            parsed.netloc, prefix=parsed.path.lstrip("/") or "artifacts/",
+            endpoint_url=env("MAEF_S3_ENDPOINT_URL") or None, region=env("MAEF_S3_REGION") or None,
+            addressing_style=env("MAEF_S3_ADDRESSING_STYLE") or "auto",
+            sse=env("MAEF_S3_SSE", "1").lower() not in ("0", "false", "no", "off"),
+            allow_private=env("MAEF_S3_ALLOW_PRIVATE") == "1",
+            credentials_ref=env("MAEF_S3_ACCESS_KEY_REF") or DEFAULT_CREDENTIALS_REF,
+            secret_ref=env("MAEF_S3_SECRET_KEY_REF") or None)
     from .registry import ROOT
     return LocalArtifactStore(os.environ.get("MAEF_ARTIFACTS_DIR") or ROOT / "artifacts")
 

@@ -230,3 +230,94 @@ def ledger_target(backend, tmp_path, request):
         return lambda name='ledger.db': tmp_path / name
     make = request.getfixturevalue('fresh_postgres_url')
     return lambda name='ledger.db': make()
+
+
+# --- S3-compatible artifact store ---------------------------------------------------------------
+# Needs MAEF_TEST_S3_ENDPOINT (+ MAEF_TEST_S3_ACCESS_KEY / MAEF_TEST_S3_SECRET_KEY, optional MAEF_TEST_S3_BUCKET)
+# or rootless podman (SeaweedFS with its S3 gateway); skips otherwise. Tests get a unique key prefix each.
+# SeaweedFS answers 500 to ServerSideEncryption=AES256, so the generic fixtures build stores with sse=False.
+SEAWEEDFS_IMAGE = ('docker.io/chrislusf/seaweedfs@sha256:'
+                   '4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15')
+
+
+class S3Server:
+    def __init__(self, endpoint, access_key, secret_key, bucket, region='us-east-1'):
+        self.endpoint, self.access_key, self.secret_key = endpoint, access_key, secret_key
+        self.bucket, self.region = bucket, region
+
+    def client(self):
+        import boto3
+        from botocore.config import Config
+        return boto3.client('s3', endpoint_url=self.endpoint, aws_access_key_id=self.access_key,
+                            aws_secret_access_key=self.secret_key, region_name=self.region,
+                            config=Config(s3={'addressing_style': 'path'}, retries={'max_attempts': 1}))
+
+    def store(self, prefix, **kwargs):
+        from maef_api.artifacts_s3 import S3ArtifactStore
+        from maef_api.credentials import Credentials
+        env = {'K': self.access_key, 'S': self.secret_key}
+        kwargs.setdefault('sse', False)
+        return S3ArtifactStore(self.bucket, prefix=prefix, endpoint_url=self.endpoint, region=self.region,
+                               addressing_style='path', credentials_ref='env:K', secret_ref='env:S',
+                               credentials=Credentials(env), **kwargs)
+
+
+def _wait_for_s3(server: S3Server, timeout: float = 90.0) -> None:
+    import time
+    deadline, last = time.monotonic() + timeout, None
+    while time.monotonic() < deadline:
+        try:
+            client = server.client()
+            try:
+                client.create_bucket(Bucket=server.bucket)
+            except client.exceptions.BucketAlreadyOwnedByYou:
+                pass
+            return
+        except Exception as e:  # noqa: BLE001 - any failure means "not ready yet"
+            last = e
+            time.sleep(0.5)
+    raise RuntimeError(f's3 server not ready after {timeout}s: {type(last).__name__}')
+
+
+@pytest.fixture(scope='session')
+def s3_server():
+    import secrets
+    import shutil
+    import socket
+    import subprocess
+
+    pytest.importorskip('boto3')
+    given = os.environ.get('MAEF_TEST_S3_ENDPOINT')
+    if given:
+        server = S3Server(given, os.environ.get('MAEF_TEST_S3_ACCESS_KEY', ''), os.environ.get('MAEF_TEST_S3_SECRET_KEY', ''),
+                          os.environ.get('MAEF_TEST_S3_BUCKET', 'maef-test'), os.environ.get('MAEF_TEST_S3_REGION', 'us-east-1'))
+        _wait_for_s3(server)
+        yield server
+        return
+    podman = shutil.which('podman')
+    if podman is None:
+        pytest.skip('s3: neither MAEF_TEST_S3_ENDPOINT nor podman is available')
+    with socket.socket() as sock:
+        sock.bind(('127.0.0.1', 0))
+        port = sock.getsockname()[1]
+    access, secret = 'maef' + secrets.token_hex(6), secrets.token_hex(16)
+    started = subprocess.run(
+        [podman, 'run', '-d', '--rm', '-p', f'127.0.0.1:{port}:8333',
+         '-e', f'AWS_ACCESS_KEY_ID={access}', '-e', f'AWS_SECRET_ACCESS_KEY={secret}',
+         SEAWEEDFS_IMAGE, 'server', '-s3', '-s3.port=8333', '-volume.max=20', '-master.volumeSizeLimitMB=64'],
+        capture_output=True, text=True, check=False)
+    if started.returncode != 0:
+        pytest.skip(f's3: podman could not start the container: {started.stderr.strip()[:200]}')
+    container = started.stdout.strip()
+    try:
+        server = S3Server(f'http://127.0.0.1:{port}', access, secret, 'maef-test')
+        _wait_for_s3(server)
+        yield server
+    finally:
+        subprocess.run([podman, 'rm', '-f', '-t', '0', container], capture_output=True, check=False)
+
+
+@pytest.fixture
+def s3_store(s3_server):
+    import uuid
+    return s3_server.store(f'test-{uuid.uuid4().hex[:12]}/')
