@@ -68,6 +68,12 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=600, metavar="SECONDS", help="per task")
     s.add_argument("--json", action="store_true")
     s.add_argument("--out", metavar="FILE", help="write the markdown report here")
+    s = sub.add_parser("init", help="set up a fully local install: local-default model profile, artifacts dir, SQLite ledger")
+    s.add_argument("--backend", choices=("ollama", "lmstudio"), default="ollama")
+    s.add_argument("--model-id", help="model name as the local server knows it (default from the example)")
+    s.add_argument("--base-url", help="OpenAI-compatible URL (default localhost); a non-loopback host enables allow_private_network")
+    s.add_argument("--force", action="store_true", help="overwrite an existing model-profiles/local-default.yaml")
+    s.add_argument("--json", action="store_true")
     a = sub.add_parser("admin", help="bootstrap tokens and worker credentials (local, uses MAEF_DB directly)")
     admin_sub = a.add_subparsers(dest="admin_cmd", required=True)
     t = admin_sub.add_parser("token", help="API tokens").add_subparsers(dest="action", required=True)
@@ -315,6 +321,31 @@ def _has_changes(p: dict) -> bool:
         "budget_increases", "runtime_changes", "mcp_new_secrets", "mcp_network_open_added"))
 
 
+def _init(args) -> int:
+    """Local only: never contacts a server or cloud account."""
+    from .localsetup import InitError, init_local
+    try:
+        report = init_local(args.backend, args.model_id, args.base_url, args.force)
+    except (InitError, ValueError) as exc:
+        _err(f"error: {exc}")
+        return EXIT_ERROR
+    if args.json:
+        print(json.dumps(report, indent=2))
+        return EXIT_OK
+    prof = report["profile"]
+    print(f"model profile  {prof['path']} ({prof['action']})")
+    print(f"artifacts      {report['artifacts']}")
+    print(f"ledger         {report['ledger']}")
+    print(f"oci runtime    {report['oci_runtime'] or 'none'}")
+    for w in report["warnings"]:
+        _err(f"warning: {w}")
+    print("next:\n  export MAEF_API_TOKEN=$(maef admin token create --name me --scopes read,runs:write)\n"
+          "  export MAEF_WORKER_CREDENTIAL=$(maef admin worker create --id worker-1)\n"
+          "  make api   # terminal 1\n  make worker   # terminal 2\n"
+          "  maef run research-analyst 'your task'")
+    return EXIT_OK
+
+
 def _admin(args) -> int:
     """Talks to the ledger DB directly (not over HTTP): this is the root of trust. Prints a token only at creation."""
     from .auth import (
@@ -480,6 +511,8 @@ def main(argv: list[str] | None = None, client: MaefClient | None = None) -> int
             return _schema_export(args)
         if args.cmd == "admin":
             return _admin(args)
+        if args.cmd == "init":
+            return _init(args)
         if args.cmd == "mcp":
             from .gateway import Gateway
             return Gateway(client or MaefClient(HttpTransport()), sys.stdin.buffer, sys.stdout.buffer).serve()

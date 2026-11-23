@@ -24,6 +24,29 @@ MAEF is a local-first, Git-native framework for defining specialist agents, revi
 - Python >=3.11
 - Node.js >=20 and npm
 
+## Fully local quick start (no cloud account)
+
+Everything defaults to this machine: the ledger is a SQLite file (`runs/maef.db`), artifacts are a
+content-addressed directory (`artifacts/sha256/...`, override with `MAEF_ARTIFACTS_DIR`), models are served by
+Ollama or LM Studio, and sandboxes run in rootless Podman (or Docker). AWS (Bedrock, S3) and Postgres are optional
+extras that are only used when you configure them; the base install does not import boto3.
+
+```bash
+pip install -e .                          # no extras needed for local use
+ollama pull qwen3:8b                      # or load a model in LM Studio
+maef init                                 # or: maef init --backend lmstudio --model-id <name>
+export MAEF_API_TOKEN=$(maef admin token create --name me --scopes read,runs:write)
+export MAEF_WORKER_CREDENTIAL=$(maef admin worker create --id worker-1)
+MAEF_EXECUTION_ENABLED=1 MAEF_ALLOW_DIRTY=1 make api    # terminal 1
+make worker                                             # terminal 2 (same exports)
+maef run research-analyst "Summarise ..."
+```
+
+`maef init` writes `model-profiles/local-default.yaml` (the profile the shipped agents use; it keeps an existing
+one unless `--force`), creates the artifact directory and the SQLite ledger, and warns if `MAEF_ARTIFACTS_URL` or a
+Postgres `MAEF_DB` would send data elsewhere. On WSL2 with Ollama on the Windows host, pass
+`--base-url http://<host-ip>:11434/v1`; a non-loopback host turns on `allow_private_network` in the profile.
+
 ## Start the API
 
 ```bash
@@ -34,7 +57,7 @@ pip install -e '.[dev]'
 
 **Running on Postgres.** Install the optional driver (`pip install -e '.[postgres]'`) and point every process (API, workers, `maef admin`) at one database: `MAEF_DB=postgresql://user:pass@host/db`. The schema is created on first start. Local throwaway server: `podman run -d --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=maef docker.io/library/postgres:17-alpine`, then `MAEF_DB=postgresql://postgres:maef@127.0.0.1/postgres`. `make test-pg` runs the ledger suite on Postgres (starts a podman container, or uses `MAEF_TEST_POSTGRES_URL`).
 
-**Storing artifacts in S3.** Install the extra (`pip install -e '.[s3]'`) and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the API and every worker that uploads artifacts; without it artifacts stay in `MAEF_ARTIFACTS_DIR`. Objects are content-addressed (`<prefix>/sha256/<aa>/<rest>`), written once, and re-verified on every read. Optional: `MAEF_S3_ENDPOINT_URL`, `MAEF_S3_REGION`, `MAEF_S3_ADDRESSING_STYLE=path` (needed by most S3-compatible servers), `MAEF_S3_SSE=0` (servers without SSE support), `MAEF_S3_ALLOW_PRIVATE=1` (endpoint on a private network), and `MAEF_S3_ACCESS_KEY_REF=env:NAME` / `MAEF_S3_SECRET_KEY_REF=env:NAME` (otherwise the default AWS credential chain). Details: `packages/contracts/CONTRACTS.md`.
+**Storing artifacts in S3 (optional; the default is the local `artifacts/` directory).** Install the extra (`pip install -e '.[s3]'`) and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the API and every worker that uploads artifacts; without it artifacts stay in `MAEF_ARTIFACTS_DIR`. Objects are content-addressed (`<prefix>/sha256/<aa>/<rest>`), written once, and re-verified on every read. Optional: `MAEF_S3_ENDPOINT_URL`, `MAEF_S3_REGION`, `MAEF_S3_ADDRESSING_STYLE=path` (needed by most S3-compatible servers), `MAEF_S3_SSE=0` (servers without SSE support), `MAEF_S3_ALLOW_PRIVATE=1` (endpoint on a private network), and `MAEF_S3_ACCESS_KEY_REF=env:NAME` / `MAEF_S3_SECRET_KEY_REF=env:NAME` (otherwise the default AWS credential chain). Details: `packages/contracts/CONTRACTS.md`.
 
 On AWS: projects use a single selected Region, so create the bucket in that Region (AWS Settings > View all projects > Overview > Additional Info > Region) and set `MAEF_S3_REGION` to it. Turn Block Public Access on, keep default encryption on, and give the API and workers a least-privilege policy (object-level `s3:GetObject` and `s3:PutObject` on the prefix, plus `s3:ListBucket` on the bucket limited to the prefix — see below):
 
