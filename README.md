@@ -4,265 +4,142 @@
 
 # MAEF — Modular Agent Execution Framework
 
-**Status: architecture + runnable registry/studio bootstrap (v0.1.0).** Not an operational agent executor yet.
+MAEF runs **specialist AI agents** for you, safely and within a budget, on your own machine.
 
-MAEF is a local-first, Git-native framework for defining specialist agents, reviewing their skills and configuration, and eventually dispatching isolated, budget-controlled tasks to local or remote workers. Main clients (Codex, Claude Code, etc.) should only need the small MAEF gateway, not every specialist MCP.
+You describe an agent once in a few text files (what it is for, its instructions, which model it uses, which tools
+it may touch, how many tokens it may spend). Then you, a script, or another coding assistant such as Claude Code
+can hand it a task. MAEF:
 
-## Included now
-- Typed YAML agent definitions and a local Git-friendly registry.
-- Read-only FastAPI endpoints to inspect agent definitions and context files.
-- Task **preview** endpoint showing effective bounded budgets and selected runtime profile.
-- React Studio for inspecting agents, skills, model/sandbox profiles, outputs and task previews.
-- One example agent definition and API tests.
-- Architecture, contracts, ADRs, security considerations and phased roadmap.
+- **checks the request** and reserves a token budget before anything runs,
+- **runs the agent** in a separate worker process, with its tools locked inside containers,
+- **records everything** that happens (each model call, tool call and token spent) in an append-only log,
+- **stores the result** as a file you can download and check.
 
-**Opt-in execution:** with `MAEF_EXECUTION_ENABLED=1`, `POST /api/v1/runs` admits and queues a budget-reserved run (needs a gitignored model profile and a clean git tree or `MAEF_ALLOW_DIRTY=1`); a separate worker process claims it and calls the model (see below). It is off by default and returns 501. Runs and append-only events live in a ledger (`MAEF_DB`: a SQLite path, default `runs/maef.db`, or a `postgresql://` URL, see "Running on Postgres"); `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use.
+Everything works **offline-first**: the database is a file, results go into a local folder, models can come from
+Ollama or LM Studio, and containers run in Podman. Cloud services (OpenAI, Anthropic, AWS Bedrock, S3, Postgres) are
+optional extras you switch on when you want them.
 
-**Not implemented:** MCP over HTTP, MCP gateway server, actual spend enforcement, publishing, Git commit automation. Studio clearly labels previews as non-executions.
+![How MAEF fits together](docs/diagrams/overview.svg)
 
-## Requirements
-- Python >=3.11
-- Node.js >=20 and npm
+## Quick start (no cloud account)
 
-## Fully local quick start (no cloud account)
-
-Everything defaults to this machine: the ledger is a SQLite file (`runs/maef.db`), artifacts are a
-content-addressed directory (`artifacts/sha256/...`, override with `MAEF_ARTIFACTS_DIR`), models are served by
-Ollama or LM Studio, and sandboxes run in rootless Podman (or Docker). AWS (Bedrock, S3) and Postgres are optional
-extras that are only used when you configure them; the base install does not import boto3.
+You need Python 3.11+, [Podman](https://podman.io) (or Docker) and a local model server
+([Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai)).
 
 ```bash
-pip install -e .                          # no extras needed for local use
-ollama pull qwen3:8b                      # or load a model in LM Studio
-maef init                                 # or: maef init --backend lmstudio --model-id <name>
+python -m venv .venv && source .venv/bin/activate
+pip install -e .                    # installs the `maef` command
+ollama pull qwen3:8b                # any model that supports tool calling
+maef init                           # sets up the local model profile, results folder and database
+```
+
+`maef init` creates three things, all on this machine:
+
+| What | Where | Why |
+|---|---|---|
+| Model profile | `model-profiles/local-default.yaml` | tells agents which model server to call |
+| Results folder | `artifacts/` | every result file, named by its fingerprint (sha256) |
+| Database | `runs/maef.db` | the log of every run, event and token spent |
+
+Use `maef init --backend lmstudio --model-id <name>` for LM Studio. On **WSL2** with the model server running on
+Windows, add `--base-url http://<windows-ip>:11434/v1` (find the IP with `ip route | awk '/default/ {print $3}'`).
+
+Now create access keys and start the two processes:
+
+```bash
 export MAEF_API_TOKEN=$(maef admin token create --name me --scopes read,runs:write)
 export MAEF_WORKER_CREDENTIAL=$(maef admin worker create --id worker-1)
-MAEF_EXECUTION_ENABLED=1 MAEF_ALLOW_DIRTY=1 make api    # terminal 1
-make worker                                             # terminal 2 (same exports)
-maef run research-analyst "Summarise ..."
+
+MAEF_EXECUTION_ENABLED=1 MAEF_ALLOW_DIRTY=1 make api    # terminal 1: the API
+make worker                                             # terminal 2: the worker (same exports)
 ```
 
-`maef init` writes `model-profiles/local-default.yaml` (the profile the shipped agents use; it keeps an existing
-one unless `--force`), creates the artifact directory and the SQLite ledger, and warns if `MAEF_ARTIFACTS_URL` or a
-Postgres `MAEF_DB` would send data elsewhere. On WSL2 with Ollama on the Windows host, pass
-`--base-url http://<host-ip>:11434/v1`; a non-loopback host turns on `allow_private_network` in the profile.
-
-## Start the API
+And give an agent a task:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e '.[dev]'
+maef run research-analyst "Summarise what HTTP caching headers do" --wait
 ```
 
-**Running on Postgres.** Install the optional driver (`pip install -e '.[postgres]'`) and point every process (API, workers, `maef admin`) at one database: `MAEF_DB=postgresql://user:pass@host/db`. The schema is created on first start. Local throwaway server: `podman run -d --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=maef docker.io/library/postgres:17-alpine`, then `MAEF_DB=postgresql://postgres:maef@127.0.0.1/postgres`. `make test-pg` runs the ledger suite on Postgres (starts a podman container, or uses `MAEF_TEST_POSTGRES_URL`).
+Prefer a screen? Run `make tui` for the terminal interface (needs [Bun](https://bun.sh); `cd apps/tui && bun install`
+once).
 
-**Storing artifacts in S3 (optional; the default is the local `artifacts/` directory).** Install the extra (`pip install -e '.[s3]'`) and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the API and every worker that uploads artifacts; without it artifacts stay in `MAEF_ARTIFACTS_DIR`. Objects are content-addressed (`<prefix>/sha256/<aa>/<rest>`), written once, and re-verified on every read. Optional: `MAEF_S3_ENDPOINT_URL`, `MAEF_S3_REGION`, `MAEF_S3_ADDRESSING_STYLE=path` (needed by most S3-compatible servers), `MAEF_S3_SSE=0` (servers without SSE support), `MAEF_S3_ALLOW_PRIVATE=1` (endpoint on a private network), and `MAEF_S3_ACCESS_KEY_REF=env:NAME` / `MAEF_S3_SECRET_KEY_REF=env:NAME` (otherwise the default AWS credential chain). Details: `packages/contracts/CONTRACTS.md`.
+## The main ideas
 
-On AWS: projects use a single selected Region, so create the bucket in that Region (AWS Settings > View all projects > Overview > Additional Info > Region) and set `MAEF_S3_REGION` to it. Turn Block Public Access on, keep default encryption on, and give the API and workers a least-privilege policy (object-level `s3:GetObject` and `s3:PutObject` on the prefix, plus `s3:ListBucket` on the bucket limited to the prefix — see below):
+| Term | Meaning |
+|---|---|
+| **Agent** | A folder in `agents/` with `agent.yaml` (settings) and instruction files. Kept in Git, so every change is reviewable. |
+| **Run** | One task given to one agent. It has a status, a budget, an event log and result files. |
+| **API** | The "front desk". It checks requests, reserves budgets, keeps the log and hands out work. It never runs agent code itself. |
+| **Worker** | The process that actually runs agents. It asks the API for work, calls the model, runs tools, and reports back. |
+| **Model profile** | Which model server to call and how (`model-profiles/*.yaml`). Kept per machine, never committed, never holds secrets. |
+| **Sandbox** | A locked-down container for running commands: read-only, no network, no special permissions. |
+| **MCP server** | A packaged tool (for example "fetch a web page") that runs in its own container, with internet access only through a filtering proxy. |
+| **Budget** | Token limits per run (plus turn and time limits). The worst case is reserved up front; unused tokens are returned. |
+| **Artifact** | A result file, stored under its sha256 fingerprint and checked every time it is read. |
 
-```json
-{"Version": "2012-10-17", "Statement": [
-  {"Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject"], "Resource": "arn:aws:s3:::<bucket>/<prefix>*"},
-  {"Effect": "Allow", "Action": "s3:ListBucket", "Resource": "arn:aws:s3:::<bucket>",
-   "Condition": {"StringLike": {"s3:prefix": "<prefix>*"}}}]}
-```
+## What it can do today
 
-`HeadObject` is authorised by `s3:GetObject`. Without `s3:ListBucket`, S3 answers a HEAD or GET of a missing key with 403 instead of 404, which the store reports as `store_unavailable`; a first put of a new digest therefore also needs `s3:ListBucket` on `arn:aws:s3:::<bucket>` (add it, ideally with an `s3:prefix` condition) or a bucket policy that returns 404s.
+- Run agents against **Ollama, LM Studio, OpenAI, Anthropic and AWS Bedrock**, with tool calling.
+- Ask **decision models** (Jev, Clef) structured questions with checked answers.
+- **Token budgets** with up-front reservation, per-run limits and an account-wide cap.
+- **Container sandboxes** on Podman or Docker (Linux, WSL2, macOS), plus MCP tool servers behind an egress allowlist.
+- **Live progress** (server-sent events), cancellation, and downloadable results.
+- **Use from other assistants**: Claude Code or Codex delegate tasks through the `maef mcp` gateway, without ever
+  loading the agent's tools or secrets.
+- **Safe editing of agents**: drafts live on their own Git branch; a human merges them.
+- **Access control**: scoped API tokens, one credential per worker, an audit log.
+- **Monitoring**: OpenTelemetry traces, Prometheus metrics, and repeatable evaluation suites.
+- **Storage choices**: SQLite or Postgres for the log; a local folder or S3-compatible storage for results.
 
-Local testing against SeaweedFS (S3 on 127.0.0.1:8333, pinned image):
+Not done yet: workers on a *second* machine (planned next), and the web Studio still lacks login support.
 
-```bash
-podman run -d --rm -p 127.0.0.1:8333:8333 -e AWS_ACCESS_KEY_ID=maef -e AWS_SECRET_ACCESS_KEY=maefsecret \
-  docker.io/chrislusf/seaweedfs@sha256:4b42c212543a0acd4c0e675215ecdcaf62a186ef98def76c7e12701871222d15 \
-  server -s3 -s3.port=8333 -volume.max=20 -master.volumeSizeLimitMB=64
-export AWS_ACCESS_KEY_ID=maef AWS_SECRET_ACCESS_KEY=maefsecret   # create the bucket once with any S3 client
-MAEF_ARTIFACTS_URL=s3://maef-artifacts/artifacts MAEF_S3_ENDPOINT_URL=http://127.0.0.1:8333 \
-  MAEF_S3_ADDRESSING_STYLE=path MAEF_S3_SSE=0 MAEF_S3_REGION=us-east-1 make api
-```
+## Documentation
 
-`make test-s3` runs the artifact suite against SeaweedFS in podman (or `MAEF_TEST_S3_ENDPOINT` + `MAEF_TEST_S3_ACCESS_KEY` / `MAEF_TEST_S3_SECRET_KEY`, optional `MAEF_TEST_S3_BUCKET`).
+| Read this | To learn |
+|---|---|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the pieces fit together, with diagrams |
+| [docs/RUNNING.md](docs/RUNNING.md) | Every setup option: models, containers, Postgres, S3, tokens, CLI, TUI, Claude Code |
+| [docs/SECURITY.md](docs/SECURITY.md) | What is protected, how, and the known gaps |
+| [docs/BUDGETS_OBSERVABILITY.md](docs/BUDGETS_OBSERVABILITY.md) | Token budgets, traces and metrics in detail |
+| [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md) | Jev and Clef wire formats |
+| [packages/contracts/CONTRACTS.md](packages/contracts/CONTRACTS.md) | Exact file and API formats |
+| [docs/BACKEND_PLAN.md](docs/BACKEND_PLAN.md) | The build plan and what is finished |
 
-Every `/api/v1/*` route needs a bearer token. Create tokens with the local bootstrap CLI (it opens the ledger, `MAEF_DB`, directly and prints each secret once):
-
-```bash
-export MAEF_API_TOKEN=$(maef admin token create --name me --scopes admin)   # admin implies every scope
-maef admin token create --name ci --scopes read,runs:write                   # scopes: read, runs:write, decisions:write, authoring, admin
-maef admin token list; maef admin token revoke ID
-export MAEF_WORKER_CREDENTIAL=$(maef admin worker create --id worker-1)      # one credential per worker
-make api
-```
-
-API: http://127.0.0.1:8000/docs. `MAEF_AUTH_DISABLED=1` turns token checks off for loopback clients only (local dev; logs a warning). `GET /api/v1/audit` (admin) lists the audit log.
-
-## Start a worker (second terminal)
-
-The API only admits and queues runs; a worker process executes them using its own `MAEF_WORKER_CREDENTIAL` (the lease binds to that credential's worker id):
-
-```bash
-MAEF_EXECUTION_ENABLED=1 make api      # terminal 1
-make worker                            # terminal 2 (with MAEF_WORKER_CREDENTIAL exported)
-```
-
-Worker settings: `MAEF_API_URL` (default `http://127.0.0.1:8000`; set `MAEF_API_ALLOW_PRIVATE=1` for a LAN address), `MAEF_WORKER_ID` (log label only). Model credentials (`env:NAME` references) are read from the worker's own environment, never sent by the API. SIGINT/SIGTERM finish the run in flight, then exit. The API fails runs whose worker stops heartbeating (lease `MAEF_LEASE_SECONDS`, default 60) as `worker_lost`, charging their full reservation.
-
-## Follow and cancel a run
-
-```bash
-curl -N -H "Authorization: Bearer $MAEF_API_TOKEN" http://127.0.0.1:8000/api/v1/runs/$RUN_ID/events     # live SSE; resume with -H 'Last-Event-ID: 12'
-curl -X POST -H "Authorization: Bearer $MAEF_API_TOKEN" http://127.0.0.1:8000/api/v1/runs/$RUN_ID/cancel # 202 {"outcome": "cancelled" | "requested"}
-```
-
-A queued run is cancelled immediately; a running one stops within one worker heartbeat (15 s) or sooner, and is charged only for the usage so far.
-
-## Terminal UI
-
-A keyboard-first terminal front end (OpenTUI + React on Bun) over the HTTP API and SSE only. It works over SSH and in WSL2, macOS and Linux terminals.
-
-```bash
-cd apps/tui && bun install     # once
-# start the API and a worker as above, then from the repo root:
-make tui                       # MAEF_API_URL defaults to http://127.0.0.1:8000; reads MAEF_API_TOKEN
-```
-
-Keys: `1`/`2`/`3` agents, new run, runs; `Enter` select; new run: `Tab` next field, `ctrl+p` preview, `ctrl+s` submit, `Esc` back; run detail: `c` cancel, `r` result, `a` artifacts, `Esc` back; `ctrl+r` retry after an API error; `q`/`ctrl+c` quit. Tests: `cd apps/tui && bun test`.
-
-## Start the Studio (second terminal)
-
-```bash
-cd apps/studio
-npm install
-npm run dev
-```
-
-Studio: http://127.0.0.1:5173
-
-## Local models (Ollama, LM Studio)
-
-Copy an example profile into `model-profiles/` (profiles are local, per-machine files):
-
-```bash
-cp examples/model-profiles/ollama.yaml model-profiles/     # http://localhost:11434/v1
-cp examples/model-profiles/lmstudio.yaml model-profiles/   # http://localhost:1234/v1
-```
-
-Edit `model_id` to a model you have pulled, then set an agent's `runtime.model_profile` to the profile `id`. Both use `credential_ref: none:local`, so no key is needed.
-
-- **WSL2:** if the server runs on the Windows host, `localhost` will not reach it. Use the host IP from `ip route | awk '/default/ {print $3}'` as `base_url` host and set `allow_private_network: true` in the profile. On macOS and Linux use `localhost`.
-- **Tools:** an agent with `tools:` needs a model that supports tool calling (for example `qwen3`); models without it will ignore or fail the tool definitions. Tool-less agents work with any chat model.
-
-## Sandbox runtimes
-
-Agents that list `run_command` execute inside an OCI container (one per run: read-only root, all capabilities dropped, no network, no mounts, memory/CPU/pids limits, tmpfs `/workspace`). The worker uses only the CLI surface shared by `podman` and `docker` (no runtime API socket) and prefers Podman. Set `MAEF_OCI_RUNTIME=podman|docker` to force one. Profiles live in `sandbox-profiles/`; images need POSIX `sh`, `cat`, `mkdir` and `sleep infinity`.
-
-- **Linux:** `sudo apt install podman` or `sudo dnf install podman` (rootless by default).
-- **WSL2:** install Podman inside the distro, same as Linux. Docker Desktop's WSL integration also works with `MAEF_OCI_RUNTIME=docker`, but Docker Desktop is rootful inside its VM, so use a profile with `require_rootless: false`.
-- **macOS:** `brew install podman && podman machine init && podman machine start` (rootless by default).
-
-A profile with `require_rootless: true` fails closed (`sandbox_unavailable`) on a rootful runtime. Images must be digest-pinned (`image@sha256:...`); `restricted-local` uses the tag `busybox:1.37`, so in development start the worker with `MAEF_ALLOW_UNPINNED_IMAGES=1` until it is pinned (recorded in the `sandbox.provisioned` event). The worker removes leftover `maef.run`-labelled containers at startup, so run one worker per host. `make test-oci` runs the real-runtime tests; they skip when no runtime is installed.
-
-## MCP servers
-
-Stdio MCP servers are declared in `mcp-servers/<id>.yaml` (image, command, non-secret `env`, `secrets` as `ENV_NAME: env:VAR`, `network: none|allowlist|open`, `allowed_hosts`, `allowed_ports`, `permission`) and attached with `mcp_servers: ["<id>@<version>"]` in `agent.yaml`. Each server runs in its own container next to the run and its tools appear to the model as `mcp__<id>__<tool>`; tool calls are traced (sizes only). Servers need `sleep infinity` in the image, like sandbox images, and a container runtime on the worker host. A server with `network: allowlist` runs on a per-run internal network whose only exit is an enforced egress proxy (host allowlist, port allowlist, public addresses only, DNS pinned to the vetted IP; decisions are summarised in an `egress.summary` event); `network: open` is unfiltered and discouraged. Either needs `permissions: {network_open: true}` on the agent. `research-analyst` uses the reference `fetch` server; it uses `network: allowlist` with `allowed_hosts: ["*"]` (any public host).
-
-## Delegating from Claude Code / Codex
-
-A host coding agent hands bounded tasks to MAEF agents through the `maef` CLI or a small stdio MCP gateway. The host
-never loads the agents' tools, MCP servers, credentials or instructions; it only sees `list_agents`, `delegate`,
-`run_status`, `run_result` and `cancel_run`.
-
-```bash
-pip install -e .                       # installs the `maef` command
-# start the API and a worker as above, then:
-claude mcp add maef --env MAEF_API_URL=http://127.0.0.1:8000 -- maef mcp
-```
-
-Codex (`~/.codex/config.toml`):
-
-```toml
-[mcp_servers.maef]
-command = "maef"
-args = ["mcp"]
-env = { MAEF_API_URL = "http://127.0.0.1:8000" }
-```
-
-CLI (`MAEF_API_URL` defaults to `http://127.0.0.1:8000`; exit codes 0 ok, 1 run failed/cancelled, 2 usage/API error, 3 timeout):
-
-```bash
-maef agents
-maef preview research-analyst "Summarise RFC 9110 caching"
-maef run research-analyst "Summarise RFC 9110 caching" --max-tokens 50000 --wait --timeout 300   # events on stderr, result on stdout
-echo "long instruction" | maef run research-analyst - --json
-maef status $RUN_ID && maef events $RUN_ID --follow && maef cancel $RUN_ID
-maef artifacts $RUN_ID && maef get sha256:... -o out.bin [--force]
-maef result $RUN_ID
-```
-
-Agent output is untrusted: the gateway wraps it in `<maef-result run_id=... status=...>` and caps it at 100 KiB.
-
-## Decision models (Jev, Clef)
-
-Decision models answer typed questions (`choice`, `score`, `noul`) about a state instead of writing text. Copy an example from
-`examples/model-profiles/` (`jev-decisions-api.yaml` with `DECISIONS_API_KEY`, `clef-omni-workers-ai.yaml` with `CLOUDFLARE_API_TOKEN` and your account id) into `model-profiles/`, then:
-
-```bash
-maef decide jev-decisions-api --state @ticket.json --wait \
-  --question "team:choice:Which team should handle this?:billing=payments and refunds,technical=bugs and outages" \
-  --question "urgent:noul:Is this urgent?" \
-  --question "anger:score:How upset is the customer?:calm,annoyed,angry"
-```
-
-Runs go through the same queue, worker and token ledger (`POST /api/v1/decisions`, the `decide` MCP gateway tool); answers are the `answers.json` artifact and are untrusted content. Wire formats, limits and known gaps: `docs/DECISION_MODELS.md`.
-
-## Authoring agents
-
-Definitions live in Git (ADR-0003); authoring never edits `main`. `maef lint` validates every definition file and `maef schema export --check` fails when `schemas/*.schema.json` lag the models. Drafts are opt-in (`MAEF_AUTHORING_ENABLED=1`) and need the `authoring` scope.
-
-```bash
-maef draft new research-analyst                   # branch maef/draft/research-analyst/<id> + worktree in runs/drafts/<id>
-maef draft write <id> agents/research-analyst/SYSTEM.md ./SYSTEM.md
-maef draft review <id>                            # prompt diff, permission diff (tools, MCP, network, budget, secrets), lint
-maef draft publish <id> -m "Tighten citation rules"   # commits on the draft branch; prints the sha; no merge, no push
-maef run research-analyst "..." --revision <sha> --wait    # run exactly that commit
-git merge maef/draft/research-analyst/<id>        # a human merges after review
-maef draft discard <id>
-```
-
-Only text files under `agents/<agent>/` (max 256 KiB) can be written; publish is refused while lint reports errors. Commits are authored as `MAEF Authoring <maef@localhost>` (`MAEF_AUTHORING_NAME`, `MAEF_AUTHORING_EMAIL`). `--revision` accepts a commit sha, branch or tag and runs the committed definition, never dirty.
-
-## Observability and evals
-
-Every run is a trace: `maef otel export --endpoint http://127.0.0.1:4318 [--since ISO] [--run ID]` sends finished runs to any OTLP/HTTP collector (spans per model turn, tool call, sandbox and MCP server; no prompt or tool content). Set `MAEF_OTLP_ENDPOINT` on the API to export each run automatically once it finishes (`MAEF_OTLP_HEADERS_REF=env:NAME` for auth headers, `MAEF_OTLP_ALLOW_PRIVATE=1` for a private-network collector). `GET /api/v1/metrics` (scope `read`) serves Prometheus text: runs, tokens, open reservations, durations, budget exhaustions, lost workers, tool calls, artifact bytes.
-
-Golden tasks live in `evals/<suite>.yaml`. `maef eval run smoke --revision <sha-a> --revision <sha-b>` runs the suite on each committed agent revision and prints a markdown table of pass rate and tokens (exit 1 if the last revision fails a task). Formats: `packages/contracts/CONTRACTS.md`.
-
-## Validate
-
-```bash
-pytest -q
-cd apps/studio && npm run build
-```
-
-## Monorepo layout
+## Repository layout
 
 ```text
-apps/api/              FastAPI registry and task preview control plane
-apps/studio/           React TypeScript management UI
-agents/                Git-managed reusable specialist definitions
-packages/contracts/    Versioned contracts and schema documentation
-docs/                  Product brief, architecture, ADRs, roadmap, security
-infra/                 Future worker and deployment assets
-examples/              Sample delegation payloads
-tests/                 API contract/behaviour tests
+agents/              agent definitions (one folder per agent)
+apps/api/            the API, the worker and the `maef` command (Python)
+apps/tui/            terminal interface (OpenTUI, Bun)
+apps/studio/         web interface (React; read-only for now)
+mcp-servers/         tool server definitions
+sandbox-profiles/    container settings for sandboxes
+model-profiles/      your local model settings (not committed; `maef init` creates one)
+examples/            example model profiles and requests
+evals/               evaluation suites
+schemas/             JSON Schemas for the definition files
+docs/                documentation and diagrams (docs/diagrams/*.mmd, `make diagrams` to redraw)
+tests/               Python tests
+```
+
+## Development
+
+```bash
+pip install -e '.[dev]'
+make test            # unit and API tests
+make test-oci        # tests that start real containers (needs Podman or Docker)
+make test-pg         # ledger tests on Postgres (starts a container)
+make test-s3         # artifact tests on an S3-compatible server (starts a container)
+maef lint            # check every definition file
+cd apps/tui && bun test
 ```
 
 ## Design principles
-1. Distinguish agent definition, harness, sandbox, worker and model endpoint.
-2. Use versioned contracts and immutable definition revisions per run.
-3. Keep execution tools, secrets and MCPs away from the parent coding agent.
-4. Local-first; remote workers speak a stable authenticated protocol.
-5. Explicit budgets; all cost calculations in precise units, with admission reservations.
-6. Fail closed on missing policy, unknown cost model or unavailable isolation.
-7. Human review for privileged actions and promotion of produced changes.
 
-See [Architecture](docs/ARCHITECTURE.md) and [Roadmap](docs/ROADMAP.md).
+1. Keep the agent, its model, its tools, the worker and the sandbox as separate, swappable parts.
+2. Pin exactly what runs: every run records the agent's Git revision and a digest of its files.
+3. Keep tools, secrets and MCP servers away from the assistant that delegates the task.
+4. Local first; anything remote talks over a stable, authenticated protocol.
+5. Budgets in tokens, reserved before running.
+6. Fail closed: missing policy, unpinned images or unavailable isolation stop the run.
+7. A human reviews privileged changes; nothing is merged automatically.

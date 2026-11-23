@@ -1,0 +1,18 @@
+flowchart LR
+  subgraph Run["One run on the worker machine"]
+    Worker["Worker"]
+    Sandbox["Sandbox container<br/>read-only, no network,<br/>no capabilities"]
+    subgraph Internal["Private per-run network (only exit: the proxy)"]
+      MCP["MCP server container"]
+      Proxy["Egress proxy<br/>checks host, port, IP"]
+    end
+  end
+  Models["Model endpoint"]
+  Allowed(("Allowed public sites"))
+  Blocked(("Private, cloud-metadata,<br/>non-allowlisted addresses"))
+  Worker -- "run_command" --> Sandbox
+  Worker -- "tool calls (stdio)" --> MCP
+  Worker -- "HTTPS" --> Models
+  MCP --> Proxy
+  Proxy --> Allowed
+  Proxy -. "refused" .-> Blocked

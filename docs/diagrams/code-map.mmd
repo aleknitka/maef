@@ -1,0 +1,40 @@
+flowchart TD
+  subgraph Front["Ways in"]
+    main["main.py<br/>HTTP routes"]
+    cli["cli.py / client.py<br/>maef command"]
+    gateway["gateway.py<br/>MCP gateway"]
+  end
+  subgraph Control["Control plane"]
+    runs["runs.py<br/>admit, cancel, results"]
+    auth["auth.py<br/>tokens, audit"]
+    defs["definitions.py<br/>pin agent versions"]
+    ledger["ledger.py<br/>only owner of SQL"]
+    artifacts["artifacts.py<br/>content-addressed store"]
+  end
+  subgraph Exec["Execution (worker)"]
+    worker["worker.py<br/>lease loop"]
+    channel["channel.py<br/>talks to the API"]
+    harness["harness.py + guard.py<br/>agent loop, budgets"]
+    adapters["adapters/<br/>OpenAI, Anthropic,<br/>Bedrock, decisions"]
+    sandbox["sandbox.py<br/>podman / docker"]
+    mcp["mcp.py + egress_proxy.py"]
+  end
+  sqlite["_sql_sqlite.py"]
+  pg["_sql_postgres.py"]
+  s3["artifacts_s3.py"]
+  main --> runs
+  main --> auth
+  cli --> main
+  gateway --> cli
+  runs --> defs
+  runs --> ledger
+  runs --> artifacts
+  ledger --> sqlite
+  ledger --> pg
+  artifacts --> s3
+  worker --> channel
+  channel --> main
+  worker --> harness
+  harness --> adapters
+  harness --> sandbox
+  harness --> mcp

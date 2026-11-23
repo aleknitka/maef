@@ -1,4 +1,4 @@
-.PHONY: api worker studio tui test test-oci test-pg test-s3
+.PHONY: api worker studio tui test test-oci test-pg test-s3 diagrams
 api:
 	uvicorn maef_api.main:app --app-dir apps/api --reload --host 127.0.0.1 --port 8000
 worker:
@@ -15,3 +15,5 @@ test-pg:
 	pytest -q -m pg
 test-s3:
 	pytest -q -m s3
+diagrams:
+	python3 docs/diagrams/render.py

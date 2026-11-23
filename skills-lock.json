@@ -36,6 +36,13 @@
       "computedHash": "fa1e01efdb8315d70c4205c6995321ed0184dc9757184b88271bbabd5ddf7e82",
       "wellKnownDigest": "sha256:34652747cdb3d663824b47009cf5880e139eba2f3ac699f7f5123b11bd334246"
     },
+    "pele": {
+      "source": "jpmanson/pele-skill",
+      "commit": "50ffbb57f3c4cd7b9f96f7bb02c69c70e6371973",
+      "sourceType": "github",
+      "skillPath": "skills/pele/SKILL.md",
+      "computedHash": "1a63e4b59dea6068fe9362aa2a35f3020c798d17b7f4ecf7643efd49a3519c5e"
+    },
     "security-review": {
       "source": "Factory-AI/skills",
       "commit": "21a74dec467a1424e3e067712d004cd987d6a0ce",

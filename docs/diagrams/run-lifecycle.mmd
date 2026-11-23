@@ -1,0 +1,26 @@
+sequenceDiagram
+  participant You
+  participant API as MAEF API
+  participant Ledger
+  participant Worker
+  participant Model
+  participant Tools as Sandbox and MCP
+  You->>API: start a run (agent, instruction, budget)
+  API->>Ledger: pin agent version, reserve tokens
+  API-->>You: run id (status admitted)
+  Worker->>API: any work for me?
+  API->>Ledger: lease the run to this worker
+  API-->>Worker: lease (pinned definition, budget)
+  Worker->>Tools: start containers
+  loop each turn, while budget lasts
+    Worker->>Model: messages and tool list
+    Model-->>Worker: reply or tool calls
+    Worker->>Tools: run tool calls
+    Tools-->>Worker: tool results
+    Worker->>API: events and heartbeat
+    API-->>Worker: keep going, or cancel
+  end
+  Worker->>API: upload output.md, finish
+  API->>Ledger: charge tokens used, free the rest
+  Worker->>Tools: remove containers
+  You->>API: watch events, fetch result

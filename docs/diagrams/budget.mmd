@@ -1,0 +1,12 @@
+flowchart TD
+  A["Run requested with a token budget"] --> B{"Enough tokens left<br/>in the account?"}
+  B -- no --> R["Refused: insufficient_budget"]
+  B -- yes --> C["Reserve the worst case<br/>(capped at max_tokens)"]
+  C --> D["Worker: before each model call,<br/>check turns, time and tokens"]
+  D -- "limit reached" --> F["Stop: budget exhausted"]
+  D -- ok --> E["Call the model, record the usage"]
+  E --> D
+  E --> G["Run ends"]
+  F --> G
+  G --> H["Charge what was used<br/>(the larger of reported and recorded)"]
+  H --> I["Return the unused reservation"]

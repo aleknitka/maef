@@ -1,63 +1,129 @@
-# Architecture — MAEF
+# Architecture
 
-## Executive decision
-Implement a modular monolith control plane in Python (FastAPI/Pydantic), TypeScript React Studio, and an independently deployed worker process. Treat worker messaging as a protocol rather than an in-process Python call. Begin with a single local worker; allow future ephemeral remote workers without changing agent definitions. Use SQLite for bootstrap and PostgreSQL before enabling concurrent remote execution. The `Ledger` has two adapters behind one interface (SQLite, and PostgreSQL via the optional `postgres` extra; `MAEF_DB` is a path or a `postgresql://` URL); on Postgres the queue is durable and multi-claimer safe (`FOR UPDATE SKIP LOCKED`).
+This page explains how MAEF is built, in plain terms. Setup details are in [RUNNING.md](RUNNING.md); exact formats
+are in [CONTRACTS.md](../packages/contracts/CONTRACTS.md).
 
-## Boundaries
+The diagrams are drawn from the Mermaid sources in [`diagrams/`](diagrams/). After editing a `.mmd` file, run
+`make diagrams` to redraw the SVGs.
 
-### Control plane
-Authoritative registry index, task API, admission control, budgets, policy decisions, worker matchmaking, execution state, audit trail, artefact metadata. The control plane MUST NOT directly execute untrusted generated code.
+## The big picture
 
-### Execution plane
-Workers authenticate to the control plane, claim eligible leases, verify pinned revisions and policy digests, provision a sandbox, run a harness, stream events and artefacts, then tear down. Worker host receives minimal credentials through scoped ephemeral delivery.
+![How MAEF fits together](diagrams/overview.svg)
 
-### Harness
-Inside the sandbox, combines pinned agent instructions, the caller's task, scoped context and permitted skills; establishes the model session; exposes allowlisted tools/MCP; records every tool and model invocation; applies turn/time/usage controls; exits with an explicit terminal reason. Model adapters and CLI adapters have distinct accounting guarantees.
+MAEF has two halves that never run in the same process:
 
-### Model endpoint profiles
-A profile specifies API dialect (OpenAI-compatible, Anthropic-native, CLI adapter), endpoint URI, model identifier, capability flags, timeout/retry policy, price schedule ID and a reference to a credential secret. The definition never embeds an API key. Allow opt-in connection tests and strict endpoint/network allowlisting.
+- **The API (control plane)** decides *what* may run. It checks requests, pins the exact agent version, reserves
+  tokens, keeps the log, hands out work and stores results. It never runs model calls or agent tools.
+- **The worker (execution plane)** does the running. It asks the API for work, calls the model, runs tools inside
+  containers, and reports every step back. It never touches the database directly; it only talks to the API over
+  HTTP with its own credential.
 
-### Tool and MCP manifests
-Each tool or MCP server is an independently versioned declaration with transport, executable/image reference, required secret references, allowed filesystem/network access and permission category. Agent definitions pin *specific* tool versions. Runtime only instantiates the granted subset. HTTP MCP uses contemporary authorisation guidance; stdio tools receive scoped environment credentials, not inherited full host environments.
+This split means the part that holds the records and the keys is never the part that runs untrusted tools, and it
+lets workers live on other machines later without changing anything else.
 
-### Registry
-Git is source of truth for desired agent definitions, with immutable commit refs and tags. Registry indexes validated definitions into DB for search and query. Runtime resolves agent by `(repo, revision, definition path, content digest)`, not by mutable branch name. Drafts and pull requests represent proposed changes; publishing requires checks.
+Around them:
 
-### Workers and sandbox isolation
-Phase 1: Linux rootless Docker in restricted profile; no host Docker socket inside the sandbox; capability drops; read-only base filesystem; memory/CPU/PID quotas; scoped writable workspace; network egress deny-by-default; temporary credentials. Rootless containers mitigate risk but are NOT a hard security boundary for hostile code. For high-trust separation, evaluate gVisor or microVMs. Docker socket must be held by a privileged supervisor separate from web-facing processes.
+| Part | Job | Options |
+|---|---|---|
+| Ledger | the only place run state lives: runs, append-only events, token reservations, keys (hashed), audit log | SQLite file (default) or Postgres |
+| Artifact store | result files, named by their sha256 fingerprint, checked on every read | local folder (default) or S3-compatible |
+| Agent definitions | `agents/<id>/` in Git | read from the Git object store at a pinned revision |
+| Model endpoints | where the worker sends model calls | Ollama, LM Studio, OpenAI, Anthropic, Bedrock; Jev and Clef for decisions |
+| Clients | ways to start and watch runs | `maef` CLI, terminal UI, MCP gateway for Claude Code / Codex, HTTP |
 
-### Artifacts
-Outputs go to a local filesystem store first, addressed by hash and referenced in a run manifest. Later adopt S3-compatible object storage. Source code changes stay in an isolated Git worktree/branch and are NEVER automatically merged. Video files and logs are not checked into Git by default.
+## What happens during a run
 
-## Proposed task lifecycle
-`created -> validated -> admitted -> queued -> leased -> provisioning -> running -> validating -> completed | failed | cancelled | timed_out | budget_exceeded`.
+![Run lifecycle](diagrams/run-lifecycle.svg)
 
-Failures to provision, expired leases and worker loss must be classified separately. Retrying is safe only if steps are idempotent or explicitly marked re-executable; external side-effect tools require caution.
+1. **Request.** A client sends an agent id, an instruction and an optional tighter budget.
+2. **Admission.** The API resolves the agent at its Git revision and records digests of every file the run will use
+   (instructions, model profile, sandbox profile, MCP manifests). It reserves the worst-case token cost. If anything is
+   missing or the account has too few tokens left, the run is refused before it starts.
+3. **Lease.** A worker asks for work and gets a *lease*: the run id, the pinned definition and the budget. No secrets
+   travel with it; the worker reads model keys from its own environment.
+4. **Execution.** The worker checks the digests, starts the sandbox and MCP containers, and loops: call the model,
+   run the requested tools, record usage, send events. Each heartbeat reply can say "cancel".
+5. **Finish.** The worker uploads `output.md` (and any other outputs), reports the result, and removes its
+   containers. The API charges the tokens actually used and returns the rest of the reservation.
+6. **Watch.** Clients follow the events live (server-sent events, resumable) and download the result.
 
-## Proposed remote-worker protocol
-1. Worker registers identity, runtime/image capabilities and current capacity.
-2. Worker authenticates using a short-lived machine credential; control plane records host fingerprint.
-3. Worker polls for lease or receives dispatch after matching capabilities and policy.
-4. Lease includes immutable task ID, definition revision/digest, sandbox profile, budget ceiling and expiring authorisations — never master credentials.
-5. Worker periodically renews lease and transmits sequenced events and usage.
-6. Controller reconciles out-of-order/duplicate events using monotonic sequence numbers and idempotency keys.
-7. Results uploaded via short-lived grants with digest validation.
-8. Worker is drained/deregistered; ephemeral machine may be terminated.
+### Run states
 
-Remote nodes behind NAT should use outbound worker-initiated channels. Cloud workers should be ephemeral and disposable, with no persistent secrets or inbound ports by default.
+![Run states](diagrams/run-states.svg)
 
-## Contracts
-See `packages/contracts/CONTRACTS.md`. Use OpenAPI from FastAPI for user-facing control endpoints; define stable JSON Schema for tasks, agent definitions, worker leases, result manifests and events. Version schemas deliberately.
+A run only moves forward. `succeeded`, `failed` and `cancelled` are final. If a worker stops sending heartbeats, its
+lease expires and the run fails as `worker_lost`. Leases are *fenced*: a worker that comes back late cannot write to a
+run that has moved on, and repeated reports (retries) are recognised and ignored.
 
-## Deployment path
-- Bootstrap: FastAPI + Vite dev server, YAML filesystem registry, no execution.
-- Local MVP: database, policy engine, durable task queue/lease, rootless Docker worker, one model adapter and tracked budgets.
-- Homelab: containerised services, reverse proxy/authentication, PostgreSQL, local artifact volume, optional OpenTelemetry collector.
-- Remote: worker credentials, outbound HTTPS, object storage, VM provisioning and lifecycle automation.
+## Budgets
 
-## Key risks
-- API cost guardrails cannot guarantee strict USD ceilings when provider pricing/usage is delayed or tools bill out of band. Reserve estimated upper bounds and fail closed on unknown pricing.
-- Arbitrary MCP packages and downloaded skills are supply-chain execution risks.
-- User-authored task prompts and retrieved documents may carry prompt injection. Treat them as untrusted.
-- Remote worker failure and duplicate dispatch require reconciliation, fencing tokens and idempotent persistence.
-- Git versions alone do not make runtime execution reproducible; pin model metadata, dependency and image digests, tool configuration and context hashes.
+![Token budget](diagrams/budget.svg)
+
+Budgets are in tokens only, with limits on turns and time as well. Before a run starts, the API reserves the most it
+could possibly use: the agent's `max_tokens`, or less if the turn and output limits make a smaller worst case
+possible. During the run, the worker's budget guard checks before every model call and stops the run when a limit
+would be crossed. At the end, the run is charged the larger of what the model reported and what the worker recorded,
+so under-reporting cannot make a run cheaper. An account-wide cap (`MAEF_ACCOUNT_LIMIT_TOKENS`) covers all runs
+together. Details: [BUDGETS_OBSERVABILITY.md](BUDGETS_OBSERVABILITY.md).
+
+## Isolation and the network
+
+![Sandbox and network](diagrams/network.svg)
+
+The agent loop itself runs in the worker process. What the model asks to *do* runs in containers:
+
+- **Sandbox** (for `run_command`): one container per run, read-only filesystem, every Linux capability dropped, no
+  privilege escalation, no network, no host folders, memory/CPU/process limits, an unprivileged user, and a small
+  temporary `/workspace`. Images must be pinned by digest. Rootless Podman is required by default.
+- **MCP tool servers**: each in its own container. With `network: allowlist` the container sits on a private per-run
+  network whose only exit is the egress proxy. The proxy allows only the listed hosts and ports, resolves names
+  itself, connects only to public addresses it has checked, and never to cloud-metadata addresses or your local
+  network.
+- **Model calls** go from the worker over HTTPS (or plain HTTP to localhost). The same address checks apply: no
+  metadata addresses, private networks only when a profile opts in, no redirects.
+
+Containers are driven through the `podman`/`docker` command line, so the same code runs on Linux, WSL2 and macOS and
+there is no Docker socket to protect. Containers are an extra layer of defence, not a hard boundary against hostile
+code; see [SECURITY.md](SECURITY.md) for known gaps.
+
+## Inside the code
+
+![Code map](diagrams/code-map.svg)
+
+All backend code is in `apps/api/maef_api/`. A few modules carry most of the weight, each behind a small interface:
+
+| Module | Interface | Hides |
+|---|---|---|
+| `definitions.py` | `Definitions.resolve(agent_id, revision)` returns a `PinnedDefinition` | reading Git objects, digests, file references |
+| `ledger.py` | `Ledger` (admit, claim, append event, settle, audit) | all SQL; `_sql_sqlite.py` and `_sql_postgres.py` are the two dialects |
+| `runs.py` | `Runs` (submit, cancel, results) | admission rules, used by HTTP routes and the CLI alike |
+| `artifacts.py` | `ArtifactStore` (put, get, exists) | local folder, in-memory (tests) or S3 (`artifacts_s3.py`) |
+| `channel.py` | `WorkerChannel` | how a worker talks to the API (HTTP, or in-process for tests) |
+| `harness.py`, `guard.py` | the agent loop and `BudgetGuard` | turns, tool dispatch, limits, cancellation |
+| `adapters/` | `ModelAdapter`, `DecisionAdapter` | each provider's wire format (OpenAI-compatible, Anthropic, Bedrock, Jev, Clef) |
+| `sandbox.py`, `mcp.py`, `egress_proxy.py` | `Sandbox`, MCP client | container flags, networks, the proxy |
+| `auth.py` | scopes, tokens, worker credentials | hashing, audit records |
+
+Every interface has at least two implementations (a real one and one used in tests), which is why most of the code can
+be tested without containers, model servers or the network.
+
+## Key decisions
+
+- **Git is the source of truth for agents.** Runs record the commit and a digest of the files, so a result can always
+  be traced to the exact instructions and settings that produced it. Draft edits happen on their own branch; a human
+  merges.
+- **Append-only log.** Events cannot be changed or deleted (enforced by database triggers), so the record of what an
+  agent did is trustworthy.
+- **Tokens, not money.** Prices change and differ per provider; tokens are what the models report.
+- **Fail closed.** Unknown profiles, unpinned images, a rootful runtime when rootless is required, or a missing
+  container runtime stop the run instead of running it less safely.
+- **Local first.** Every external service is optional and replaceable by a local one.
+
+## What is next
+
+- **Remote workers:** workers on other machines that connect out to the API over HTTPS (no inbound ports), with work
+  matched to what each worker can run. The protocol already used by local workers (leases, heartbeats, fenced events,
+  idempotent reports) is the one remote workers will use.
+- **Web Studio login**, a Postgres connection pool, token expiry and rate limits, decision runs in eval suites.
+
+See [BACKEND_PLAN.md](BACKEND_PLAN.md) and [ROADMAP.md](ROADMAP.md).
