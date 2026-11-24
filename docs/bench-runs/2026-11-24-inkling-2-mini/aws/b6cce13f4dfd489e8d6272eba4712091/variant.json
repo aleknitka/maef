@@ -1,0 +1,15 @@
+{
+  "family": "bowling",
+  "seed": 2,
+  "noise": 0,
+  "params": {
+    "pins": 10,
+    "frames": 10,
+    "strike_bonus_rolls": 2,
+    "spare_bonus_rolls": 1
+  },
+  "names": {
+    "module": "bowling",
+    "function": "score"
+  }
+}

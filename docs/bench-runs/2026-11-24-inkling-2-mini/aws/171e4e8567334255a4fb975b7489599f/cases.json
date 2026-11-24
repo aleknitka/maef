@@ -1,0 +1,629 @@
+[
+  {
+    "name": "gutter game",
+    "rolls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": 0
+  },
+  {
+    "name": "all ones",
+    "rolls": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+    ],
+    "expected": 8
+  },
+  {
+    "name": "single spare",
+    "rolls": [
+      2,
+      3,
+      3,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": 11
+  },
+  {
+    "name": "single spare then strike",
+    "rolls": [
+      2,
+      3,
+      5,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": 15
+  },
+  {
+    "name": "single strike",
+    "rolls": [
+      5,
+      2,
+      2,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": 13
+  },
+  {
+    "name": "perfect game",
+    "rolls": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "expected": 80
+  },
+  {
+    "name": "all spares",
+    "rolls": [
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      2,
+      2
+    ],
+    "expected": 39
+  },
+  {
+    "name": "all spares, fill 1",
+    "rolls": [
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      1,
+      1
+    ],
+    "expected": 37
+  },
+  {
+    "name": "strike then spares",
+    "rolls": [
+      5,
+      2,
+      3,
+      2,
+      3,
+      2,
+      3,
+      2,
+      2
+    ],
+    "expected": 41
+  },
+  {
+    "name": "last frame open",
+    "rolls": [
+      5,
+      5,
+      5,
+      1,
+      1
+    ],
+    "expected": 37
+  },
+  {
+    "name": "last frame strike, gutter fills",
+    "rolls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      5,
+      0,
+      0,
+      0
+    ],
+    "expected": 5
+  },
+  {
+    "name": "last frame spare, max fill",
+    "rolls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      2,
+      3,
+      5,
+      0
+    ],
+    "expected": 10
+  },
+  {
+    "name": "strike then open",
+    "rolls": [
+      5,
+      1,
+      2,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": 11
+  },
+  {
+    "name": "random game 0",
+    "rolls": [
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      1,
+      1
+    ],
+    "expected": 3
+  },
+  {
+    "name": "random game 1",
+    "rolls": [
+      1,
+      0,
+      1,
+      1,
+      0,
+      0,
+      1,
+      1
+    ],
+    "expected": 5
+  },
+  {
+    "name": "random game 2",
+    "rolls": [
+      4,
+      1,
+      5,
+      0,
+      0,
+      2,
+      2
+    ],
+    "expected": 21
+  },
+  {
+    "name": "random game 3",
+    "rolls": [
+      3,
+      1,
+      0,
+      3,
+      1,
+      4,
+      3,
+      2,
+      4,
+      1
+    ],
+    "expected": 27
+  },
+  {
+    "name": "random game 4",
+    "rolls": [
+      2,
+      3,
+      3,
+      2,
+      2,
+      3,
+      3,
+      0
+    ],
+    "expected": 31
+  },
+  {
+    "name": "random game 5",
+    "rolls": [
+      1,
+      4,
+      4,
+      1,
+      5,
+      1,
+      4,
+      2,
+      3
+    ],
+    "expected": 43
+  },
+  {
+    "name": "random game 6",
+    "rolls": [
+      0,
+      1,
+      1,
+      1,
+      0,
+      0,
+      1,
+      0
+    ],
+    "expected": 4
+  },
+  {
+    "name": "random game 7",
+    "rolls": [
+      5,
+      5,
+      0,
+      1,
+      4,
+      0
+    ],
+    "expected": 26
+  },
+  {
+    "name": "random game 8",
+    "rolls": [
+      0,
+      3,
+      2,
+      3,
+      2,
+      3,
+      4,
+      1,
+      0,
+      4
+    ],
+    "expected": 32
+  },
+  {
+    "name": "random game 9",
+    "rolls": [
+      0,
+      1,
+      1,
+      0,
+      1,
+      0,
+      0,
+      1
+    ],
+    "expected": 4
+  },
+  {
+    "name": "random game 10",
+    "rolls": [
+      2,
+      1,
+      3,
+      0,
+      5,
+      4,
+      0
+    ],
+    "expected": 19
+  },
+  {
+    "name": "random game 11",
+    "rolls": [
+      5,
+      2,
+      3,
+      1,
+      1,
+      1,
+      4,
+      4,
+      0
+    ],
+    "expected": 29
+  },
+  {
+    "name": "random game 12",
+    "rolls": [
+      0,
+      5,
+      2,
+      3,
+      4,
+      1,
+      3,
+      1
+    ],
+    "expected": 33
+  },
+  {
+    "name": "random game 13",
+    "rolls": [
+      4,
+      1,
+      4,
+      0,
+      3,
+      2,
+      4,
+      0
+    ],
+    "expected": 26
+  },
+  {
+    "name": "random game 14",
+    "rolls": [
+      5,
+      4,
+      1,
+      2,
+      3,
+      1,
+      4,
+      1,
+      0
+    ],
+    "expected": 38
+  },
+  {
+    "name": "random game 15",
+    "rolls": [
+      0,
+      0,
+      0,
+      1,
+      1,
+      1,
+      1,
+      0
+    ],
+    "expected": 4
+  },
+  {
+    "name": "random game 16",
+    "rolls": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      1
+    ],
+    "expected": 3
+  },
+  {
+    "name": "random game 17",
+    "rolls": [
+      5,
+      5,
+      0,
+      4,
+      5,
+      0,
+      0,
+      1
+    ],
+    "expected": 38
+  },
+  {
+    "name": "random game 18",
+    "rolls": [
+      5,
+      2,
+      0,
+      3,
+      2,
+      3,
+      0
+    ],
+    "expected": 23
+  },
+  {
+    "name": "random game 19",
+    "rolls": [
+      3,
+      2,
+      5,
+      2,
+      3,
+      0,
+      5,
+      5,
+      5
+    ],
+    "expected": 47
+  },
+  {
+    "name": "random game 20",
+    "rolls": [
+      0,
+      5,
+      2,
+      0,
+      4,
+      0,
+      4,
+      1,
+      0,
+      1
+    ],
+    "expected": 19
+  },
+  {
+    "name": "random game 21",
+    "rolls": [
+      3,
+      1,
+      5,
+      4,
+      0,
+      3,
+      0
+    ],
+    "expected": 23
+  },
+  {
+    "name": "random game 22",
+    "rolls": [
+      2,
+      3,
+      0,
+      5,
+      0,
+      2,
+      4,
+      1,
+      3,
+      0
+    ],
+    "expected": 27
+  },
+  {
+    "name": "random game 23",
+    "rolls": [
+      5,
+      4,
+      1,
+      3,
+      0,
+      5,
+      1,
+      3,
+      0
+    ],
+    "expected": 33
+  },
+  {
+    "name": "invalid: empty",
+    "rolls": [],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: negative roll",
+    "rolls": [
+      -1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: roll above pins",
+    "rolls": [
+      6,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: open frame over pins",
+    "rolls": [
+      4,
+      2,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: too few rolls",
+    "rolls": [
+      5,
+      5,
+      5,
+      5,
+      5,
+      5
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: too few, gutter",
+    "rolls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: too many rolls",
+    "rolls": [
+      5,
+      5,
+      5,
+      0,
+      3,
+      0
+    ],
+    "expected": "ValueError"
+  },
+  {
+    "name": "invalid: extra after open last frame",
+    "rolls": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "expected": "ValueError"
+  }
+]

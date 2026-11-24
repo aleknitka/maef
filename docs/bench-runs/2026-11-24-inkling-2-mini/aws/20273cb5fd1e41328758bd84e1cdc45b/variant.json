@@ -1,0 +1,15 @@
+{
+  "family": "bowling",
+  "seed": 8,
+  "noise": 2,
+  "params": {
+    "pins": 5,
+    "frames": 8,
+    "strike_bonus_rolls": 1,
+    "spare_bonus_rolls": 2
+  },
+  "names": {
+    "module": "skittles",
+    "function": "total"
+  }
+}

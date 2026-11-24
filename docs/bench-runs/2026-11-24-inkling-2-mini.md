@@ -19,6 +19,53 @@ graded by 45 hidden cases it never sees. How the benchmark works: [BENCHMARKS.md
 | Recording | event log for every run; full `transcript.jsonl` (prompts, replies, reasoning, tool calls and results) |
 | Runs | 9: seeds 1, 2, 3 at noise 0; 3, 4, 5 at noise 1; 7, 8, 9 at noise 2 |
 
+## The harness and the task
+
+**Harness.** MAEF's own agent loop (`apps/api/maef_api/harness.py`), not an outside framework. The model does not run
+in the container: the loop runs in the MAEF worker process and calls the model over OpenRouter; only the commands the
+model asks for run in the sandbox.
+
+```
+maef bench run ──► API (admit, reserve tokens, pin agent files by git digest)
+                    │ lease
+                    ▼
+                  worker ── harness loop ──► OpenRouter ──► Inkling 2 mini
+                    │   system prompt + task + tool list; reply → tool calls → results → repeat
+                    ▼
+                  podman sandbox, one per run: python:3.12-alpine pinned by digest, no network, read-only root,
+                  all capabilities dropped, user nobody, 256 MB, 1 CPU, 64 processes, 16 MB /workspace
+```
+
+It is a plain loop: OpenAI-style tool calls, the whole conversation re-sent every turn (hence the 80% cache hits),
+no planner or memory, and a budget guard (40 turns, 600k tokens, 30 minutes, 16k output tokens per reply). Afterwards
+the worker collects `/workspace/out/*` as artifacts, and a second locked-down container runs the 45 hidden cases.
+
+**Tools.** Only two: `run_command` (one command with `argv` and optional `stdin` in the sandbox; returns exit code,
+stdout, stderr; used to write files with `sh -c "cat > file"` and to run `python3 -m unittest`) and
+`read_agent_file` (reads the agent's skill files).
+
+**What the model was given.**
+
+1. The system prompt [`agents/tdd-engineer/SYSTEM.md`](../../agents/tdd-engineer/SYSTEM.md): read both skills first;
+   work in small red→green cycles, test file first and watch it fail; "think briefly… every turn should end in a
+   tool call"; do not stop while a test fails; finish with deliverables, test result, requirement coverage and
+   assumptions; "trust the task text over what you remember".
+2. Two skills: [test-driven development](../../agents/tdd-engineer/skills/test-driven-development.md) (red, green,
+   refactor; one requirement at a time; tests named like `test_r3_spare_bonus`; expected values worked out by hand)
+   and [the Python sandbox](../../agents/tdd-engineer/skills/python-sandbox.md) (standard library only, no pytest;
+   the exact commands for writing files and running tests).
+3. The generated task, `task.md` in each run folder. For seed 9, noise 2: a game of **4 frames** with **5 pins**;
+   R1 `total(rolls)` in module `alley`; R2–R3 strike, spare, open; R4 a strike scores 5 plus the next **3** balls;
+   R5 a spare scores 5 plus the next **2** balls; R6 missing bonus balls count as nothing; R7 in the last frame a
+   strike gets **3** fill balls and a spare **2**, and pins reset whenever all are down; R8 the last frame scores
+   its own balls only; R9 `ValueError` for invalid input. Deliverables D1 `alley.py`, D2 `test_alley.py`
+   (unittest), D3 `NOTES.md`. Noise 0 is ordinary bowling (`bowling.score`); noise 1 changes the pin and frame
+   counts and the names; noise 2 also changes the bonus rules.
+
+**Caveat.** The prompt pushes hard toward test-first work, so "all 9 runs were test-first" shows that the model
+*follows* a TDD instruction, not that it would choose TDD unprompted. Running the same tasks with a neutral system
+prompt would measure that.
+
 ## Results
 
 | seed / noise | variant (pins / frames / strike bonus / spare bonus, names) | time | turns | tokens in (cached) / out (reasoning) | cost | own test runs (R = red, G = green; number = tests ran) | hidden |
@@ -93,11 +140,15 @@ turn 3), which is why the transcript is switched on for every benchmark run.
 
 Each run folder (`bench-results/<run id>/`) holds `task.md` (exactly what the agent was given), `variant.json`,
 `cases.json` (the hidden cases), `events.jsonl` (the append-only event log), `report.json` / `report.md`, and
-`artifacts/` (the agent's deliverables, its final reply `output.md`, and `transcript.jsonl`). The raw data for this
-run was kept outside the repository.
+`artifacts/` (the agent's deliverables, its final reply `output.md`, and `transcript.jsonl`). The raw data for every
+run is in [`2026-11-24-inkling-2-mini/`](2026-11-24-inkling-2-mini/): `aws/` (the 9 AWS runs, plus the machine's
+`environment.txt`, `metrics.txt`, API and worker logs and one log per bench run) and `local/` (the failed run
+`72c014a5…`, the passing rerun `f481771a…` and the clean-clone rehearsal `be236aa1…`). The ledger databases are not
+included.
 
 ## Next
 
+- Run the same seeds with a neutral system prompt (no TDD instruction) to see whether the model chooses TDD.
 - Score cycle size, so "13 tests then all the code" ranks below small red→green steps.
 - Treat a test run that ran 0 tests as neither red nor green.
 - Record the request settings (`reasoning_effort`, temperature) and tool definitions in the event log and transcript,

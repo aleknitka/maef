@@ -1,0 +1,344 @@
+{
+  "run_id": "253532b58ed248298e9fcb0f741ca1aa",
+  "agent_id": "tdd-engineer",
+  "git_revision": "05ca86d",
+  "agent_revision": "13e52fac41046cddca5218136b2ad55f5c2b4e078414b9af05ffdc84534c53c5",
+  "family": "bowling",
+  "seed": 3,
+  "noise": 1,
+  "variant": {
+    "family": "bowling",
+    "seed": 3,
+    "noise": 1,
+    "params": {
+      "pins": 11,
+      "frames": 7,
+      "strike_bonus_rolls": 2,
+      "spare_bonus_rolls": 1
+    },
+    "names": {
+      "module": "alley",
+      "function": "final_score"
+    }
+  },
+  "canonical": {
+    "family": "bowling",
+    "seed": 0,
+    "noise": 0,
+    "params": {
+      "pins": 10,
+      "frames": 10,
+      "strike_bonus_rolls": 2,
+      "spare_bonus_rolls": 1
+    },
+    "names": {
+      "module": "bowling",
+      "function": "score"
+    }
+  },
+  "status": "succeeded",
+  "terminal_reason": "completed",
+  "models": [
+    "thinkingmachines/inkling-2-mini"
+  ],
+  "providers": [
+    "PrimeIntellect"
+  ],
+  "wall_seconds": 34.22,
+  "turns": 8,
+  "tool_calls": 7,
+  "tool_calls_by_kind": {
+    "other_tool": 2,
+    "file_write": 4,
+    "test_run": 2
+  },
+  "tokens": {
+    "input": 32141,
+    "cached": 23168,
+    "output": 12121,
+    "reasoning": 7940,
+    "total": 44262
+  },
+  "cost_usd": 0.00918609,
+  "per_turn": [
+    {
+      "turn": 1,
+      "t": 0.968,
+      "latency_ms": 921,
+      "input_tokens": 1484,
+      "cache_read_tokens": 0,
+      "output_tokens": 54,
+      "reasoning_tokens": 10,
+      "cost_usd": 0.0001275,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535872-WZ3OBNMxX0VptBwZGulf",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 2,
+      "t": 1.628,
+      "latency_ms": 603,
+      "input_tokens": 1863,
+      "cache_read_tokens": 0,
+      "output_tokens": 51,
+      "reasoning_tokens": 9,
+      "cost_usd": 0.00031005,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535873-fsl9CuLe71R6BOaVM7cW",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 3,
+      "t": 17.856,
+      "latency_ms": 16170,
+      "input_tokens": 2215,
+      "cache_read_tokens": 1792,
+      "output_tokens": 7716,
+      "reasoning_tokens": 6288,
+      "cost_usd": 0.00474681,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535873-p1tnglA3WecztkUipN2U",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 4,
+      "t": 18.741,
+      "latency_ms": 649,
+      "input_tokens": 3680,
+      "cache_read_tokens": 2176,
+      "output_tokens": 61,
+      "reasoning_tokens": 0,
+      "cost_usd": 0.00032748,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535890-ntURiqIe2izVIFPhJVPb",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 5,
+      "t": 24.17,
+      "latency_ms": 4790,
+      "input_tokens": 4070,
+      "cache_read_tokens": 3584,
+      "output_tokens": 1917,
+      "reasoning_tokens": 680,
+      "cost_usd": 0.00133062,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535891-yfDGinbeN8Z52LAdpwa7",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 6,
+      "t": 25.623,
+      "latency_ms": 1226,
+      "input_tokens": 5344,
+      "cache_read_tokens": 3968,
+      "output_tokens": 478,
+      "reasoning_tokens": 63,
+      "cost_usd": 0.00061224,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535896-a5V0qb2ZxeJHwZ4V1jra",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 7,
+      "t": 30.128,
+      "latency_ms": 3725,
+      "input_tokens": 6439,
+      "cache_read_tokens": 5248,
+      "output_tokens": 1140,
+      "reasoning_tokens": 570,
+      "cost_usd": 0.00102009,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535898-UT4zFYQ83M7KjZPopBCV",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 8,
+      "t": 32.434,
+      "latency_ms": 2094,
+      "input_tokens": 7046,
+      "cache_read_tokens": 6400,
+      "output_tokens": 704,
+      "reasoning_tokens": 320,
+      "cost_usd": 0.0007113,
+      "tool_calls": 0,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795535902-L0SSt83M9VB58p63kjCz",
+      "cache_write_tokens": 0
+    }
+  ],
+  "tdd": {
+    "turns": 8,
+    "tool_calls": 7,
+    "tool_calls_by_name": {
+      "read_agent_file": 2,
+      "run_command": 5
+    },
+    "tool_calls_by_kind": {
+      "other_tool": 2,
+      "file_write": 4,
+      "test_run": 2
+    },
+    "first_test_file_write": 3,
+    "first_impl_write": 5,
+    "tests_written_first": true,
+    "first_test_run_turn": 4,
+    "first_test_run_failed": true,
+    "test_runs": [
+      {
+        "turn": 4,
+        "passed": false,
+        "ran": 1,
+        "failures": 0,
+        "errors": 1
+      },
+      {
+        "turn": 6,
+        "passed": true,
+        "ran": 16,
+        "failures": 0,
+        "errors": 0
+      }
+    ],
+    "red_to_green_cycles": 1,
+    "turns_to_first_green": 6,
+    "final_tests_green": true,
+    "final_test_result": {
+      "turn": 6,
+      "passed": true,
+      "ran": 16,
+      "failures": 0,
+      "errors": 0
+    },
+    "rewrites": {
+      "/workspace/out/test_alley.py": 0,
+      "/workspace/out/alley.py": 1,
+      "/workspace/out/NOTES.md": 0
+    },
+    "verdict": "test-first (red\u2192green)",
+    "timeline": [
+      {
+        "turn": 1,
+        "t": 0.968,
+        "latency_ms": 921,
+        "input_tokens": 1484,
+        "cache_read_tokens": 0,
+        "output_tokens": 54,
+        "reasoning_tokens": 10,
+        "cost_usd": 0.0001275,
+        "tool_calls": 1
+      },
+      {
+        "turn": 2,
+        "t": 1.628,
+        "latency_ms": 603,
+        "input_tokens": 1863,
+        "cache_read_tokens": 0,
+        "output_tokens": 51,
+        "reasoning_tokens": 9,
+        "cost_usd": 0.00031005,
+        "tool_calls": 1
+      },
+      {
+        "turn": 3,
+        "t": 17.856,
+        "latency_ms": 16170,
+        "input_tokens": 2215,
+        "cache_read_tokens": 1792,
+        "output_tokens": 7716,
+        "reasoning_tokens": 6288,
+        "cost_usd": 0.00474681,
+        "tool_calls": 1
+      },
+      {
+        "turn": 4,
+        "t": 18.741,
+        "latency_ms": 649,
+        "input_tokens": 3680,
+        "cache_read_tokens": 2176,
+        "output_tokens": 61,
+        "reasoning_tokens": 0,
+        "cost_usd": 0.00032748,
+        "tool_calls": 1
+      },
+      {
+        "turn": 5,
+        "t": 24.17,
+        "latency_ms": 4790,
+        "input_tokens": 4070,
+        "cache_read_tokens": 3584,
+        "output_tokens": 1917,
+        "reasoning_tokens": 680,
+        "cost_usd": 0.00133062,
+        "tool_calls": 1
+      },
+      {
+        "turn": 6,
+        "t": 25.623,
+        "latency_ms": 1226,
+        "input_tokens": 5344,
+        "cache_read_tokens": 3968,
+        "output_tokens": 478,
+        "reasoning_tokens": 63,
+        "cost_usd": 0.00061224,
+        "tool_calls": 1
+      },
+      {
+        "turn": 7,
+        "t": 30.128,
+        "latency_ms": 3725,
+        "input_tokens": 6439,
+        "cache_read_tokens": 5248,
+        "output_tokens": 1140,
+        "reasoning_tokens": 570,
+        "cost_usd": 0.00102009,
+        "tool_calls": 1
+      },
+      {
+        "turn": 8,
+        "t": 32.434,
+        "latency_ms": 2094,
+        "input_tokens": 7046,
+        "cache_read_tokens": 6400,
+        "output_tokens": 704,
+        "reasoning_tokens": 320,
+        "cost_usd": 0.0007113,
+        "tool_calls": 0
+      }
+    ]
+  },
+  "hidden": {
+    "passed": 45,
+    "failed": 0,
+    "total": 45,
+    "errors": []
+  },
+  "deliverables": {
+    "expected": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ],
+    "present": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ],
+    "missing": []
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "family": "bowling",
+  "seed": 4,
+  "noise": 1,
+  "params": {
+    "pins": 13,
+    "frames": 12,
+    "strike_bonus_rolls": 2,
+    "spare_bonus_rolls": 1
+  },
+  "names": {
+    "module": "tenpin",
+    "function": "tally"
+  }
+}

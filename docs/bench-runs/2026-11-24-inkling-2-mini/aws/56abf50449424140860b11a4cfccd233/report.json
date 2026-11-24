@@ -1,0 +1,504 @@
+{
+  "run_id": "56abf50449424140860b11a4cfccd233",
+  "agent_id": "tdd-engineer",
+  "git_revision": "05ca86d",
+  "agent_revision": "13e52fac41046cddca5218136b2ad55f5c2b4e078414b9af05ffdc84534c53c5",
+  "family": "bowling",
+  "seed": 7,
+  "noise": 2,
+  "variant": {
+    "family": "bowling",
+    "seed": 7,
+    "noise": 2,
+    "params": {
+      "pins": 6,
+      "frames": 6,
+      "strike_bonus_rolls": 3,
+      "spare_bonus_rolls": 2
+    },
+    "names": {
+      "module": "alley",
+      "function": "final_score"
+    }
+  },
+  "canonical": {
+    "family": "bowling",
+    "seed": 0,
+    "noise": 0,
+    "params": {
+      "pins": 10,
+      "frames": 10,
+      "strike_bonus_rolls": 2,
+      "spare_bonus_rolls": 1
+    },
+    "names": {
+      "module": "bowling",
+      "function": "score"
+    }
+  },
+  "status": "succeeded",
+  "terminal_reason": "completed",
+  "models": [
+    "thinkingmachines/inkling-2-mini"
+  ],
+  "providers": [
+    "PrimeIntellect"
+  ],
+  "wall_seconds": 57.65,
+  "turns": 13,
+  "tool_calls": 12,
+  "tool_calls_by_kind": {
+    "other_tool": 2,
+    "file_write": 8,
+    "test_run": 5,
+    "other_command": 1
+  },
+  "tokens": {
+    "input": 84955,
+    "cached": 69632,
+    "output": 17150,
+    "reasoning": 10091,
+    "total": 102105
+  },
+  "cost_usd": 0.007465905,
+  "per_turn": [
+    {
+      "turn": 1,
+      "t": 0.705,
+      "latency_ms": 655,
+      "input_tokens": 1484,
+      "cache_read_tokens": 0,
+      "output_tokens": 53,
+      "reasoning_tokens": 9,
+      "cost_usd": 0.0002544,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536024-gVsUNA8T70OAmLgUAmwE",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 2,
+      "t": 1.357,
+      "latency_ms": 587,
+      "input_tokens": 1863,
+      "cache_read_tokens": 0,
+      "output_tokens": 42,
+      "reasoning_tokens": 0,
+      "cost_usd": 0.000152325,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536025-7s78YSIP5tmFQ7ElcT7S",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 3,
+      "t": 20.422,
+      "latency_ms": 19000,
+      "input_tokens": 2215,
+      "cache_read_tokens": 640,
+      "output_tokens": 6799,
+      "reasoning_tokens": 4860,
+      "cost_usd": 0.002167425,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536025-mtOYUkYq7wN7y8FeMiJu",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 4,
+      "t": 25.554,
+      "latency_ms": 4885,
+      "input_tokens": 4191,
+      "cache_read_tokens": 2176,
+      "output_tokens": 1890,
+      "reasoning_tokens": 1306,
+      "cost_usd": 0.000750765,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536045-oueAlCZ59aJ8yI5DOU3Y",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 5,
+      "t": 27.626,
+      "latency_ms": 1749,
+      "input_tokens": 4816,
+      "cache_read_tokens": 4096,
+      "output_tokens": 539,
+      "reasoning_tokens": 272,
+      "cost_usd": 0.00027714,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536050-J7Ck09ZBeF3K5OvKwurk",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 6,
+      "t": 32.838,
+      "latency_ms": 4480,
+      "input_tokens": 5394,
+      "cache_read_tokens": 4736,
+      "output_tokens": 1411,
+      "reasoning_tokens": 406,
+      "cost_usd": 0.00054369,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536052-UynW4uvGYXjhHLHa4n3w",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 7,
+      "t": 34.487,
+      "latency_ms": 1429,
+      "input_tokens": 6436,
+      "cache_read_tokens": 5376,
+      "output_tokens": 209,
+      "reasoning_tokens": 144,
+      "cost_usd": 0.00022284,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536057-3axkbczt164wputmfoHF",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 8,
+      "t": 39.514,
+      "latency_ms": 4367,
+      "input_tokens": 7034,
+      "cache_read_tokens": 6400,
+      "output_tokens": 1725,
+      "reasoning_tokens": 837,
+      "cost_usd": 0.00066105,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536059-TVSzOZSgWBQWZoPeo5mW",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 9,
+      "t": 44.437,
+      "latency_ms": 4216,
+      "input_tokens": 8391,
+      "cache_read_tokens": 6912,
+      "output_tokens": 1707,
+      "reasoning_tokens": 939,
+      "cost_usd": 0.000726705,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536064-ad7r26uvDX0dWIb1agnK",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 10,
+      "t": 47.859,
+      "latency_ms": 2695,
+      "input_tokens": 9722,
+      "cache_read_tokens": 8320,
+      "output_tokens": 799,
+      "reasoning_tokens": 737,
+      "cost_usd": 0.00046965,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536069-4XjWHxNpbQ4oeQIyqOJE",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 11,
+      "t": 49.973,
+      "latency_ms": 1912,
+      "input_tokens": 10196,
+      "cache_read_tokens": 9600,
+      "output_tokens": 810,
+      "reasoning_tokens": 310,
+      "cost_usd": 0.0004317,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536072-sn5EEjsKsjXZXbOyOYfL",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 12,
+      "t": 54.513,
+      "latency_ms": 3826,
+      "input_tokens": 11375,
+      "cache_read_tokens": 10112,
+      "output_tokens": 630,
+      "reasoning_tokens": 204,
+      "cost_usd": 0.000435405,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536075-p4UTbso9sqwt6gqynTXq",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 13,
+      "t": 56.058,
+      "latency_ms": 1353,
+      "input_tokens": 11838,
+      "cache_read_tokens": 11264,
+      "output_tokens": 536,
+      "reasoning_tokens": 67,
+      "cost_usd": 0.00037281,
+      "tool_calls": 0,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795536079-Tq88oLK81zag33AKfGRK",
+      "cache_write_tokens": 0
+    }
+  ],
+  "tdd": {
+    "turns": 13,
+    "tool_calls": 12,
+    "tool_calls_by_name": {
+      "read_agent_file": 2,
+      "run_command": 10
+    },
+    "tool_calls_by_kind": {
+      "other_tool": 2,
+      "file_write": 8,
+      "test_run": 5,
+      "other_command": 1
+    },
+    "first_test_file_write": 3,
+    "first_impl_write": 6,
+    "tests_written_first": true,
+    "first_test_run_turn": 5,
+    "first_test_run_failed": true,
+    "test_runs": [
+      {
+        "turn": 5,
+        "passed": false,
+        "ran": 1,
+        "failures": 0,
+        "errors": 1
+      },
+      {
+        "turn": 7,
+        "passed": false,
+        "ran": 15,
+        "failures": 0,
+        "errors": 2
+      },
+      {
+        "turn": 8,
+        "passed": false,
+        "ran": 15,
+        "failures": 0,
+        "errors": 2
+      },
+      {
+        "turn": 9,
+        "passed": false,
+        "ran": 15,
+        "failures": 0,
+        "errors": 1
+      },
+      {
+        "turn": 11,
+        "passed": true,
+        "ran": 15,
+        "failures": 0,
+        "errors": 0
+      }
+    ],
+    "red_to_green_cycles": 1,
+    "turns_to_first_green": 11,
+    "final_tests_green": true,
+    "final_test_result": {
+      "turn": 11,
+      "passed": true,
+      "ran": 15,
+      "failures": 0,
+      "errors": 0
+    },
+    "rewrites": {
+      "/workspace/out/test_alley.py": 0,
+      "/workspace/test_alley.py": 4,
+      "/workspace/out/alley.py": 0,
+      "/workspace/out/NOTES.md": 0
+    },
+    "verdict": "test-first (red\u2192green)",
+    "timeline": [
+      {
+        "turn": 1,
+        "t": 0.705,
+        "latency_ms": 655,
+        "input_tokens": 1484,
+        "cache_read_tokens": 0,
+        "output_tokens": 53,
+        "reasoning_tokens": 9,
+        "cost_usd": 0.0002544,
+        "tool_calls": 1
+      },
+      {
+        "turn": 2,
+        "t": 1.357,
+        "latency_ms": 587,
+        "input_tokens": 1863,
+        "cache_read_tokens": 0,
+        "output_tokens": 42,
+        "reasoning_tokens": 0,
+        "cost_usd": 0.000152325,
+        "tool_calls": 1
+      },
+      {
+        "turn": 3,
+        "t": 20.422,
+        "latency_ms": 19000,
+        "input_tokens": 2215,
+        "cache_read_tokens": 640,
+        "output_tokens": 6799,
+        "reasoning_tokens": 4860,
+        "cost_usd": 0.002167425,
+        "tool_calls": 1
+      },
+      {
+        "turn": 4,
+        "t": 25.554,
+        "latency_ms": 4885,
+        "input_tokens": 4191,
+        "cache_read_tokens": 2176,
+        "output_tokens": 1890,
+        "reasoning_tokens": 1306,
+        "cost_usd": 0.000750765,
+        "tool_calls": 1
+      },
+      {
+        "turn": 5,
+        "t": 27.626,
+        "latency_ms": 1749,
+        "input_tokens": 4816,
+        "cache_read_tokens": 4096,
+        "output_tokens": 539,
+        "reasoning_tokens": 272,
+        "cost_usd": 0.00027714,
+        "tool_calls": 1
+      },
+      {
+        "turn": 6,
+        "t": 32.838,
+        "latency_ms": 4480,
+        "input_tokens": 5394,
+        "cache_read_tokens": 4736,
+        "output_tokens": 1411,
+        "reasoning_tokens": 406,
+        "cost_usd": 0.00054369,
+        "tool_calls": 1
+      },
+      {
+        "turn": 7,
+        "t": 34.487,
+        "latency_ms": 1429,
+        "input_tokens": 6436,
+        "cache_read_tokens": 5376,
+        "output_tokens": 209,
+        "reasoning_tokens": 144,
+        "cost_usd": 0.00022284,
+        "tool_calls": 1
+      },
+      {
+        "turn": 8,
+        "t": 39.514,
+        "latency_ms": 4367,
+        "input_tokens": 7034,
+        "cache_read_tokens": 6400,
+        "output_tokens": 1725,
+        "reasoning_tokens": 837,
+        "cost_usd": 0.00066105,
+        "tool_calls": 1
+      },
+      {
+        "turn": 9,
+        "t": 44.437,
+        "latency_ms": 4216,
+        "input_tokens": 8391,
+        "cache_read_tokens": 6912,
+        "output_tokens": 1707,
+        "reasoning_tokens": 939,
+        "cost_usd": 0.000726705,
+        "tool_calls": 1
+      },
+      {
+        "turn": 10,
+        "t": 47.859,
+        "latency_ms": 2695,
+        "input_tokens": 9722,
+        "cache_read_tokens": 8320,
+        "output_tokens": 799,
+        "reasoning_tokens": 737,
+        "cost_usd": 0.00046965,
+        "tool_calls": 1
+      },
+      {
+        "turn": 11,
+        "t": 49.973,
+        "latency_ms": 1912,
+        "input_tokens": 10196,
+        "cache_read_tokens": 9600,
+        "output_tokens": 810,
+        "reasoning_tokens": 310,
+        "cost_usd": 0.0004317,
+        "tool_calls": 1
+      },
+      {
+        "turn": 12,
+        "t": 54.513,
+        "latency_ms": 3826,
+        "input_tokens": 11375,
+        "cache_read_tokens": 10112,
+        "output_tokens": 630,
+        "reasoning_tokens": 204,
+        "cost_usd": 0.000435405,
+        "tool_calls": 1
+      },
+      {
+        "turn": 13,
+        "t": 56.058,
+        "latency_ms": 1353,
+        "input_tokens": 11838,
+        "cache_read_tokens": 11264,
+        "output_tokens": 536,
+        "reasoning_tokens": 67,
+        "cost_usd": 0.00037281,
+        "tool_calls": 0
+      }
+    ]
+  },
+  "hidden": {
+    "passed": 44,
+    "failed": 1,
+    "total": 45,
+    "errors": [
+      {
+        "case": "random game 20",
+        "expected": 59,
+        "got": "ValueError: roll exceeds pins standing"
+      }
+    ]
+  },
+  "deliverables": {
+    "expected": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ],
+    "present": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ],
+    "missing": []
+  }
+}
