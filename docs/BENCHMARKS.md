@@ -97,3 +97,7 @@ Keep noise level 0 equal to the well-known task, so you can compare memorised an
 - The TDD verdict says nothing about test quality. The hidden cases test the code, not the agent's tests.
 - Only one family exists so far, so results say little about general ability.
 - The transcript, usage and cost fields depend on the harness and provider; absent values show as "-" or "not reported".
+
+## Recorded runs
+
+- [2026-11-24: Inkling 2 mini, 9 runs on AWS](bench-runs/2026-11-24-inkling-2-mini.md): 404/405 hidden cases, all test-first, $0.08
