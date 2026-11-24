@@ -101,3 +101,17 @@ Keep noise level 0 equal to the well-known task, so you can compare memorised an
 ## Recorded runs
 
 - [2026-11-24: Inkling 2 mini, 9 runs on AWS](bench-runs/2026-11-24-inkling-2-mini.md): 404/405 hidden cases, all test-first, $0.08
+
+## Running on a throwaway AWS machine
+
+`scripts/aws-bench/run.sh` runs the whole benchmark on a fresh EC2 instance and deletes everything afterwards:
+
+```bash
+OPENROUTER_API_KEY=... AWS_PROFILE=<profile> scripts/aws-bench/run.sh            # 9 runs, noise 0-2
+RUNS="7:2 8:2" INSTANCE_TYPE=t3.small scripts/aws-bench/run.sh                    # pick seeds and size
+```
+
+It creates an IAM role, a security group with no inbound rules, a private bucket, an encrypted parameter for the key
+and one instance (SSM access only, IMDSv2, encrypted disk, self-terminates after 4 hours), runs the container
+preflight and the benchmarks, downloads the results to `bench-results/aws-<time>/`, and then deletes all of it, also
+when a step fails or you press Ctrl-C. A run of 9 costs about $0.10.
