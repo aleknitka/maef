@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inside the code</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper:   #14171c;
+      --color-paper-2: #1c2027;
+      --color-ink:     #e4e7ec;
+      --color-muted:   #a3acba;
+      --color-accent:  #5b9bff;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem 2rem;
+    }
+    .frame { max-width: 1280px; width: 100%; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · apps/api/maef_api</p>
+    <h1>Inside the code</h1>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1280 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="code-map-dark-title code-map-dark-desc">
+        <title id="code-map-dark-title">Inside the code</title>
+        <desc id="code-map-dark-desc">The main Python modules of the MAEF backend: entry points call the API process (main.py, runs.py, auth.py), which uses definitions.py, ledger.py and artifacts.py; in the worker process, worker.py talks to the API over HTTP and drives harness.py, which calls the model adapters and the sandbox and MCP container code.</desc>
+        <defs>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#a3acba"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#5b9bff"/></marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8db3e2"/></marker>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(228,231,236,0.06)"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#14171c"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+        <rect x="272" y="32" width="968" height="296" rx="8" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.12)" stroke-width="0.8"/>
+        <text x="288" y="51" fill="#8e98a8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">CONTROL PLANE · API PROCESS</text>
+        <rect x="24" y="368" width="1216" height="296" rx="8" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.12)" stroke-width="0.8"/>
+        <text x="136" y="387" fill="#8e98a8" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">EXECUTION · WORKER PROCESS</text>
+        <line x1="200" y1="188" x2="312" y2="188" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <line x1="544" y1="100" x2="920" y2="100" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="544" y1="188" x2="920" y2="188" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="544" y1="276" x2="920" y2="276" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <path d="M 120 488 L 120 360 Q 120 352 128 352 L 420 352 Q 428 352 428 344 L 428 296" fill="none" stroke="#5b9bff" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <line x1="200" y1="528" x2="312" y2="528" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="544" y1="470" x2="920" y2="470" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <line x1="544" y1="578" x2="920" y2="578" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <rect x="215.0" y="168" width="82" height="12" rx="2" fill="#14171c"/>
+        <text x="256" y="177" fill="#8db3e2" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">HTTP + TOKEN</text>
+        <rect x="694.0" y="80" width="76" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="89" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PIN VERSION</text>
+        <rect x="688.0" y="168" width="88" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="177" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RUNS · EVENTS</text>
+        <rect x="691.0" y="256" width="82" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="265" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">RESULT FILES</text>
+        <rect x="227.0" y="332" width="94" height="12" rx="2" fill="#14171c"/>
+        <text x="274" y="341" fill="#5b9bff" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LEASE · EVENTS</text>
+        <rect x="694.0" y="450" width="76" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="459" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MODEL CALLS</text>
+        <rect x="697.0" y="558" width="70" height="12" rx="2" fill="#14171c"/>
+        <text x="732" y="567" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">TOOL CALLS</text>
+        <text x="1224" y="356" fill="#a3acba" font-size="14" font-style="italic" font-family="'Instrument Serif', serif" text-anchor="end">Worker code never imports the ledger</text>
+        <rect x="40" y="148" width="160" height="80" rx="6" fill="#14171c"/>
+        <rect x="40" y="148" width="160" height="80" rx="6" fill="rgba(163,172,186,0.10)" stroke="#8e98a8" stroke-width="1"/>
+        <rect x="48" y="156" width="44" height="12" rx="2" fill="transparent" stroke="rgba(142,152,168,0.50)" stroke-width="0.8"/>
+        <text x="70.0" y="165" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CLIENT</text>
+        <text x="120.0" y="182" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">Ways in</text>
+        <text x="120.0" y="198" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">cli.py · client.py</text>
+        <text x="120.0" y="212" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">gateway.py (maef mcp)</text>
+        <rect x="312" y="80" width="232" height="216" rx="6" fill="#14171c"/>
+        <rect x="312" y="80" width="232" height="216" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <rect x="320" y="88" width="29" height="12" rx="2" fill="transparent" stroke="rgba(228,231,236,0.40)" stroke-width="0.8"/>
+        <text x="334.5" y="97" fill="#e4e7ec" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">API</text>
+        <text x="428.0" y="177" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">API process</text>
+        <text x="428.0" y="193" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">main.py · HTTP routes</text>
+        <text x="428.0" y="207" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">runs.py · admit, cancel</text>
+        <text x="428.0" y="221" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">auth.py · tokens, audit</text>
+        <rect x="920" y="64" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="64" width="280" height="72" rx="6" fill="rgba(228,231,236,0.03)" stroke="rgba(228,231,236,0.30)" stroke-width="1"/>
+        <rect x="928" y="72" width="29" height="12" rx="2" fill="transparent" stroke="rgba(228,231,236,0.22)" stroke-width="0.8"/>
+        <text x="942.5" y="81" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">GIT</text>
+        <text x="1060.0" y="94" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">definitions.py</text>
+        <text x="1060.0" y="110" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Pins agent versions</text>
+        <text x="1060.0" y="124" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Git objects + file digests</text>
+        <rect x="920" y="152" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="152" width="280" height="72" rx="6" fill="rgba(228,231,236,0.05)" stroke="#a3acba" stroke-width="1"/>
+        <rect x="928" y="160" width="39" height="12" rx="2" fill="transparent" stroke="rgba(163,172,186,0.50)" stroke-width="0.8"/>
+        <text x="947.5" y="169" fill="#a3acba" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="1060.0" y="182" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">ledger.py</text>
+        <text x="1060.0" y="198" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">The only code that writes SQL</text>
+        <text x="1060.0" y="212" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">_sql_sqlite.py · _sql_postgres.py</text>
+        <rect x="920" y="240" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="240" width="280" height="72" rx="6" fill="rgba(228,231,236,0.05)" stroke="#a3acba" stroke-width="1"/>
+        <rect x="928" y="248" width="39" height="12" rx="2" fill="transparent" stroke="rgba(163,172,186,0.50)" stroke-width="0.8"/>
+        <text x="947.5" y="257" fill="#a3acba" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">STORE</text>
+        <text x="1060.0" y="270" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">artifacts.py</text>
+        <text x="1060.0" y="286" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Files named by sha256</text>
+        <text x="1060.0" y="300" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">local folder · artifacts_s3.py</text>
+        <rect x="40" y="488" width="160" height="80" rx="6" fill="#14171c"/>
+        <rect x="40" y="488" width="160" height="80" rx="6" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <rect x="48" y="496" width="44" height="12" rx="2" fill="transparent" stroke="rgba(228,231,236,0.40)" stroke-width="0.8"/>
+        <text x="70.0" y="505" fill="#e4e7ec" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">WORKER</text>
+        <text x="120.0" y="522" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">worker.py</text>
+        <text x="120.0" y="538" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Lease loop · heartbeats</text>
+        <text x="120.0" y="552" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">channel.py talks to API</text>
+        <rect x="312" y="416" width="232" height="216" rx="6" fill="#14171c"/>
+        <rect x="312" y="416" width="232" height="216" rx="6" fill="rgba(91,155,255,0.12)" stroke="#5b9bff" stroke-width="1"/>
+        <rect x="320" y="424" width="34" height="12" rx="2" fill="transparent" stroke="rgba(91,155,255,0.50)" stroke-width="0.8"/>
+        <text x="337.0" y="433" fill="#5b9bff" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">LOOP</text>
+        <text x="428.0" y="513" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">harness.py</text>
+        <text x="428.0" y="529" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Agent loop · tool dispatch</text>
+        <text x="428.0" y="543" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">guard.py · budget limits</text>
+        <text x="428.0" y="557" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Cancel checks</text>
+        <rect x="920" y="434" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="434" width="280" height="72" rx="6" fill="rgba(228,231,236,0.03)" stroke="rgba(228,231,236,0.30)" stroke-width="1"/>
+        <rect x="928" y="442" width="39" height="12" rx="2" fill="transparent" stroke="rgba(228,231,236,0.22)" stroke-width="0.8"/>
+        <text x="947.5" y="451" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">MODEL</text>
+        <text x="1060.0" y="464" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">adapters/</text>
+        <text x="1060.0" y="480" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">OpenAI-compatible · Anthropic</text>
+        <text x="1060.0" y="494" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">Bedrock · Jev · Clef</text>
+        <rect x="920" y="542" width="280" height="72" rx="6" fill="#14171c"/>
+        <rect x="920" y="542" width="280" height="72" rx="6" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="928" y="550" width="54" height="12" rx="2" fill="transparent" stroke="rgba(228,231,236,0.30)" stroke-width="0.8"/>
+        <text x="955.0" y="559" fill="#8e98a8" font-size="7" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">ISOLATED</text>
+        <text x="1060.0" y="572" fill="#e4e7ec" font-size="12" font-weight="600" font-family="'Geist', sans-serif" text-anchor="middle">sandbox.py · mcp.py</text>
+        <text x="1060.0" y="588" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">podman / docker command line</text>
+        <text x="1060.0" y="602" fill="#a3acba" font-size="9" font-family="'Geist Mono', monospace" text-anchor="middle">egress_proxy.py</text>
+        <line x1="40" y1="692" x2="1240" y2="692" stroke="rgba(228,231,236,0.12)" stroke-width="0.8"/>
+        <text x="40" y="708" fill="#a3acba" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">LEGEND</text>
+        <rect x="40" y="724" width="14" height="10" rx="2" fill="rgba(163,172,186,0.10)" stroke="#8e98a8" stroke-width="1"/>
+        <text x="60" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Entry point</text>
+        <rect x="148" y="724" width="14" height="10" rx="2" fill="#1c2027" stroke="#e4e7ec" stroke-width="1"/>
+        <text x="168" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Process</text>
+        <rect x="232" y="724" width="14" height="10" rx="2" fill="rgba(91,155,255,0.12)" stroke="#5b9bff" stroke-width="1"/>
+        <text x="252" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Focal · agent loop</text>
+        <rect x="376" y="724" width="14" height="10" rx="2" fill="rgba(228,231,236,0.05)" stroke="#a3acba" stroke-width="1"/>
+        <text x="396" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Storage</text>
+        <rect x="460" y="724" width="14" height="10" rx="2" fill="rgba(228,231,236,0.03)" stroke="rgba(228,231,236,0.30)" stroke-width="1"/>
+        <text x="480" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Outside service</text>
+        <rect x="588" y="724" width="14" height="10" rx="2" fill="rgba(228,231,236,0.02)" stroke="rgba(228,231,236,0.50)" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="608" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Containers</text>
+        <line x1="688" y1="729" x2="716" y2="729" stroke="#8db3e2" stroke-width="1.2" marker-end="url(#arrow-link)"/>
+        <text x="724" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">HTTP call</text>
+        <line x1="800" y1="729" x2="828" y2="729" stroke="#5b9bff" stroke-width="1.4" marker-end="url(#arrow-accent)"/>
+        <text x="836" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Worker protocol</text>
+        <line x1="944" y1="729" x2="972" y2="729" stroke="#a3acba" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <text x="980" y="732" fill="#a3acba" font-size="8.5" font-family="'Geist', sans-serif">Function call</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

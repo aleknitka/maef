@@ -4,8 +4,7 @@ This page explains how MAEF is built, in plain terms. Setup details are in [RUNN
 are in [CONTRACTS.md](../packages/contracts/CONTRACTS.md).
 
 The diagrams in [`diagrams/design/`](diagrams/design/) were drawn with the diagram-design skill (open the `.html`
-files in a browser for the full-quality version; the `.svg` files are exports). The code map is generated from a
-Mermaid source (`diagrams/code-map.mmd`, `make diagrams` redraws it).
+files in a browser for the full-quality version; the `.svg` files are exports).
 
 ## The big picture
 
@@ -89,7 +88,7 @@ code; see [SECURITY.md](SECURITY.md) for known gaps.
 
 ## Inside the code
 
-![Code map](diagrams/code-map.svg)
+![Inside the code](diagrams/design/code-map-dark.svg)
 
 All backend code is in `apps/api/maef_api/`. A few modules carry most of the weight, each behind a small interface:
 

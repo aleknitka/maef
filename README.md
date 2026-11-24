@@ -120,7 +120,7 @@ model-profiles/      your local model settings (not committed; `maef init` creat
 examples/            example model profiles and requests
 evals/               evaluation suites
 schemas/             JSON Schemas for the definition files
-docs/                documentation and diagrams (docs/diagrams/design/: diagram-design; code map: `make diagrams`)
+docs/                documentation; diagrams in docs/diagrams/design/
 tests/               Python tests
 ```
 
