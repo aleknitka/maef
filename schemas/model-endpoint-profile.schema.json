@@ -152,6 +152,24 @@
           "title": "Model Id",
           "type": "string"
         },
+        "reasoning_effort": {
+          "anyOf": [
+            {
+              "enum": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reasoning Effort"
+        },
         "token_param": {
           "default": "max_tokens",
           "enum": [

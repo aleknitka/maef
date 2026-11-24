@@ -26,6 +26,12 @@ def render_prometheus(m: dict) -> str:
            'Input tokens served from (read) or written to (write) the prompt cache. A subset of '
            'maef_tokens_used_total{kind="input"}; do not add them together.', [
         (f'maef_cached_input_tokens_total{{kind="{k}"}}', m["cached_tokens"][k]) for k in ("read", "write")])
+    metric("maef_reasoning_tokens_total", "counter",
+           'Output tokens spent on reasoning. A subset of maef_tokens_used_total{kind="output"}; do not add them together.',
+           [("maef_reasoning_tokens_total", m.get("reasoning_tokens", 0))])
+    metric("maef_cost_usd_total", "counter",
+           "Provider-reported cost in USD. Information only; budgets are token-only.",
+           [("maef_cost_usd_total", round(m.get("cost_usd", 0.0), 8))])
     metric("maef_tokens_reserved_open", "gauge", "Tokens reserved by runs that have not settled.",
            [("maef_tokens_reserved_open", m["tokens_reserved_open"])])
     metric("maef_run_duration_seconds", "summary", "Wall time of finished runs, created to finished.", [

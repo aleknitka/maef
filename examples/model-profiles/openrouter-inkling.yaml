@@ -1,0 +1,22 @@
+schema_version: maef.dev/v1alpha1
+# Thinking Machines Inkling 2 mini through OpenRouter: cheap ($0.075 in / $0.30 out per million tokens, cached
+# input $0.015), tool calling and reasoning. Used for `maef bench` runs. Copy to model-profiles/ and set the id
+# your agents use (for example local-default).
+id: openrouter-inkling-2-mini
+version: 0.1.0
+display_name: OpenRouter thinkingmachines/inkling-2-mini
+vendor: OpenRouter
+api_dialect: openai-compatible
+endpoint:
+  kind: openai-compatible
+  base_url: https://openrouter.ai/api/v1
+  model_id: thinkingmachines/inkling-2-mini
+  reasoning_effort: low
+credential_ref: env:OPENROUTER_API_KEY
+capabilities:
+  input_modalities: [text]
+  streaming: false
+timeout_seconds: 300
+max_retries: 2
+# Reasoning tokens count as output tokens, so leave room for them.
+max_output_tokens: 16000

@@ -13,3 +13,4 @@ artifacts/
 # Local model endpoint profiles (machine-specific, never committed)
 /model-profiles/
 *.egg-info/
+bench-results/

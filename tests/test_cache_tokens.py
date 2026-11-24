@@ -99,9 +99,9 @@ def test_usage_events_carry_cache_tokens_and_cached_tokens_are_still_charged(sto
     assert run.status == 'succeeded'
     assert usage_payloads(run) == [
         {'turn': 1, 'input_tokens': 100, 'output_tokens': 10, 'total_tokens': 110,
-         'cache_read_tokens': 60, 'cache_write_tokens': 40},
+         'cache_read_tokens': 60, 'cache_write_tokens': 40, 'reasoning_tokens': 0},
         {'turn': 2, 'input_tokens': 200, 'output_tokens': 30, 'total_tokens': 230,
-         'cache_read_tokens': 150, 'cache_write_tokens': 0},
+         'cache_read_tokens': 150, 'cache_write_tokens': 0, 'reasoning_tokens': 0},
     ]
     # Cache reads and writes are already inside input_tokens, so nothing is subtracted from the charge.
     assert run.tokens_used == 110 + 230 == 340

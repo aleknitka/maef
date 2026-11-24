@@ -4,6 +4,9 @@
 
 # MAEF — Modular Agent Execution Framework
 
+> **Intelligence is not what you do when you know what to do, but what you do when you don't know what to do.**
+> <sub>after Jean Piaget — the idea behind how MAEF tests agents ([benchmarks](docs/BENCHMARKS.md))</sub>
+
 MAEF runs **specialist AI agents** for you, safely and within a budget, on your own machine.
 
 You describe an agent once in a few text files (what it is for, its instructions, which model it uses, which tools
@@ -90,7 +93,10 @@ once).
   loading the agent's tools or secrets.
 - **Safe editing of agents**: drafts live on their own Git branch; a human merges them.
 - **Access control**: scoped API tokens, one credential per worker, an audit log.
-- **Monitoring**: OpenTelemetry traces, Prometheus metrics, and repeatable evaluation suites.
+- **Monitoring**: OpenTelemetry traces, Prometheus metrics, and repeatable evaluation suites. Per call: tokens
+  (cached and reasoning included), latency, provider and reported cost; optionally a full transcript of the run.
+- **Benchmarks that resist memorisation** (`maef bench`): well-known tasks with seeded noise (changed rules, numbers
+  and names), graded by hidden tests, with a test-driven-development trace of how the agent worked.
 - **Storage choices**: SQLite or Postgres for the log; a local folder or S3-compatible storage for results.
 
 Not done yet: workers on a *second* machine (planned next), and the web Studio still lacks login support.
@@ -103,6 +109,7 @@ Not done yet: workers on a *second* machine (planned next), and the web Studio s
 | [docs/RUNNING.md](docs/RUNNING.md) | Every setup option: models, containers, Postgres, S3, tokens, CLI, TUI, Claude Code |
 | [docs/SECURITY.md](docs/SECURITY.md) | What is protected, how, and the known gaps |
 | [docs/BUDGETS_OBSERVABILITY.md](docs/BUDGETS_OBSERVABILITY.md) | Token budgets, traces and metrics in detail |
+| [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Noisy benchmarks, hidden grading and the TDD trace |
 | [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md) | Jev and Clef wire formats |
 | [packages/contracts/CONTRACTS.md](packages/contracts/CONTRACTS.md) | Exact file and API formats |
 | [docs/BACKEND_PLAN.md](docs/BACKEND_PLAN.md) | The build plan and what is finished |

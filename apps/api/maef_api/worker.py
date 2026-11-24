@@ -306,7 +306,8 @@ class Worker:
                 steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
             run_sink = _TeardownSink(sink, steps) if steps else sink
             outputs = None if session is None else (lambda: collect_outputs(session))
-            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs, cancel.is_set)
+            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs, cancel.is_set,
+                          record_transcript=os.environ.get("MAEF_RECORD_TRANSCRIPT", "").lower() in ("1", "true", "yes"))
             execute(run_sink, run, adapter, self._clock)
         finally:
             for handle in mcp:

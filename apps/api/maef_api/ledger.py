@@ -400,7 +400,9 @@ class Ledger:
             usage = one(f"SELECT COALESCE(SUM({d.json_int('payload', 'input_tokens')}), 0) AS i, "
                         f"COALESCE(SUM({d.json_int('payload', 'output_tokens')}), 0) AS o, "
                         f"COALESCE(SUM({d.json_int('payload', 'cache_read_tokens')}), 0) AS cr, "
-                        f"COALESCE(SUM({d.json_int('payload', 'cache_write_tokens')}), 0) AS cw "
+                        f"COALESCE(SUM({d.json_int('payload', 'cache_write_tokens')}), 0) AS cw, "
+                        f"COALESCE(SUM({d.json_int('payload', 'reasoning_tokens')}), 0) AS rt, "
+                        f"COALESCE(SUM({d.json_float('payload', 'cost_usd')}), 0) AS cost "
                         "FROM run_events WHERE type='usage.recorded'")
             duration = one(f"SELECT COUNT(*) AS n, COALESCE(SUM({d.seconds_between('created_at', 'finished_at')}), 0) AS s "
                            "FROM runs WHERE finished_at IS NOT NULL")
@@ -408,6 +410,7 @@ class Ledger:
                 "runs": {(r["status"], r["kind"]): r["n"] for r in conn.execute(
                     "SELECT status, kind, COUNT(*) AS n FROM runs GROUP BY status, kind")},
                 "tokens": {"input": int(usage["i"]), "output": int(usage["o"])},
+                "reasoning_tokens": int(usage["rt"]), "cost_usd": float(usage["cost"]),
                 "cached_tokens": {"read": int(usage["cr"]), "write": int(usage["cw"])},
                 "tokens_reserved_open": int(one("SELECT COALESCE(SUM(reserved_tokens), 0) AS n FROM reservations WHERE settled_tokens IS NULL")["n"]),
                 "duration_count": duration["n"], "duration_sum": max(float(duration["s"]), 0.0),

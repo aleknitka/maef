@@ -37,7 +37,7 @@ An agent and its model profile pinned for a run (`Definitions.resolve`): `agent`
 Ledger backends: `MAEF_DB` is a SQLite path (default `runs/maef.db`) or a `postgresql://user:pass@host/db` URL (needs the optional `postgres` extra, psycopg 3); the same `Ledger` interface and test suite run on both, and `Ledger.open(target)` picks the adapter. Postgres starts at the latest schema (`schema_version` table, BIGINT tokens, JSONB payloads); admission locks the budget account row (`FOR UPDATE`) and `claim` leases the oldest queued run with `FOR UPDATE SKIP LOCKED`, so many API and worker processes can share one database. `run_events` and `audit_log` reject UPDATE/DELETE on both (SQLite triggers, a Postgres trigger function). `run_events` is append-only (triggers reject UPDATE/DELETE) with gapless `seq` per run. Usage is integer tokens as reported by the provider. Admission reserves `min(max_tokens, worst-case tokens)` in one write transaction (`BEGIN IMMEDIATE` on SQLite, row locks on Postgres) and fails closed on dirty or unknown git state (dirty allowed only with an explicit flag, recorded in the `task.created` event). `settle` charges the actual tokens and returns the remainder. Read-only `GET /api/v1/runs` and `GET /api/v1/runs/{id}`.
 
 ## Execution (implemented)
-`POST /api/v1/runs` returns 202 `{run_id}` when `MAEF_EXECUTION_ENABLED=1` (otherwise 501) after admitting and queuing the run; a separate worker process (`python -m maef_api.worker`) executes it. A turn loop (see below) over the profile's `max_output_tokens`, timeout and retries. Events: `run.started`, per turn `model.request` (`turn`, `prompt_bytes`, `tools`), `model.response` (`turn`, `stop_reason`, `tool_calls`), `usage.recorded` (`turn`, `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`; `input_tokens` counts all prompt tokens including cached reads and writes, and the two cache fields are the parts of it served from or written to the prompt cache; events recorded before these fields existed are read as 0), `tool.call` (`turn`, `name`, `argument_bytes`), `tool.result` (`turn`, `name`, `result_bytes`, `is_error`), then `run.output`, `run.manifest`, then the terminal `task.*` event. 
+`POST /api/v1/runs` returns 202 `{run_id}` when `MAEF_EXECUTION_ENABLED=1` (otherwise 501) after admitting and queuing the run; a separate worker process (`python -m maef_api.worker`) executes it. A turn loop (see below) over the profile's `max_output_tokens`, timeout and retries. Events: `run.started`, per turn `model.request` (`turn`, `prompt_bytes`, `tools`), `model.response` (`turn`, `stop_reason`, `tool_calls`, `latency_ms`, and `provider`, `response_id`, `model` when the provider reports them), `usage.recorded` (`turn`, `input_tokens`, `output_tokens`, `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `reasoning_tokens`, and `cost_usd` when reported; `reasoning_tokens` is the part of `output_tokens` spent on reasoning and `cost_usd` is provider-reported and information only; `input_tokens` counts all prompt tokens including cached reads and writes, and the two cache fields are the parts of it served from or written to the prompt cache; events recorded before these fields existed are read as 0), `tool.call` (`turn`, `name`, `argument_bytes`), `tool.result` (`turn`, `name`, `result_bytes`, `is_error`, `duration_ms`), then `run.output`, `run.manifest`, (with `MAEF_RECORD_TRANSCRIPT=1` on the worker, `transcript.recorded` {`records`, `bytes`, `truncated`} just before `run.manifest`, or `transcript.failed` {`code`}), then the terminal `task.*` event. 
 
 **Run lifecycle:** `admitted` (queued, claimable) -> `leased` -> `running` -> `succeeded` | `failed` | `cancelled`. Queued runs survive an API restart.
 
@@ -164,7 +164,7 @@ Client: `MaefClient.draft_create/draft_list/draft_write/draft_review/draft_publi
 | Span | Name | Start / end events | Attributes |
 |---|---|---|---|
 | root | `maef.run` | `task.created` / terminal `task.*` (last event if still live) | `gen_ai.operation.name=invoke_agent`, `gen_ai.agent.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `maef.run_id`, `maef.run.kind`, `maef.run.status`, `maef.agent_revision`, `maef.dirty`, `maef.terminal_reason`, `maef.tokens_used`, `maef.tokens_reserved`. Status: succeeded OK, failed ERROR (message = terminal reason), cancelled UNSET |
-| model turn (CLIENT) | `chat <profile>` | `model.request` / last of `model.response`, `usage.recorded` for the turn | `gen_ai.operation.name=chat`, `gen_ai.request.model` (profile id), `gen_ai.request.max_tokens`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*` (including `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_creation.input_tokens`; the `maef.run` span carries their sums), `maef.turn`, `maef.stop_reason`, `maef.prompt_bytes`, `maef.tools_offered`, `maef.tool_calls` |
+| model turn (CLIENT) | `chat <profile>` | `model.request` / last of `model.response`, `usage.recorded` for the turn | `gen_ai.operation.name=chat`, `gen_ai.request.model` (profile id), `gen_ai.request.max_tokens`, `gen_ai.response.finish_reasons`, `gen_ai.usage.*` (including `gen_ai.usage.cache_read.input_tokens` and `gen_ai.usage.cache_creation.input_tokens`; the `maef.run` span carries their sums), `maef.turn`, `maef.stop_reason`, `maef.prompt_bytes`, `maef.tools_offered`, `maef.tool_calls`, plus `maef.usage.reasoning_tokens`, `maef.usage.cost_usd`, `gen_ai.response.id`, `gen_ai.response.model`, `maef.provider`, `maef.latency_ms` when known |
 | tool call | `execute_tool <name>` (child of its turn) | `tool.call` / `tool.result` (paired per turn and name, in order) | `gen_ai.tool.name`, `maef.tool.server`, `maef.tool.is_error`, `maef.tool.argument_bytes`, `maef.tool.result_bytes`; status ERROR when `is_error` |
 | sandbox | `maef.sandbox` | `sandbox.provisioned` / `sandbox.torn_down` | `maef.sandbox.profile`, `.network`, `.network_open` |
 | MCP server | `maef.mcp <server>` | server's `sandbox.provisioned` / `mcp.stopped` | `maef.mcp.server`, `.version`, `.tool_count`, `.network`, `maef.sandbox.network_open` |
@@ -173,7 +173,7 @@ A call with no result, or a sandbox/MCP span never closed, ends at the last even
 
 **Export.** `OtlpHttpExporter(endpoint, headers_ref=None)` posts the OTLP/HTTP JSON `resourceSpans` body to `{endpoint}/v1/traces`. Config: `MAEF_OTLP_ENDPOINT`, `MAEF_OTLP_HEADERS_REF`, `MAEF_OTLP_ALLOW_PRIVATE=1`; ledger table `otel_exports(run_id, exported_at)`.
 
-**Metrics (`GET /api/v1/metrics`, Prometheus text 0.0.4, scope `read`).** `maef_runs_total{status,kind}`, `maef_tokens_used_total{kind=input|output}`, `maef_cached_input_tokens_total{kind=read|write}` (a subset of the input tokens above, not additional), `maef_tokens_reserved_open`, `maef_run_duration_seconds_count|_sum` (summary, finished runs, created to finished), `maef_budget_exhaustions_total{reason=tokens|turns|duration}`, `maef_worker_lost_total`, `maef_tool_calls_total{is_error}`, `maef_artifact_bytes_total`.
+**Metrics (`GET /api/v1/metrics`, Prometheus text 0.0.4, scope `read`).** `maef_runs_total{status,kind}`, `maef_tokens_used_total{kind=input|output}`, `maef_cached_input_tokens_total{kind=read|write}` (a subset of the input tokens above, not additional), `maef_reasoning_tokens_total` (a subset of the output tokens), `maef_cost_usd_total` (provider-reported, information only), `maef_tokens_reserved_open`, `maef_run_duration_seconds_count|_sum` (summary, finished runs, created to finished), `maef_budget_exhaustions_total{reason=tokens|turns|duration}`, `maef_worker_lost_total`, `maef_tool_calls_total{is_error}`, `maef_artifact_bytes_total`.
 
 **Eval suite (`evals/<suite>.yaml`, models in `evals.py`, extra fields rejected).**
 ```yaml
@@ -191,3 +191,20 @@ tasks:
       - json_path_equals: {path: answers.ticket_route.value, value: route}   # answers.json, else result text as JSON
 ```
 `maef eval run SUITE [--revision REV ...] [--timeout S] [--json] [--out report.md]` runs the suite per revision (SUITE is a path or a name under `evals/`), prints a markdown comparison (pass rate, total and mean tokens, per-task token deltas against the first revision) and exits 1 when any task failed in the last revision.
+
+## Transcript artifact (`transcript.jsonl`, opt-in)
+
+Written only when the worker runs with `MAEF_RECORD_TRANSCRIPT=1`. Stored as a `text/plain` artifact named `transcript.jsonl` and listed in the manifest. One JSON object per line, in this order:
+
+```
+{"type":"system","text":<system instructions>}
+{"type":"user","text":<run instruction>}
+{"type":"assistant","turn":n,"t":<seconds since run start>,"latency_ms":int,"stop_reason":str,"text":str,"reasoning":str,
+ "tool_calls":[{"id":str,"name":str,"arguments":obj}],
+ "usage":{"input_tokens","output_tokens","cache_read_tokens","cache_write_tokens","reasoning_tokens","cost_usd"(float|null)},
+ "provider":str|null,"response_id":str|null,"model":str|null}
+{"type":"tool","turn":n,"t":float,"duration_ms":int,"id":str,"name":str,"arguments":obj,"content":str,"is_error":bool}
+{"type":"end","t":float,"status":str,"terminal_reason":str}
+```
+
+`assistant` and `tool` lines repeat per turn and per tool call. A failed model call writes no `assistant` line; the `end` line is always written. If the file would be larger than the artifact limit, long strings are shortened (head kept, then `…[truncated N chars]`) until it fits, and `transcript.recorded.truncated` is true.

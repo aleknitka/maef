@@ -93,6 +93,8 @@ def run_to_spans(run: RunDetail) -> list[Span]:
             "gen_ai.usage.output_tokens": _sum(events, "usage.recorded", "output_tokens"),
             "gen_ai.usage.cache_read.input_tokens": _sum(events, "usage.recorded", "cache_read_tokens"),
             "gen_ai.usage.cache_creation.input_tokens": _sum(events, "usage.recorded", "cache_write_tokens"),
+            "maef.usage.reasoning_tokens": _sum(events, "usage.recorded", "reasoning_tokens"),
+            "maef.usage.cost_usd": _sum(events, "usage.recorded", "cost_usd", (int, float)),
             "maef.run_id": run.id, "maef.run.kind": run.kind, "maef.run.status": run.status,
             "maef.agent_revision": run.git_rev, "maef.dirty": run.dirty,
             "maef.terminal_reason": run.terminal_reason, "maef.tokens_used": run.tokens_used,
@@ -125,6 +127,9 @@ def run_to_spans(run: RunDetail) -> list[Span]:
             "gen_ai.usage.output_tokens": usage.get("output_tokens"),
             "gen_ai.usage.cache_read.input_tokens": usage.get("cache_read_tokens"),
             "gen_ai.usage.cache_creation.input_tokens": usage.get("cache_write_tokens"),
+            "maef.usage.reasoning_tokens": usage.get("reasoning_tokens"), "maef.usage.cost_usd": usage.get("cost_usd"),
+            "gen_ai.response.id": resp.get("response_id"), "gen_ai.response.model": resp.get("model"),
+            "maef.provider": resp.get("provider"), "maef.latency_ms": resp.get("latency_ms"),
             "maef.turn": turn, "maef.model_profile": p.get("profile"), "maef.stop_reason": resp.get("stop_reason"),
             "maef.prompt_bytes": p.get("prompt_bytes"), "maef.tools_offered": p.get("tools"),
             "maef.tool_calls": resp.get("tool_calls")})
@@ -168,8 +173,9 @@ def run_to_spans(run: RunDetail) -> list[Span]:
     return spans
 
 
-def _sum(events, type_, field_) -> int | None:
-    values = [e.payload[field_] for e in events if e.type == type_ and isinstance(e.payload.get(field_), int)]
+def _sum(events, type_, field_, kind=int) -> int | float | None:
+    values = [e.payload[field_] for e in events if e.type == type_ and isinstance(e.payload.get(field_), kind)
+              and not isinstance(e.payload.get(field_), bool)]
     return sum(values) if values else None
 
 
@@ -184,7 +190,8 @@ def _tool_span(child, call, result, turns, fallback_end: int | None = None) -> S
         attributes={"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": p.get("name"),
                     "maef.turn": p.get("turn"), "maef.tool.server": p.get("server"),
                     "maef.tool.is_error": is_error if result is not None else None,
-                    "maef.tool.argument_bytes": p.get("argument_bytes"), "maef.tool.result_bytes": r.get("result_bytes")},
+                    "maef.tool.argument_bytes": p.get("argument_bytes"), "maef.tool.result_bytes": r.get("result_bytes"),
+                    "maef.tool.duration_ms": r.get("duration_ms")},
         status=STATUS_ERROR if is_error else STATUS_UNSET, message="tool_error" if is_error else "")
 
 

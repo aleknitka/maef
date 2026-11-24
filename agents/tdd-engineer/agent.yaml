@@ -1,0 +1,22 @@
+schema_version: maef.dev/v1alpha1
+id: tdd-engineer
+version: 0.1.0
+display_name: TDD Engineer
+description: Builds a small Python deliverable test-first (red, green, refactor) in the sandbox from a written task with requirements and deliverables. Used by `maef bench`.
+capabilities: [python, test-driven-development, benchmark]
+instructions: SYSTEM.md
+skills:
+  - skills/test-driven-development.md
+  - skills/python-sandbox.md
+tools: [run_command, read_agent_file]
+mcp_servers: []
+permissions:
+  network_open: false
+runtime:
+  model_profile: local-default
+  sandbox_profile: python-sandbox
+budget:
+  max_tokens: 600000
+  max_duration_seconds: 1800
+  max_turns: 40
+outputs: [source-python, tests-python, notes-markdown]

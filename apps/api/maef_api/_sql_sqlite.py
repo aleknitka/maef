@@ -200,6 +200,10 @@ class SqliteDialect:
         return f"json_extract({column}, '$.{key}')"
 
     @staticmethod
+    def json_float(column: str, key: str) -> str:
+        return f"json_extract({column}, '$.{key}')"
+
+    @staticmethod
     def json_bool(column: str, key: str) -> str:
         return f"COALESCE(json_extract({column}, '$.{key}'), 0)"
 

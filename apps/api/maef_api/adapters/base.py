@@ -1,5 +1,6 @@
 """Neutral conversation types and the model seam. Each adapter translates these to and from
 one wire format; nothing above the adapters knows a provider's JSON."""
+import math
 from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Literal, Protocol
@@ -46,11 +47,32 @@ class ModelResponse:
     output_tokens: int
     cache_read_tokens: int = 0
     cache_write_tokens: int = 0
+    # reasoning_tokens is the part of output_tokens spent on hidden reasoning (a subset, like cache tokens).
+    reasoning_tokens: int = 0
+    # Provider-reported cost in USD. Information only: budgets stay token-only.
+    cost_usd: float | None = None
+    # Who actually served the call (routers such as OpenRouter), and the call's id and model.
+    provider: str | None = None
+    response_id: str | None = None
+    model: str | None = None
+    reasoning: str = ""  # reasoning text if the provider returns it; only stored in the opt-in transcript
 
 
 def token_count(value) -> int:
     """A non-negative int from provider JSON; anything else (None, bool, str, float, negative) is 0."""
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 0
+
+
+def cost_value(value) -> float | None:
+    """A finite, non-negative number from provider JSON, else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) and value >= 0 else None
+
+
+def short_str(value, limit: int = 200) -> str | None:
+    return value[:limit] if isinstance(value, str) else None
 
 
 def normalise_stop(raw: str | None, mapping: dict[str, str]) -> str:

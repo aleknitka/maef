@@ -10,6 +10,7 @@ endpoint:
   # Free models end in ":free" (rate-limited; providers may log prompts). Cheap paid alternative: qwen/qwen3.7-flash.
   # The agent's tools need a model whose OpenRouter page lists "tools" support.
   model_id: nvidia/nemotron-3.5-lightning:free
+  # reasoning_effort: low   # minimal | low | medium | high; sent as top-level reasoning_effort
 credential_ref: env:OPENROUTER_API_KEY
 capabilities:
   input_modalities: [text]

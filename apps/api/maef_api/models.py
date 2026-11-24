@@ -62,6 +62,8 @@ class OpenAICompatibleEndpoint(_HttpEndpoint):
     kind: Literal["openai-compatible"]
     # OpenAI's newer models reject max_tokens; many local servers only know max_tokens.
     token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    # Sent as top-level `reasoning_effort` when set (OpenAI and OpenRouter accept it).
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 
 class AnthropicEndpoint(_HttpEndpoint):
     kind: Literal["anthropic"]

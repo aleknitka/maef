@@ -68,6 +68,7 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("--timeout", type=float, default=600, metavar="SECONDS", help="per task")
     s.add_argument("--json", action="store_true")
     s.add_argument("--out", metavar="FILE", help="write the markdown report here")
+    _bench_parser(sub)
     s = sub.add_parser("init", help="set up a fully local install: local-default model profile, artifacts dir, SQLite ledger")
     s.add_argument("--backend", choices=("ollama", "lmstudio", "openrouter"), default="ollama")
     s.add_argument("--model-id", help="model name as the local server knows it (default from the example)")
@@ -115,6 +116,51 @@ def _parser() -> argparse.ArgumentParser:
     s.add_argument("draft_id")
     draft_sub.add_parser("list").add_argument("--json", action="store_true")
     return p
+
+
+def _bench_parser(sub) -> None:
+    b = sub.add_parser("bench", help="benchmark task families (docs/BENCHMARKS.md)").add_subparsers(
+        dest="bench_cmd", required=True)
+    for name, helptext in (("variant", "print the task for one seed and noise level"),
+                           ("run", "run one variant against an agent, then grade and report"),
+                           ("report", "grade and report an existing run")):
+        s = b.add_parser(name, help=helptext)
+        if name == "report":
+            s.add_argument("run_id")
+        s.add_argument("--family", default="bowling")
+        s.add_argument("--seed", type=int, default=0)
+        s.add_argument("--noise", type=int, default=0, help="0 = the canonical task; higher perturbs more")
+        if name == "variant":
+            s.add_argument("--json", action="store_true", help="print the variant and hidden cases")
+        else:
+            s.add_argument("--out", default="bench-results")
+        if name == "run":
+            s.add_argument("--agent", default="tdd-engineer")
+            s.add_argument("--timeout", type=float, default=1800, metavar="SECONDS")
+
+
+def _bench(client_factory, args) -> int:
+    from .bench.families import FAMILIES
+    family = FAMILIES.get(args.family)
+    if family is None:
+        _err(f"unknown family {args.family!r}; known: {', '.join(FAMILIES)}")
+        return EXIT_ERROR
+    if args.bench_cmd == "variant":
+        v = family.sample(args.seed, args.noise)
+        if args.json:
+            print(json.dumps({"variant": v.model_dump(), "cases": family.hidden_cases(v)}, indent=2))
+        else:
+            print(family.render_task(v))
+        return EXIT_OK
+    from .bench import runner
+    client = client_factory()
+    if args.bench_cmd == "run":
+        rep = runner.run_bench(client, family, args.seed, args.noise, args.agent, Path(args.out), args.timeout,
+                               on_event=lambda e: _err(_event_line(e)))
+    else:
+        rep = runner.report_existing(client, args.run_id, family, args.seed, args.noise, Path(args.out))
+    print((Path(args.out) / rep["run_id"] / "report.md").read_text(encoding="utf-8"))
+    return EXIT_OK if rep["status"] == "succeeded" else EXIT_RUN_FAILED
 
 
 def _budget(args) -> dict | None:
@@ -513,6 +559,8 @@ def main(argv: list[str] | None = None, client: MaefClient | None = None) -> int
             return _admin(args)
         if args.cmd == "init":
             return _init(args)
+        if args.cmd == "bench":
+            return _bench(lambda: client or MaefClient(HttpTransport()), args)
         if args.cmd == "mcp":
             from .gateway import Gateway
             return Gateway(client or MaefClient(HttpTransport()), sys.stdin.buffer, sys.stdout.buffer).serve()

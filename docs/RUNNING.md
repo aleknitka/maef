@@ -129,6 +129,7 @@ make worker                          # terminal 2, with MAEF_WORKER_CREDENTIAL e
   the lease runs out (`MAEF_LEASE_SECONDS`, default 60) and the full reservation is charged.
 - Run one worker per machine: at startup it removes leftover MAEF containers.
 - `MAEF_ACCOUNT_LIMIT_TOKENS` (default 5,000,000) caps total token use across all runs.
+- `MAEF_RECORD_TRANSCRIPT=1` (worker only, off by default) stores the full conversation of each run as a `transcript.jsonl` artifact. It holds full prompts and tool output, so turn it on only where that is fine.
 
 ## 5. Give agents work
 

@@ -8,7 +8,9 @@ from .base import (
     ModelResponse,
     ToolCall,
     ToolSpec,
+    cost_value,
     normalise_stop,
+    short_str,
     token_count,
 )
 from .http import ModelHTTPError, post_json
@@ -57,6 +59,8 @@ class OpenAICompatibleAdapter:
         key = self._credentials.resolve(self.profile.credential_ref)
         body = {"model": ep.model_id, ep.token_param: max_output_tokens,
                 "messages": [{"role": "system", "content": system}, *map(_wire_message, messages)]}
+        if ep.reasoning_effort:
+            body["reasoning_effort"] = ep.reasoning_effort
         if tools:  # some local servers reject an empty list
             body["tools"] = [{"type": "function", "function": {"name": t.name, "description": t.description,
                                                                "parameters": t.input_schema}} for t in tools]
@@ -71,6 +75,8 @@ class OpenAICompatibleAdapter:
         if "prompt_tokens" not in usage or "completion_tokens" not in usage:
             # Budgets cannot be metered without usage: fail rather than record a guess.
             raise ModelHTTPError(None, "missing_usage")
+        if not all(type(usage[k]) is int and usage[k] >= 0 for k in ("prompt_tokens", "completion_tokens")):
+            raise ModelHTTPError(None, "invalid_usage")
         choice = reply["choices"][0]
         message = choice.get("message") or {}
         calls = tuple(_parse_call(i, c) for i, c in enumerate(message.get("tool_calls") or []))
@@ -85,8 +91,16 @@ class OpenAICompatibleAdapter:
         cap = token_count(prompt)
         cache_read = min(token_count(details.get("cached_tokens")), cap)
         cache_write = min(token_count(details.get("cache_write_tokens")), cap - cache_read)
+        completion = usage["completion_tokens"]
+        out_details = usage.get("completion_tokens_details")
+        out_details = out_details if isinstance(out_details, dict) else {}
+        reasoning = message.get("reasoning")
         return ModelResponse(
             text=message.get("content") or "", tool_calls=calls, stop_reason=stop,
             input_tokens=prompt, output_tokens=usage["completion_tokens"],
             cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+            reasoning_tokens=min(token_count(out_details.get("reasoning_tokens")), token_count(completion)),
+            cost_usd=cost_value(usage.get("cost")), provider=short_str(reply.get("provider")),
+            response_id=short_str(reply.get("id")), model=short_str(reply.get("model")),
+            reasoning=reasoning if isinstance(reasoning, str) else "",
         )

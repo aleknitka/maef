@@ -200,6 +200,10 @@ class PostgresDialect:
         return f"CAST({column}->>'{key}' AS BIGINT)"
 
     @staticmethod
+    def json_float(column: str, key: str) -> str:
+        return f"CAST({column}->>'{key}' AS DOUBLE PRECISION)"
+
+    @staticmethod
     def json_bool(column: str, key: str) -> str:
         return f"COALESCE(CAST(CAST({column}->>'{key}' AS BOOLEAN) AS INTEGER), 0)"
 
