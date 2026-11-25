@@ -1,8 +1,9 @@
 # Product requirements — MAEF
 
 ## Purpose
-Provide a reusable, reviewable, Git-native environment for building specialist agents and delegating bounded work from general coding assistants, without loading specialist contexts and MCP servers into those assistants.
+MAEF is a test bed for controlled, repeatable experiments on AI agents: change one thing (model, prompt, skills, tools, settings), keep everything else fixed, run each version in a sealed environment across many seeds, measure outcome, process, cost and safety, and save each experiment as a FAIR record. The agent definitions it produces are self-contained, so the winning version can be released and run as a specialist on its own (CLI, Claude Code/Codex gateway, bundle). See [ROADMAP.md](ROADMAP.md).
 
+The original aim still holds for released specialists: a reusable, reviewable, Git-native environment for delegating bounded work from general coding assistants, without loading specialist contexts and MCP servers into those assistants.
 ## Actors
 - **Author:** defines agent capabilities, instructions, skills, tool grants, allowed model profiles, acceptance tests.
 - **Reviewer:** diffs definitions, validates provenance and policies, approves promotion.

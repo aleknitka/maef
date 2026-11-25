@@ -112,6 +112,7 @@ Not done yet: workers on a *second* machine (planned next), and the web Studio s
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Noisy benchmarks, hidden grading and the TDD trace |
 | [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md) | Jev and Clef wire formats |
 | [packages/contracts/CONTRACTS.md](packages/contracts/CONTRACTS.md) | Exact file and API formats |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What MAEF is for and what comes next: experiments, FAIR records, released specialists |
 | [docs/BACKEND_PLAN.md](docs/BACKEND_PLAN.md) | The build plan and what is finished |
 
 ## Repository layout
