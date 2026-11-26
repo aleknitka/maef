@@ -144,7 +144,7 @@ class PostgresDialect:
             import psycopg
             from psycopg.rows import dict_row
         except ImportError as e:  # pragma: no cover - depends on the install
-            raise RuntimeError("A postgresql:// MAEF_DB needs the optional driver: pip install 'maef-control-plane[postgres]'") from e
+            raise RuntimeError("A postgresql:// MAEF_DB needs the optional driver: uv sync --extra postgres") from e
         self.url = url
         self._psycopg, self._dict_row = psycopg, dict_row
         self.database_error = psycopg.DatabaseError

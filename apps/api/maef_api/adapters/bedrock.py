@@ -44,7 +44,7 @@ class BedrockAdapter:
                 import boto3
                 from botocore.config import Config
             except ImportError as exc:  # optional extra
-                raise RuntimeError("Install the 'bedrock' extra: pip install -e '.[bedrock]'") from exc
+                raise RuntimeError("Install the 'bedrock' extra: uv sync --extra bedrock") from exc
             self._client = boto3.client(
                 "bedrock-runtime",
                 region_name=self.profile.endpoint.region,

@@ -1,6 +1,6 @@
 """S3-compatible `ArtifactStore`: content-addressed objects `<prefix>sha256/<aa>/<rest>`.
 
-boto3 is an optional extra (`pip install -e '.[s3]'`) and is imported lazily. Objects are written once:
+boto3 is an optional extra (`uv sync --extra s3`) and is imported lazily. Objects are written once:
 an existing object of the same size is trusted as a dedupe hit (reads re-verify the sha256), a size
 mismatch raises ArtifactCorrupt and is never overwritten. Credentials come from the boto3 default chain
 or from `env:` references resolved through `Credentials`; secrets are never logged or put in errors.
@@ -82,7 +82,7 @@ class S3ArtifactStore:
             import boto3
             from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - depends on the environment
-            raise RuntimeError("S3 artifact store needs boto3: pip install -e '.[s3]'") from exc
+            raise RuntimeError("S3 artifact store needs boto3: uv sync --extra s3") from exc
         options = {"signature_version": "s3v4", "s3": {"addressing_style": addressing_style},
                    "connect_timeout": 5, "read_timeout": 30, "retries": {"mode": "standard", "total_max_attempts": 3}}
         try:  # newer botocore adds CRC checksums by default, which many S3-compatible servers reject

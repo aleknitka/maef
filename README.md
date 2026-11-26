@@ -26,15 +26,17 @@ optional extras you switch on when you want them.
 
 ## Quick start (no cloud account)
 
-You need Python 3.11+, [Podman](https://podman.io) (or Docker) and a local model server
+You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you), [Podman](https://podman.io) (or Docker) and a local model server
 ([Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai)).
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .                    # installs the `maef` command
+uv sync                             # creates .venv and installs the `maef` command
 ollama pull qwen3:8b                # any model that supports tool calling
-maef init                           # sets up the local model profile, results folder and database
+uv run maef init                    # sets up the local model profile, results folder and database
 ```
+
+Commands below are written as `maef ...`; inside the checkout run them as `uv run maef ...`. For a global `maef`
+command that works from any folder, run `uv tool install .` once.
 
 `maef init` creates three things, all on this machine:
 
@@ -135,12 +137,14 @@ tests/               Python tests
 ## Development
 
 ```bash
-pip install -e '.[dev]'
+uv sync              # installs the project and the dev group (tests, ruff, ty); add --all-extras for cloud extras
+uv run pytest        # same as make test
+make check           # ruff, format check and tests
 make test            # unit and API tests
 make test-oci        # tests that start real containers (needs Podman or Docker)
 make test-pg         # ledger tests on Postgres (starts a container)
 make test-s3         # artifact tests on an S3-compatible server (starts a container)
-maef lint            # check every definition file
+uv run maef lint    # check every definition file
 cd apps/tui && bun test
 ```
 

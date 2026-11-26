@@ -57,6 +57,9 @@ parameters next to the canonical ones.
 
 ## How to run
 
+Commands are written as `maef ...`; inside the checkout run them as `uv run maef ...` (or install once with
+`uv tool install .`).
+
 ```bash
 # See the task for one variant (add --json to see the variant and hidden cases)
 maef bench variant --family bowling --seed 7 --noise 2

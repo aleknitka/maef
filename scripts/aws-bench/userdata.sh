@@ -5,7 +5,7 @@ set -euxo pipefail
 shutdown -h +240 "maef bench VM: 4 hour limit"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -q
-apt-get install -y -q podman uidmap slirp4netns passt fuse-overlayfs python3-venv python3-pip git
+apt-get install -y -q podman uidmap slirp4netns passt fuse-overlayfs git
 snap install aws-cli --classic
 loginctl enable-linger ubuntu
 touch /var/lib/cloud/maef-bootstrap-done
