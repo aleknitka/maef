@@ -41,3 +41,9 @@ markers = [
     "s3: runs against an S3-compatible server (podman SeaweedFS, or MAEF_TEST_S3_ENDPOINT); skipped when neither is available (make test-s3)",
     "pg: runs against PostgreSQL (podman, or MAEF_TEST_POSTGRES_URL); skipped when neither is available (make test-pg)",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["apps/api", "tests"]
+extend-exclude = [".claude", "apps/studio", "apps/tui", "docs/bench-runs"]
