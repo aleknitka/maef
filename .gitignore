@@ -14,3 +14,4 @@ artifacts/
 /model-profiles/
 *.egg-info/
 bench-results/
+*.tsbuildinfo

@@ -1,0 +1,48 @@
+# Real-container suites (rootless podman): sandbox, egress proxy, bench grader, Postgres ledger, S3 artifact store.
+# Run only when the code they cover changes, on main, nightly, or by hand.
+name: containers
+on:
+  pull_request:
+    paths:
+      - apps/api/maef_api/sandbox.py
+      - apps/api/maef_api/egress*.py
+      - apps/api/maef_api/ledger.py
+      - apps/api/maef_api/_sql_*.py
+      - apps/api/maef_api/artifacts*.py
+      - apps/api/maef_api/bench/**
+      - sandbox-profiles/**
+      - tests/conftest.py
+      - tests/test_sandbox_oci.py
+      - uv.lock
+      - .github/workflows/containers.yml
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: containers-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  UV_LOCKED: "1"
+
+jobs:
+  suite:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        marker: [oci, pg, s3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+        with: {enable-cache: true}
+      - run: podman info --format '{{.Host.Security.Rootless}} {{.Version.Version}} {{.Host.CgroupsVersion}}'
+      - run: uv sync --all-extras
+      - run: MAEF_ALLOW_UNPINNED_IMAGES=1 uv run pytest -q -m ${{ matrix.marker }}
+      - if: always()
+        run: podman ps -a --format '{{.ID}} {{.Image}} {{.Status}}' # anything left here is a fixture leak
