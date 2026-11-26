@@ -3,6 +3,7 @@
 The worker never touches the ledger; it only speaks WorkerChannel. Model credentials resolve
 here, from the worker's own environment: a lease never carries secrets.
 """
+
 import hashlib
 import logging
 import os
@@ -58,6 +59,7 @@ def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
         if profile.api_dialect == "anthropic":
             return AnthropicAdapter(profile, credentials)
         raise NoAdapterForDialect(profile.api_dialect)
+
     return factory
 
 
@@ -68,6 +70,7 @@ def default_decision_factory(credentials: Credentials) -> DecisionFactory:
         if profile.api_dialect == "workers-ai-decision":
             return WorkersAiDecisionAdapter(profile, credentials)
         raise NoAdapterForDialect(profile.api_dialect)
+
     return factory
 
 
@@ -75,8 +78,14 @@ class ChannelSink:
     """RunSink over a WorkerChannel. Numbers its own events (wseq from 1) so a retried send is
     idempotent. Any failure that retrying cannot fix becomes SinkFailure."""
 
-    def __init__(self, channel: WorkerChannel, lease: Lease, abandoned: threading.Event | None = None,
-                 sleep=time.sleep, cancel: threading.Event | None = None):
+    def __init__(
+        self,
+        channel: WorkerChannel,
+        lease: Lease,
+        abandoned: threading.Event | None = None,
+        sleep=time.sleep,
+        cancel: threading.Event | None = None,
+    ):
         self._channel, self._lease, self._abandoned, self._sleep = channel, lease, abandoned, sleep
         self._cancel = cancel
         self._wseq = 0
@@ -92,7 +101,7 @@ class ChannelSink:
             except ChannelError as exc:
                 if attempt == SEND_ATTEMPTS - 1:
                     raise SinkFailure(str(exc)) from None
-                self._sleep(min(2 ** attempt, 4))
+                self._sleep(min(2**attempt, 4))
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         wseq = self._wseq + 1
@@ -105,8 +114,11 @@ class ChannelSink:
         return self._send(lambda: self._channel.upload(self._lease, name=name, mime=mime, data=data))
 
     def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
-        self._send(lambda: self._channel.finish(
-            self._lease, tokens_used=tokens_used, status=status, terminal_reason=terminal_reason))
+        self._send(
+            lambda: self._channel.finish(
+                self._lease, tokens_used=tokens_used, status=status, terminal_reason=terminal_reason
+            )
+        )
 
 
 class _TeardownSink:
@@ -192,9 +204,18 @@ class _Heartbeat(threading.Thread):
 
 
 class Worker:
-    def __init__(self, channel: WorkerChannel, adapter_factory: AdapterFactory, *, worker_id: str,
-                 heartbeat_seconds: float = 15, clock=time.monotonic, sandbox: Sandbox | None = None,
-                 credentials: Credentials | None = None, decision_factory: DecisionFactory | None = None):
+    def __init__(
+        self,
+        channel: WorkerChannel,
+        adapter_factory: AdapterFactory,
+        *,
+        worker_id: str,
+        heartbeat_seconds: float = 15,
+        clock=time.monotonic,
+        sandbox: Sandbox | None = None,
+        credentials: Credentials | None = None,
+        decision_factory: DecisionFactory | None = None,
+    ):
         self._channel, self._adapter_factory = channel, adapter_factory
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
         self._sandbox = sandbox
@@ -226,8 +247,10 @@ class Worker:
             sink.complete(tokens_used=0, status="failed", terminal_reason=reason)
 
         try:  # the profile the worker runs is exactly the pinned bytes
-            consistent = (hashlib.sha256(d.profile_bytes).hexdigest() == d.profile_digest
-                          and ModelEndpointProfile.model_validate(yaml.safe_load(d.profile_bytes)) == d.profile)
+            consistent = (
+                hashlib.sha256(d.profile_bytes).hexdigest() == d.profile_digest
+                and ModelEndpointProfile.model_validate(yaml.safe_load(d.profile_bytes)) == d.profile
+            )
         except (yaml.YAMLError, ValidationError):
             consistent = False
         if not consistent:
@@ -250,8 +273,9 @@ class Worker:
             sink.append("run.rejected", {"reason": reason, **detail}, status="running")
             sink.complete(tokens_used=0, status="failed", terminal_reason=reason)
 
-        if (compute_definition_digest(pinned.definition_bytes, pinned.files, pinned.mcp_bytes)
-                != pinned.definition_digest or not self._mcp_consistent(pinned)):
+        if compute_definition_digest(
+            pinned.definition_bytes, pinned.files, pinned.mcp_bytes
+        ) != pinned.definition_digest or not self._mcp_consistent(pinned):
             return reject("definition_mismatch")
         if mcp_ref_problem(pinned.agent, pinned.mcp_servers) == "network_not_permitted":
             return reject("network_not_permitted")
@@ -266,8 +290,13 @@ class Worker:
                 adapter = self._adapter_factory(pinned.profile)
                 if needs_sandbox:
                     session = self._sandbox.provision(pinned.sandbox, lease.run_id)
-                tools = BuiltinTools(pinned.agent.tools, pinned.files, session=session,
-                                     exec_timeout=lambda: deadline - self._clock(), cancel=cancel)
+                tools = BuiltinTools(
+                    pinned.agent.tools,
+                    pinned.files,
+                    session=session,
+                    exec_timeout=lambda: deadline - self._clock(),
+                    cancel=cancel,
+                )
             except SandboxError:
                 return reject("sandbox_unavailable")
             except Exception as exc:  # noqa: BLE001  # class name only; messages may carry secrets
@@ -280,34 +309,79 @@ class Worker:
                 return reject(failure.reason, **failure.detail)
             network_open = pinned.agent.permissions.network_open
             if session is not None:
-                sink.append("sandbox.provisioned", {
-                    **self._sandbox.info(), "profile": pinned.sandbox.id, "network": "none",
-                    "network_open": network_open, "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image)})
+                sink.append(
+                    "sandbox.provisioned",
+                    {
+                        **self._sandbox.info(),
+                        "profile": pinned.sandbox.id,
+                        "network": "none",
+                        "network_open": network_open,
+                        "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image),
+                    },
+                )
             for handle in mcp:
                 manifest = handle.manifest
-                sink.append("sandbox.provisioned", {
-                    **self._sandbox.info(), "profile": manifest.id, "server": manifest.id, "network": manifest.network,
-                    "network_open": network_open, "unpinned_image_allowed": not is_pinned_image(manifest.image)})
-                sink.append("mcp.started", {
-                    "server": manifest.id, "version": manifest.version,
-                    "tool_count": len(handle.tools.specs()), "network": manifest.network})
+                sink.append(
+                    "sandbox.provisioned",
+                    {
+                        **self._sandbox.info(),
+                        "profile": manifest.id,
+                        "server": manifest.id,
+                        "network": manifest.network,
+                        "network_open": network_open,
+                        "unpinned_image_allowed": not is_pinned_image(manifest.image),
+                    },
+                )
+                sink.append(
+                    "mcp.started",
+                    {
+                        "server": manifest.id,
+                        "version": manifest.version,
+                        "tool_count": len(handle.tools.specs()),
+                        "network": manifest.network,
+                    },
+                )
                 if manifest.network == "allowlist":
-                    sink.append("egress.proxy_started", {
-                        "server": manifest.id, "allowed_hosts": len(manifest.allowed_hosts),
-                        "any_public_host": "*" in manifest.allowed_hosts, "ports": manifest.allowed_ports})
+                    sink.append(
+                        "egress.proxy_started",
+                        {
+                            "server": manifest.id,
+                            "allowed_hosts": len(manifest.allowed_hosts),
+                            "any_public_host": "*" in manifest.allowed_hosts,
+                            "ports": manifest.allowed_ports,
+                        },
+                    )
                 if handle.tools.truncated:
-                    sink.append("mcp.tools_truncated", {
-                        "server": manifest.id, "listed": handle.tools.listed, "max_tools": manifest.max_tools})
+                    sink.append(
+                        "mcp.tools_truncated",
+                        {"server": manifest.id, "listed": handle.tools.listed, "max_tools": manifest.max_tools},
+                    )
             steps: list[Callable[[ChannelSink], None]] = []
             for handle in mcp:
-                steps.append(lambda s, h=handle: (h.stop(), s.append("mcp.stopped", {"server": h.manifest.id}),
-                                                  _report_egress(s, h)))
+                steps.append(
+                    lambda s, h=handle: (
+                        h.stop(),
+                        s.append("mcp.stopped", {"server": h.manifest.id}),
+                        _report_egress(s, h),
+                    )
+                )
             if session is not None:
-                steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id})))
+                steps.append(
+                    lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id}))
+                )
             run_sink = _TeardownSink(sink, steps) if steps else sink
             outputs = None if session is None else (lambda: collect_outputs(session))
-            run = PreparedRun(lease.run_id, pinned, task.budget, task.reserved_tokens, task.instruction, tools, outputs, cancel.is_set,
-                          record_transcript=os.environ.get("MAEF_RECORD_TRANSCRIPT", "").lower() in ("1", "true", "yes"))
+            run = PreparedRun(
+                lease.run_id,
+                pinned,
+                task.budget,
+                task.reserved_tokens,
+                task.instruction,
+                tools,
+                outputs,
+                cancel.is_set,
+                record_transcript=os.environ.get("MAEF_RECORD_TRANSCRIPT", "").lower() in ("1", "true", "yes"),
+            )
             execute(run_sink, run, adapter, self._clock)
         finally:
             for handle in mcp:
@@ -319,15 +393,21 @@ class Worker:
     def _mcp_consistent(pinned) -> bool:
         """The manifests the worker will run are exactly the pinned bytes, referenced by the agent."""
         try:
-            parsed = [McpServerManifest.model_validate(yaml.safe_load(pinned.mcp_bytes[m.id].decode("utf-8")))
-                      for m in pinned.mcp_servers]
+            parsed = [
+                McpServerManifest.model_validate(yaml.safe_load(pinned.mcp_bytes[m.id].decode("utf-8")))
+                for m in pinned.mcp_servers
+            ]
         except (KeyError, UnicodeDecodeError, yaml.YAMLError, ValidationError):
             return False
-        return (parsed == pinned.mcp_servers and set(pinned.mcp_bytes) == {m.id for m in pinned.mcp_servers}
-                and mcp_ref_problem(pinned.agent, pinned.mcp_servers) in (None, "network_not_permitted"))
+        return (
+            parsed == pinned.mcp_servers
+            and set(pinned.mcp_bytes) == {m.id for m in pinned.mcp_servers}
+            and mcp_ref_problem(pinned.agent, pinned.mcp_servers) in (None, "network_not_permitted")
+        )
 
-    def _start_mcp(self, lease: Lease, pinned, handles: list[_McpHandle],
-                   remaining: Callable[[], float]) -> list[McpToolSet]:
+    def _start_mcp(
+        self, lease: Lease, pinned, handles: list[_McpHandle], remaining: Callable[[], float]
+    ) -> list[McpToolSet]:
         """Resolve secrets, then provision, spawn and initialise each server. Handles are appended as
         soon as a container exists so the caller can tear down a partial start."""
         if not pinned.mcp_servers:
@@ -351,18 +431,20 @@ class Worker:
                 raise _StartupFailure(unavailable, code="sandbox_unavailable")
             try:
                 session = self._sandbox.provision(
-                    sandbox_profile_for(manifest, pinned.sandbox), f"{lease.run_id}-{manifest.id}",
+                    sandbox_profile_for(manifest, pinned.sandbox),
+                    f"{lease.run_id}-{manifest.id}",
                     network=manifest.network,
                     egress=EgressSpec(tuple(manifest.allowed_hosts), tuple(manifest.allowed_ports))
-                    if manifest.network == "allowlist" else None)
+                    if manifest.network == "allowlist"
+                    else None,
+                )
             except SandboxError as exc:
                 raise _StartupFailure(unavailable, code=str(exc)) from None
             handle = _McpHandle(manifest, session)
             handles.append(handle)
             try:
                 process = session.spawn(manifest.command, env=resolved[manifest.id])
-                handle.tools = McpToolSet(manifest.id, process, max_tools=manifest.max_tools,
-                                          timeout=remaining)
+                handle.tools = McpToolSet(manifest.id, process, max_tools=manifest.max_tools, timeout=remaining)
                 handle.tools.start()
             except Exception as exc:  # noqa: BLE001  # codes and class names only; messages may echo secrets
                 code = str(exc) if isinstance(exc, SandboxError | McpError) else type(exc).__name__
@@ -389,8 +471,10 @@ def main() -> int:
         log.error("MAEF_WORKER_CREDENTIAL is required (create one with `maef admin worker create --id ID`)")
         return 2
     channel = HttpChannel(
-        os.environ.get("MAEF_API_URL", "http://127.0.0.1:8000"), Secret(token),
-        allow_private=os.environ.get("MAEF_API_ALLOW_PRIVATE") == "1")
+        os.environ.get("MAEF_API_URL", "http://127.0.0.1:8000"),
+        Secret(token),
+        allow_private=os.environ.get("MAEF_API_ALLOW_PRIVATE") == "1",
+    )
     worker_id = os.environ.get("MAEF_WORKER_ID") or f"{socket.gethostname()}-{os.getpid()}"
     sandbox = detect_sandbox()
     if sandbox is None:

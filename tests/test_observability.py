@@ -68,17 +68,26 @@ def run_with(store, responses, *, tools=None, instruction="Question?", budget=No
 
 def two_turn_run(store, instruction=INSTRUCTION):
     """Turn 1: one tool call. Turn 2: the final answer. Two model turns, one tool call."""
-    return run_with(store, [
-        ModelResponse("", (ToolCall("c1", "lookup", {"key": ARG_MARK}),), "tool_use", 100, 10),
-        ModelResponse(FINAL_MARK, (), "end_turn", 200, 30),
-    ], tools=LookupTool(), instruction=instruction)
+    return run_with(
+        store,
+        [
+            ModelResponse("", (ToolCall("c1", "lookup", {"key": ARG_MARK}),), "tool_use", 100, 10),
+            ModelResponse(FINAL_MARK, (), "end_turn", 200, 30),
+        ],
+        tools=LookupTool(),
+        instruction=instruction,
+    )
 
 
 def decision_run(store):
     profile_bytes = JEV_YAML.encode()
     profile = ModelEndpointProfile.model_validate(yaml.safe_load(JEV_YAML))
-    task = DecisionTask(request=DecisionRequest(state=STATE, questions=QUESTIONS), profile=profile,
-                        profile_bytes=profile_bytes, profile_digest=hashlib.sha256(profile_bytes).hexdigest())
+    task = DecisionTask(
+        request=DecisionRequest(state=STATE, questions=QUESTIONS),
+        profile=profile,
+        profile_bytes=profile_bytes,
+        profile_digest=hashlib.sha256(profile_bytes).hexdigest(),
+    )
     run_id = store.admit_decision(task, reserve=50_000, max_duration_seconds=600)
     fake = FakeDecisionAdapter()
     fake.answers = GOOD
@@ -87,6 +96,7 @@ def decision_run(store):
 
 
 # --- mapping ---
+
 
 def test_two_turn_run_maps_to_root_turn_and_tool_spans(store):
     run = two_turn_run(store)
@@ -149,8 +159,9 @@ def test_decision_run_is_a_root_span_only(store):
 
 def test_no_attribute_carries_instruction_tool_arguments_or_result_text(store):
     spans = otel.run_to_spans(two_turn_run(store))
-    text = json.dumps([{"name": s.name, "attributes": s.attributes, "message": s.status_message} for s in spans],
-                      default=str)
+    text = json.dumps(
+        [{"name": s.name, "attributes": s.attributes, "message": s.status_message} for s in spans], default=str
+    )
     for marker in (INSTRUCTION, ARG_MARK, RESULT_MARK, FINAL_MARK):
         assert marker not in text
 
@@ -171,6 +182,7 @@ def test_to_otlp_envelope_and_id_lengths(store):
 
 
 # --- OTLP/HTTP export against a local stub collector ---
+
 
 class Collector:
     def __init__(self, statuses=(200,)):
@@ -210,8 +222,9 @@ def collector(monkeypatch):
 
 def test_exporter_posts_json_with_credential_headers(collector, store):
     spans = otel.run_to_spans(two_turn_run(store))
-    exporter = otel.OtlpHttpExporter(collector.url, "env:OTLP_HEADERS",
-                                     credentials=Credentials({"OTLP_HEADERS": "x-api-key=k-123, x-tenant=t9"}))
+    exporter = otel.OtlpHttpExporter(
+        collector.url, "env:OTLP_HEADERS", credentials=Credentials({"OTLP_HEADERS": "x-api-key=k-123, x-tenant=t9"})
+    )
     exporter.export(spans)
     path, headers, body = collector.requests[0]
     assert path == "/v1/traces"
@@ -326,8 +339,9 @@ def test_metrics_counters_match_known_runs(metrics_store):
     two_turn_run(store)  # succeeded: 2 turns, 300 in / 40 out, one tool call (ok), artifact FINAL_MARK
     # Reservation (50 tokens) is smaller than one turn's worst case: stopped before any model call, 0 tokens.
     run_with(store, [], budget=Budget(max_tokens=50, max_turns=5))
-    store.request_cancel(store.admit(definition(), Budget(max_tokens=200_000, max_turns=5), prompt_bytes=10,
-                                     instruction="cancel me"))
+    store.request_cancel(
+        store.admit(definition(), Budget(max_tokens=200_000, max_turns=5), prompt_bytes=10, instruction="cancel me")
+    )
     store.admit(definition(), Budget(max_tokens=200_000, max_turns=5), prompt_bytes=10, instruction="lost")
     store.claim("w1", 60, now=1000)
     store.expire_leases(now=1061)

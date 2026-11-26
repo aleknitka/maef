@@ -1,4 +1,5 @@
 """Collect a run's files from the sandbox: regular files directly under /workspace/out/."""
+
 import mimetypes
 from dataclasses import dataclass, field
 
@@ -33,11 +34,13 @@ def guess_mime(name: str) -> str:
     return guessed if guessed in SAFE_MIMES else "application/octet-stream"
 
 
-def collect_outputs(session: Session, *, budget_files: int = MAX_RUN_ARTIFACTS - 1,
-                    budget_bytes: int = MAX_RUN_ARTIFACT_BYTES) -> Collected:
+def collect_outputs(
+    session: Session, *, budget_files: int = MAX_RUN_ARTIFACTS - 1, budget_bytes: int = MAX_RUN_ARTIFACT_BYTES
+) -> Collected:
     """List with busybox-safe `find` (-type f never matches symlinks, no recursion), then read each
     file. Raises SandboxError if the listing fails; per-file problems go to `skipped`."""
     from .sandbox import SandboxError
+
     done = session.exec(["find", OUT_DIR, "-maxdepth", "1", "-type", "f", "-print0"], timeout=LIST_TIMEOUT_SECONDS)
     if done.exit_code != 0 or done.timed_out:
         # No /workspace/out at all is the normal case for runs that wrote nothing.

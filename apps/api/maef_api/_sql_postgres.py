@@ -6,6 +6,7 @@ token columns, JSONB payloads, an `ord` identity column for insertion order (SQL
 `schema_version` table, and a trigger function that rejects UPDATE/DELETE/TRUNCATE on append-only tables.
 Concurrency comes from row locks (SELECT ... FOR UPDATE, FOR UPDATE SKIP LOCKED) in READ COMMITTED.
 """
+
 import json
 from contextlib import contextmanager
 

@@ -13,19 +13,24 @@ from test_http_adapters import Fake, make_profile
 
 URL = "https://api.example.com/secret-path"
 
+
 @pytest.fixture
 def fake():
     made = []
+
     def make(replies):
-        f = Fake(replies); made.append(f); return f
+        f = Fake(replies)
+        made.append(f)
+        return f
+
     yield make
     [f.close() for f in made]
-
 
 
 def resolver_for(*ips):
     def resolve(host, port, type=0):
         return [(socket.AF_INET6 if ":" in ip else socket.AF_INET, socket.SOCK_STREAM, 6, "", (ip, port)) for ip in ips]
+
     return resolve
 
 
@@ -33,7 +38,9 @@ def check(ip, *, loopback=False, private=False, url=URL):
     EgressPolicy(resolver=resolver_for(ip)).check(url, allow_loopback=loopback, allow_private=private)
 
 
-@pytest.mark.parametrize("ip", ["169.254.169.254", "fe80::1", "0.0.0.0", "224.0.0.1", "fd00:ec2::254", "::ffff:169.254.169.254", "240.0.0.1"])
+@pytest.mark.parametrize(
+    "ip", ["169.254.169.254", "fe80::1", "0.0.0.0", "224.0.0.1", "fd00:ec2::254", "::ffff:169.254.169.254", "240.0.0.1"]
+)
 def test_always_denied_even_when_allowed(ip):
     with pytest.raises(EgressDenied):
         check(ip, loopback=True, private=True)
@@ -66,6 +73,7 @@ def test_any_private_address_denies_hostname():
 def test_resolver_error_or_empty_denies():
     def boom(host, port, type=0):
         raise OSError("no such host")
+
     with pytest.raises(EgressDenied):
         EgressPolicy(resolver=boom).check(URL, allow_loopback=True, allow_private=True)
     with pytest.raises(EgressDenied):
@@ -112,8 +120,16 @@ def test_redirect_is_not_followed():
     threading.Thread(target=server.serve_forever, daemon=True).start()
     try:
         with pytest.raises(ModelHTTPError):
-            post_json(f"http://127.0.0.1:{server.server_port}/first", {}, {"x": 1}, timeout=5, max_retries=0,
-                      policy=EgressPolicy(), allow_loopback=True, allow_private=False)
+            post_json(
+                f"http://127.0.0.1:{server.server_port}/first",
+                {},
+                {"x": 1},
+                timeout=5,
+                max_retries=0,
+                policy=EgressPolicy(),
+                allow_loopback=True,
+                allow_private=False,
+            )
     finally:
         server.shutdown()
     assert hits == ["/first"]
@@ -124,5 +140,7 @@ def test_adapter_denies_metadata_resolution_before_request(fake):
     p = make_profile("openai-compatible", srv.url + "/v1")
     policy = EgressPolicy(resolver=resolver_for("169.254.169.254"))
     with pytest.raises(ModelHTTPError, match="egress_denied"):
-        OpenAICompatibleAdapter(p, Credentials({}), policy=policy).converse(system="s", messages=[Message('user', 'q')], tools=[], max_output_tokens=5, timeout_seconds=5)
+        OpenAICompatibleAdapter(p, Credentials({}), policy=policy).converse(
+            system="s", messages=[Message("user", "q")], tools=[], max_output_tokens=5, timeout_seconds=5
+        )
     assert srv.requests == []

@@ -16,9 +16,21 @@ def _wire_messages(messages: list[Message]) -> list[dict]:
     out = []
     for role, batch in grouped(messages):
         if role == "tool":
-            out.append({"role": "user", "content": [
-                {"toolResult": {"toolUseId": m.tool_call_id, "content": [{"text": m.text}],
-                                "status": "error" if m.is_error else "success"}} for m in batch]})
+            out.append(
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "toolResult": {
+                                "toolUseId": m.tool_call_id,
+                                "content": [{"text": m.text}],
+                                "status": "error" if m.is_error else "success",
+                            }
+                        }
+                        for m in batch
+                    ],
+                }
+            )
             continue
         for m in batch:
             blocks = [{"text": m.text}] if m.text else []
@@ -56,12 +68,29 @@ class BedrockAdapter:
             )
         return self._client
 
-    def converse(self, *, system: str, messages: list[Message], tools: list[ToolSpec],
-                 max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
+    def converse(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        max_output_tokens: int,
+        timeout_seconds: float,
+    ) -> ModelResponse:
         kwargs = {}
         if tools:
-            kwargs["toolConfig"] = {"tools": [{"toolSpec": {
-                "name": t.name, "description": t.description, "inputSchema": {"json": t.input_schema}}} for t in tools]}
+            kwargs["toolConfig"] = {
+                "tools": [
+                    {
+                        "toolSpec": {
+                            "name": t.name,
+                            "description": t.description,
+                            "inputSchema": {"json": t.input_schema},
+                        }
+                    }
+                    for t in tools
+                ]
+            }
         reply = self._get_client(timeout_seconds).converse(
             modelId=self.profile.endpoint.model_id,
             system=[{"text": system}],
@@ -75,11 +104,15 @@ class BedrockAdapter:
         cache_write = token_count(usage.get("cacheWriteInputTokens"))
         return ModelResponse(
             text="".join(b["text"] for b in blocks if "text" in b),
-            tool_calls=tuple(ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"]["input"])
-                             for b in blocks if "toolUse" in b),
+            tool_calls=tuple(
+                ToolCall(b["toolUse"]["toolUseId"], b["toolUse"]["name"], b["toolUse"]["input"])
+                for b in blocks
+                if "toolUse" in b
+            ),
             stop_reason=normalise_stop(reply["stopReason"], _STOP),
             # Converse inputTokens excludes cache reads and writes; normalise to include them.
             input_tokens=usage["inputTokens"] + cache_read + cache_write,
             output_tokens=usage["outputTokens"],
-            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
         )

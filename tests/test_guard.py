@@ -15,7 +15,7 @@ def test_turns_exhausted_after_max_turns_recorded():
     guard.record(1, 1)
     assert guard.check(10) is None
     guard.record(1, 1)
-    assert guard.check(10) == 'turns_exhausted'
+    assert guard.check(10) == "turns_exhausted"
 
 
 def test_tokens_exhausted_at_reservation_boundary():
@@ -23,7 +23,7 @@ def test_tokens_exhausted_at_reservation_boundary():
     guard = make(reserved=100, max_output=10, max_turns=5)
     guard.record(20, 20)  # 40 used
     assert guard.check(prompt_bytes=50) is None  # 40 + 50 + 10 == 100
-    assert guard.check(prompt_bytes=51) == 'tokens_exhausted'  # 101 > 100
+    assert guard.check(prompt_bytes=51) == "tokens_exhausted"  # 101 > 100
 
 
 def test_duration_exhausted_with_fake_clock():
@@ -32,7 +32,7 @@ def test_duration_exhausted_with_fake_clock():
     now[0] = 9.0
     assert guard.check(10) is None
     now[0] = 10.0
-    assert guard.check(10) == 'duration_exhausted'
+    assert guard.check(10) == "duration_exhausted"
 
 
 def test_remaining_seconds_decreases_with_clock():

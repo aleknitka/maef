@@ -1,4 +1,5 @@
 """Transcript analysis: TDD verdicts, red-to-green cycles, test-result parsing and write classification."""
+
 import json
 
 import pytest
@@ -20,17 +21,34 @@ class Run:
         self.n += 1
         call_id = f"c{self.n}"
         args = {"argv": argv, "stdin": stdin}
-        self.rows.append({"type": "assistant", "turn": self.turn, "t": float(self.turn), "latency_ms": 100,
-                          "usage": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.01},
-                          "tool_calls": [{"id": call_id, "name": name, "arguments": args}]})
+        self.rows.append(
+            {
+                "type": "assistant",
+                "turn": self.turn,
+                "t": float(self.turn),
+                "latency_ms": 100,
+                "usage": {"input_tokens": 10, "output_tokens": 5, "cost_usd": 0.01},
+                "tool_calls": [{"id": call_id, "name": name, "arguments": args}],
+            }
+        )
         if result is not None:
-            self.rows.append({"type": "tool", "turn": self.turn, "id": call_id, "name": name, "arguments": args,
-                              "content": json.dumps(result), "is_error": False})
+            self.rows.append(
+                {
+                    "type": "tool",
+                    "turn": self.turn,
+                    "id": call_id,
+                    "name": name,
+                    "arguments": args,
+                    "content": json.dumps(result),
+                    "is_error": False,
+                }
+            )
         return self
 
     def write(self, path, role_content=""):
-        return self.step(["tee", path], stdin=role_content, result={"exit_code": 0, "stdout": "", "stderr": "",
-                                                                  "timed_out": False})
+        return self.step(
+            ["tee", path], stdin=role_content, result={"exit_code": 0, "stdout": "", "stderr": "", "timed_out": False}
+        )
 
     def run(self, result):
         return self.step(UNITTEST, result=result)
@@ -45,9 +63,15 @@ def analyse(run: Run):
 
 # --- TDD verdicts ----------------------------------------------------------------------------------
 
+
 def test_test_first_red_to_green():
-    r = Run().write("test_bowling.py", "def test_x(): pass").run(RED).write("bowling.py", "def score(r): ...") \
+    r = (
+        Run()
+        .write("test_bowling.py", "def test_x(): pass")
+        .run(RED)
+        .write("bowling.py", "def score(r): ...")
         .run(PASS_OK)
+    )
     a = analyse(r)
     assert a["verdict"] == "test-first (red→green)"
     assert a["tests_written_first"] is True
@@ -122,8 +146,19 @@ def test_rewrites_count_repeated_writes_to_the_same_file():
 
 def test_timeline_carries_usage_and_tool_counts():
     a = analyse(Run().write("bowling.py", "a"))
-    assert a["timeline"] == [{"turn": 1, "t": 1.0, "latency_ms": 100, "input_tokens": 10, "cache_read_tokens": None,
-                              "output_tokens": 5, "reasoning_tokens": None, "cost_usd": 0.01, "tool_calls": 1}]
+    assert a["timeline"] == [
+        {
+            "turn": 1,
+            "t": 1.0,
+            "latency_ms": 100,
+            "input_tokens": 10,
+            "cache_read_tokens": None,
+            "output_tokens": 5,
+            "reasoning_tokens": None,
+            "cost_usd": 0.01,
+            "tool_calls": 1,
+        }
+    ]
 
 
 def test_non_command_tools_are_counted_separately():
@@ -143,6 +178,7 @@ def test_empty_and_garbage_lines_are_skipped():
 
 # --- test-result parsing ---------------------------------------------------------------------------
 
+
 def test_parse_unittest_failure_counts():
     res = trace.parse_test_result(json.dumps(RED))
     assert res == {"passed": False, "ran": 3, "failures": 1, "errors": 2}
@@ -158,8 +194,7 @@ def test_parse_singular_test():
 
 
 def test_parse_pytest_summary():
-    body = {"exit_code": 1, "stdout": "=== 2 passed, 1 failed, 1 error in 0.10s ===", "stderr": "",
-            "timed_out": False}
+    body = {"exit_code": 1, "stdout": "=== 2 passed, 1 failed, 1 error in 0.10s ===", "stderr": "", "timed_out": False}
     assert trace.parse_test_result(json.dumps(body)) == {"passed": False, "ran": 3, "failures": 1, "errors": 1}
 
 
@@ -181,15 +216,23 @@ def test_unparseable_content_falls_back_to_text_and_no_exit_code():
 
 # --- write and run classification -----------------------------------------------------------------
 
-@pytest.mark.parametrize("argv, stdin, path, role", [
-    (["python3", "-c", "open('bowling.py', 'w').write('x')"], None, "/workspace/bowling.py", "impl"),
-    (["python3", "-c", "from pathlib import Path; Path('tests/test_b.py').write_text('x')"], None,
-     "/workspace/tests/test_b.py", "test"),
-    (["sh", "-c", "sed -i 's/a/b/' bowling.py"], None, "/workspace/bowling.py", "impl"),
-    (["tee", "-a", "/workspace/out/test_bowling.py"], "x", "/workspace/out/test_bowling.py", "test"),
-    (["sh", "-c", "echo hi > NOTES.md"], None, "/workspace/NOTES.md", "doc"),
-    (["sh", "-c", "echo hi > /dev/null"], None, None, None),
-])
+
+@pytest.mark.parametrize(
+    "argv, stdin, path, role",
+    [
+        (["python3", "-c", "open('bowling.py', 'w').write('x')"], None, "/workspace/bowling.py", "impl"),
+        (
+            ["python3", "-c", "from pathlib import Path; Path('tests/test_b.py').write_text('x')"],
+            None,
+            "/workspace/tests/test_b.py",
+            "test",
+        ),
+        (["sh", "-c", "sed -i 's/a/b/' bowling.py"], None, "/workspace/bowling.py", "impl"),
+        (["tee", "-a", "/workspace/out/test_bowling.py"], "x", "/workspace/out/test_bowling.py", "test"),
+        (["sh", "-c", "echo hi > NOTES.md"], None, "/workspace/NOTES.md", "doc"),
+        (["sh", "-c", "echo hi > /dev/null"], None, None, None),
+    ],
+)
 def test_classify_write_targets(argv, stdin, path, role):
     info = trace.classify(argv, stdin)
     if path is None:
@@ -204,7 +247,9 @@ def test_heredoc_body_mentioning_pytest_is_not_a_test_run():
     assert info["writes"] == [("/workspace/test_x.py", "test")]
 
 
-@pytest.mark.parametrize("argv", [UNITTEST, ["pytest", "-q"], ["python3", "test_bowling.py"], ["python3", "-m", "pytest"]])
+@pytest.mark.parametrize(
+    "argv", [UNITTEST, ["pytest", "-q"], ["python3", "test_bowling.py"], ["python3", "-m", "pytest"]]
+)
 def test_recognised_test_commands(argv):
     assert trace.classify(argv, None)["test_run"] is True
 

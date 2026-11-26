@@ -3,8 +3,9 @@
 No real containers and no real internet. The end-to-end proxy tests fake DNS and the proxy's upstream
 connects: names resolve to a public IP, and connects to that IP are served by a local echo server.
 Numeric hosts go through the real resolver, which never leaves the machine. The podman CLI is a fake
-script on PATH (see test_sandbox_cli.py). 
+script on PATH (see test_sandbox_cli.py).
 """
+
 import asyncio
 import json
 import socket
@@ -53,8 +54,16 @@ def bindir(tmp_path, monkeypatch):
 
 # --- classify_address ---
 
-PUBLIC = ["93.184.216.34", "1.1.1.1", "172.32.0.1", "172.15.0.1", "100.128.0.1", "100.63.255.255",
-          "2606:2800:220:1::1", "2a00:1450:4001::200e"]
+PUBLIC = [
+    "93.184.216.34",
+    "1.1.1.1",
+    "172.32.0.1",
+    "172.15.0.1",
+    "100.128.0.1",
+    "100.63.255.255",
+    "2606:2800:220:1::1",
+    "2a00:1450:4001::200e",
+]
 
 
 @pytest.mark.parametrize("ip", PUBLIC)
@@ -62,23 +71,42 @@ def test_public_addresses_are_allowed(ip):
     assert classify_address(ip_address(ip)) is None
 
 
-@pytest.mark.parametrize("ip, reason", [
-    ("127.0.0.1", "loopback"), ("127.8.8.8", "loopback"), ("::1", "loopback"),
-    ("10.0.0.1", "private_network"), ("172.16.0.5", "private_network"), ("172.31.255.254", "private_network"),
-    ("192.168.1.10", "private_network"), ("100.64.0.1", "private_network"),
-    ("100.127.255.254", "private_network"), ("100.100.100.200", "private_network"),
-    ("fc00::1", "private_network"), ("fd12:3456::1", "private_network"),
-    ("169.254.169.254", "forbidden_address"), ("169.254.0.1", "forbidden_address"),
-    ("fe80::1", "forbidden_address"), ("fd00:ec2::254", "forbidden_address"),
-    ("224.0.0.1", "forbidden_address"), ("ff02::1", "forbidden_address"),
-    ("240.0.0.1", "forbidden_address"), ("255.255.255.255", "forbidden_address"),
-    ("0.0.0.0", "forbidden_address"), ("0.1.2.3", "forbidden_address"), ("::", "forbidden_address"),
-    ("100::1", "forbidden_address"),
-    ("::ffff:10.0.0.1", "private_network"), ("::ffff:100.64.0.1", "private_network"),
-    ("::ffff:169.254.169.254", "forbidden_address"), ("::ffff:127.0.0.1", "loopback"),
-    ("::a9fe:a9fe", "forbidden_address"),
-    ("64:ff9b::a9fe:a9fe", "forbidden_address"), ("64:ff9b::a00:1", "forbidden_address"),
-])
+@pytest.mark.parametrize(
+    "ip, reason",
+    [
+        ("127.0.0.1", "loopback"),
+        ("127.8.8.8", "loopback"),
+        ("::1", "loopback"),
+        ("10.0.0.1", "private_network"),
+        ("172.16.0.5", "private_network"),
+        ("172.31.255.254", "private_network"),
+        ("192.168.1.10", "private_network"),
+        ("100.64.0.1", "private_network"),
+        ("100.127.255.254", "private_network"),
+        ("100.100.100.200", "private_network"),
+        ("fc00::1", "private_network"),
+        ("fd12:3456::1", "private_network"),
+        ("169.254.169.254", "forbidden_address"),
+        ("169.254.0.1", "forbidden_address"),
+        ("fe80::1", "forbidden_address"),
+        ("fd00:ec2::254", "forbidden_address"),
+        ("224.0.0.1", "forbidden_address"),
+        ("ff02::1", "forbidden_address"),
+        ("240.0.0.1", "forbidden_address"),
+        ("255.255.255.255", "forbidden_address"),
+        ("0.0.0.0", "forbidden_address"),
+        ("0.1.2.3", "forbidden_address"),
+        ("::", "forbidden_address"),
+        ("100::1", "forbidden_address"),
+        ("::ffff:10.0.0.1", "private_network"),
+        ("::ffff:100.64.0.1", "private_network"),
+        ("::ffff:169.254.169.254", "forbidden_address"),
+        ("::ffff:127.0.0.1", "loopback"),
+        ("::a9fe:a9fe", "forbidden_address"),
+        ("64:ff9b::a9fe:a9fe", "forbidden_address"),
+        ("64:ff9b::a00:1", "forbidden_address"),
+    ],
+)
 def test_denied_addresses_have_a_reason(ip, reason):
     assert classify_address(ip_address(ip)) == reason
 
@@ -94,45 +122,55 @@ def test_loopback_and_private_are_gated_by_flags():
     assert classify_address(ip_address("100.64.0.1"), allow_loopback=True) == "private_network"
 
 
-@pytest.mark.parametrize("ip", [
-    "2002:0a00:0001::1",
-    "2002:a9fe:a9fe::1",
-    "fec0::1",
-    "198.18.0.1",
-    "192.0.2.1",
-    "2001:db8::1",
-])
+@pytest.mark.parametrize(
+    "ip",
+    [
+        "2002:0a00:0001::1",
+        "2002:a9fe:a9fe::1",
+        "fec0::1",
+        "198.18.0.1",
+        "192.0.2.1",
+        "2001:db8::1",
+    ],
+)
 def test_non_public_ranges_that_are_not_denied_yet(ip):
     assert classify_address(ip_address(ip)) is not None
 
 
 # --- Policy: host and port rules ---
 
-@pytest.mark.parametrize("pattern, host", [
-    ("example.com", "example.com"),
-    ("example.com", "EXAMPLE.com"),
-    ("Example.COM", "example.com"),
-    ("example.com", "example.com."),
-    ("*.example.com", "a.example.com"),
-    ("*.example.com", "a.b.example.com"),
-    ("*.example.com", "A.Example.Com."),
-    ("*", "docs.python.org"),
-    ("bücher.example", "xn--bcher-kva.example"),
-    ("xn--bcher-kva.example", "BÜCHER.example"),
-    ("bücher.example", "bücher.example."),
-])
+
+@pytest.mark.parametrize(
+    "pattern, host",
+    [
+        ("example.com", "example.com"),
+        ("example.com", "EXAMPLE.com"),
+        ("Example.COM", "example.com"),
+        ("example.com", "example.com."),
+        ("*.example.com", "a.example.com"),
+        ("*.example.com", "a.b.example.com"),
+        ("*.example.com", "A.Example.Com."),
+        ("*", "docs.python.org"),
+        ("bücher.example", "xn--bcher-kva.example"),
+        ("xn--bcher-kva.example", "BÜCHER.example"),
+        ("bücher.example", "bücher.example."),
+    ],
+)
 def test_allowed_host_matches(pattern, host):
     assert Policy([pattern]).deny_reason(host, 443) is None
 
 
-@pytest.mark.parametrize("pattern, host", [
-    ("example.com", "www.example.com"),
-    ("example.com", "example.com.evil.net"),
-    ("*.example.com", "example.com"),
-    ("*.example.com", "evil-example.com"),
-    ("*.example.com", "xexample.com"),
-    ("*.example.com", "example.com.evil.net"),
-])
+@pytest.mark.parametrize(
+    "pattern, host",
+    [
+        ("example.com", "www.example.com"),
+        ("example.com", "example.com.evil.net"),
+        ("*.example.com", "example.com"),
+        ("*.example.com", "evil-example.com"),
+        ("*.example.com", "xexample.com"),
+        ("*.example.com", "example.com.evil.net"),
+    ],
+)
 def test_host_not_matching_pattern_is_denied(pattern, host):
     assert Policy([pattern]).deny_reason(host, 443) == "host_not_allowed"
 
@@ -154,6 +192,7 @@ def test_invalid_patterns_are_skipped_by_policy():
 
 # --- vet_addresses ---
 
+
 def test_any_forbidden_address_denies_the_whole_resolution():
     assert vet_addresses([PUBLIC_IP, "10.0.0.7"]) == "private_network"
     assert vet_addresses(["10.0.0.7", PUBLIC_IP]) == "private_network"
@@ -171,15 +210,23 @@ def test_empty_or_unparseable_resolution_is_unresolvable(addresses):
 
 # --- the asyncio proxy, end to end on 127.0.0.1 ---
 
+
 @pytest.fixture
 def net(monkeypatch):
     """Fake DNS and upstream connects. Names in `dns` resolve to the listed IPs (and are recorded in
     `lookups`); connects to PUBLIC_IP are served by the local upstream on `upstream_port`; any other
     proxy-side connect fails, so nothing reaches a real network."""
     st = SimpleNamespace(
-        dns={"example.com": [PUBLIC_IP], "xn--bcher-kva.example": [PUBLIC_IP], "evil.example": [PUBLIC_IP],
-             "mixed.example": [PUBLIC_IP, "10.0.0.1"]},
-        lookups=[], connects=[], upstream_port=None)
+        dns={
+            "example.com": [PUBLIC_IP],
+            "xn--bcher-kva.example": [PUBLIC_IP],
+            "evil.example": [PUBLIC_IP],
+            "mixed.example": [PUBLIC_IP, "10.0.0.1"],
+        },
+        lookups=[],
+        connects=[],
+        upstream_port=None,
+    )
 
     def gai(host, port, family=0, type=0, proto=0, flags=0):
         if host in st.dns:
@@ -205,6 +252,7 @@ async def serve_upstream(seen):
             writer.write(data)
             await writer.drain()
         writer.close()
+
     server = await asyncio.start_server(echo, "127.0.0.1", 0)
     return server, server.sockets[0].getsockname()[1]
 
@@ -246,6 +294,7 @@ def denied(net, capsys, hosts, target):
         _, port = await serve_proxy(hosts)
         _, _, status = await connect_through(port, target)
         return status, (await logs_after(capsys, [], 1))[0]
+
     return asyncio.run(main())
 
 
@@ -284,19 +333,22 @@ def test_disallowed_port_is_403_and_is_never_resolved(net, capsys):
     assert net.lookups == [] and net.connects == []
 
 
-@pytest.mark.parametrize("target, reason", [
-    ("10.0.0.1:443", "private_network"),
-    ("127.0.0.1:443", "loopback"),
-    ("[::1]:443", "loopback"),
-    ("[::ffff:10.0.0.1]:443", "private_network"),
-    ("[fd00:ec2::254]:443", "forbidden_address"),
-    ("169.254.169.254:443", "forbidden_address"),
-    ("100.100.100.200:443", "private_network"),
-    ("0:443", "forbidden_address"),
-    ("2130706433:443", "loopback"),  # decimal IPv4
-    ("0x7f000001:443", "loopback"),  # hex IPv4
-    ("0177.0.0.1:443", "loopback"),  # octal IPv4
-])
+@pytest.mark.parametrize(
+    "target, reason",
+    [
+        ("10.0.0.1:443", "private_network"),
+        ("127.0.0.1:443", "loopback"),
+        ("[::1]:443", "loopback"),
+        ("[::ffff:10.0.0.1]:443", "private_network"),
+        ("[fd00:ec2::254]:443", "forbidden_address"),
+        ("169.254.169.254:443", "forbidden_address"),
+        ("100.100.100.200:443", "private_network"),
+        ("0:443", "forbidden_address"),
+        ("2130706433:443", "loopback"),  # decimal IPv4
+        ("0x7f000001:443", "loopback"),  # hex IPv4
+        ("0177.0.0.1:443", "loopback"),  # octal IPv4
+    ],
+)
 def test_ip_literal_targets_are_vetted_as_addresses(net, capsys, target, reason):
     # `*` lets every name through the policy; the literal's address must still be denied.
     status, record = denied(net, capsys, ["*"], target)
@@ -317,8 +369,10 @@ def test_plain_http_is_forwarded_in_origin_form_without_hop_headers(net, capsys)
         _, net.upstream_port = await serve_upstream(seen)
         _, port = await serve_proxy(["example.com"])
         r, w = await dial(port)
-        w.write(b"GET http://example.com/a/b?q=1 HTTP/1.1\r\nHost: example.com\r\n"
-                b"Proxy-Connection: keep-alive\r\nX-Keep: yes\r\n\r\n")
+        w.write(
+            b"GET http://example.com/a/b?q=1 HTTP/1.1\r\nHost: example.com\r\n"
+            b"Proxy-Connection: keep-alive\r\nX-Keep: yes\r\n\r\n"
+        )
         w.write_eof()
         await asyncio.wait_for(r.read(), 5)  # the echo closes once the upstream side ends
         return seen, await logs_after(capsys, [], 1)
@@ -344,16 +398,19 @@ def test_plain_http_is_port_80_only_even_when_the_port_is_allowed(net, capsys):
     assert net.connects == []
 
 
-@pytest.mark.parametrize("raw, status", [
-    (b"NONSENSE\r\n\r\n", b"HTTP/1.1 400"),
-    (b"CONNECT example.com HTTP/1.1\r\n\r\n", b"HTTP/1.1 400"),  # no port
-    (b"CONNECT example.com:443 HTTP/2\r\n\r\n", b"HTTP/1.1 400"),
-    (b"GET http://user@example.com/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 400"),
-    (b"GET http://example.com/ HTTP/1.1\r\nContent-Length: 5\r\n\r\n", b"HTTP/1.1 400"),
-    (b"GET / HTTP/1.1\r\n\r\n", b"HTTP/1.1 405"),  # origin-form is not a proxy request
-    (b"POST http://example.com/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 405"),
-    (b"GET http://example.com:8080/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 403"),
-])
+@pytest.mark.parametrize(
+    "raw, status",
+    [
+        (b"NONSENSE\r\n\r\n", b"HTTP/1.1 400"),
+        (b"CONNECT example.com HTTP/1.1\r\n\r\n", b"HTTP/1.1 400"),  # no port
+        (b"CONNECT example.com:443 HTTP/2\r\n\r\n", b"HTTP/1.1 400"),
+        (b"GET http://user@example.com/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 400"),
+        (b"GET http://example.com/ HTTP/1.1\r\nContent-Length: 5\r\n\r\n", b"HTTP/1.1 400"),
+        (b"GET / HTTP/1.1\r\n\r\n", b"HTTP/1.1 405"),  # origin-form is not a proxy request
+        (b"POST http://example.com/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 405"),
+        (b"GET http://example.com:8080/ HTTP/1.1\r\n\r\n", b"HTTP/1.1 403"),
+    ],
+)
 def test_malformed_or_unsupported_requests_get_an_error_status(net, raw, status):
     async def main():
         _, port = await serve_proxy(["example.com"])
@@ -416,8 +473,10 @@ def test_log_lines_hold_host_port_decision_and_bytes_only(net, capsys):
         _, port = await serve_proxy(["example.com"])
         acc = []
         r, w = await dial(port)  # allowed plain HTTP with a path, query and header marker
-        w.write(b"GET http://example.com/SECRET-PATH-7d3f?k=SECRET-QUERY-55 HTTP/1.1\r\nHost: example.com\r\n"
-                b"X-Token: HDR-SECRET-91\r\n\r\n")
+        w.write(
+            b"GET http://example.com/SECRET-PATH-7d3f?k=SECRET-QUERY-55 HTTP/1.1\r\nHost: example.com\r\n"
+            b"X-Token: HDR-SECRET-91\r\n\r\n"
+        )
         w.write_eof()
         await asyncio.wait_for(r.read(), 5)
         r2, w2, _ = await connect_through(port, "example.com:443")  # tunnel carrying a body marker
@@ -441,10 +500,14 @@ def test_log_lines_hold_host_port_decision_and_bytes_only(net, capsys):
         assert rec["event"] == "decision"
     # the two allows finish in either order; only the set of decisions is fixed
     assert sorted((r["decision"], r["host"]) for r in records) == [
-        ("allow", "example.com"), ("allow", "example.com"), ("deny", "evil.example")]
+        ("allow", "example.com"),
+        ("allow", "example.com"),
+        ("deny", "evil.example"),
+    ]
 
 
 # --- summarize_log ---
+
 
 def test_summarize_counts_decisions_and_hosts_and_ignores_junk():
     lines = [
@@ -466,8 +529,10 @@ def test_summarize_counts_decisions_and_hosts_and_ignores_junk():
 
 
 def test_summarize_caps_the_host_table_but_not_the_counts():
-    text = "\n".join(f'{{"event":"decision","host":"h{i}.example","decision":"deny","bytes":0}}'
-                     for i in range(ep.MAX_LOG_HOSTS + 50))
+    text = "\n".join(
+        f'{{"event":"decision","host":"h{i}.example","decision":"deny","bytes":0}}'
+        for i in range(ep.MAX_LOG_HOSTS + 50)
+    )
     summary = summarize_log(text)
     assert len(summary["hosts"]) == ep.MAX_LOG_HOSTS
     assert summary["decisions"] == {"deny": ep.MAX_LOG_HOSTS + 50}
@@ -479,21 +544,25 @@ def test_summarize_of_nothing_is_empty():
 
 # --- manifest validation ---
 
+
 def test_allowlist_manifest_with_hosts_and_ports_is_valid():
     m = mcp_manifest(network="allowlist", allowed_hosts=["example.com", "*.example.org", "*"], allowed_ports=[443])
     assert m.allowed_ports == [443]
 
 
-@pytest.mark.parametrize("overrides", [
-    {"network": "allowlist"},  # no hosts
-    {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": []},
-    {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": [0]},
-    {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": [65536]},
-    {"network": "none", "allowed_hosts": ["example.com"]},
-    {"network": "open", "allowed_hosts": ["example.com"]},
-    {"network": "open", "allowed_ports": [8080]},
-    {"network": "none", "allowed_ports": [8080]},
-])
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"network": "allowlist"},  # no hosts
+        {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": []},
+        {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": [0]},
+        {"network": "allowlist", "allowed_hosts": ["example.com"], "allowed_ports": [65536]},
+        {"network": "none", "allowed_hosts": ["example.com"]},
+        {"network": "open", "allowed_hosts": ["example.com"]},
+        {"network": "open", "allowed_ports": [8080]},
+        {"network": "none", "allowed_ports": [8080]},
+    ],
+)
 def test_hosts_and_ports_follow_the_network_mode(overrides):
     with pytest.raises(ValidationError):
         mcp_manifest(**overrides)
@@ -509,12 +578,15 @@ def test_invalid_host_patterns_are_rejected(entry):
         mcp_manifest(network="allowlist", allowed_hosts=[entry])
 
 
-@pytest.mark.parametrize("entry", [
-    "a*b.com",
-    "**",
-    "*.*.com",
-    "*x.com",
-])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "a*b.com",
+        "**",
+        "*.*.com",
+        "*x.com",
+    ],
+)
 def test_wildcards_only_in_the_documented_forms(entry):
     with pytest.raises(ValidationError):
         mcp_manifest(network="allowlist", allowed_hosts=[entry])
@@ -522,23 +594,26 @@ def test_wildcards_only_in_the_documented_forms(entry):
 
 def test_allowlist_needs_agent_network_open(tmp_path):
     paths = write_fixture(tmp_path, network_open=False)
-    (paths[2] / "fetch.yaml").write_text(yaml.safe_dump(
-        mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json")))
+    (paths[2] / "fetch.yaml").write_text(
+        yaml.safe_dump(mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json"))
+    )
     with pytest.raises(ResolveError, match="network_open"):
         resolve_tree(paths)
 
 
 def test_allowlist_resolves_when_agent_network_open_is_set(tmp_path):
     paths = write_fixture(tmp_path, network_open=True)
-    (paths[2] / "fetch.yaml").write_text(yaml.safe_dump(
-        mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json")))
+    (paths[2] / "fetch.yaml").write_text(
+        yaml.safe_dump(mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json"))
+    )
     assert resolve_tree(paths).mcp_servers[0].network == "allowlist"
 
 
 def test_lint_reports_allowlist_without_network_open(tmp_path):
     paths = write_fixture(tmp_path, network_open=False)
-    (paths[2] / "fetch.yaml").write_text(yaml.safe_dump(
-        mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json")))
+    (paths[2] / "fetch.yaml").write_text(
+        yaml.safe_dump(mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json"))
+    )
     root = tmp_path
     findings = lint_repo(root)
     assert any(f.severity == "error" and "network_open" in f.message for f in findings), findings
@@ -546,28 +621,33 @@ def test_lint_reports_allowlist_without_network_open(tmp_path):
 
 def test_lint_is_clean_on_network_for_allowlist_with_network_open(tmp_path):
     paths = write_fixture(tmp_path, network_open=True)
-    (paths[2] / "fetch.yaml").write_text(yaml.safe_dump(
-        mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json")))
+    (paths[2] / "fetch.yaml").write_text(
+        yaml.safe_dump(mcp_manifest(network="allowlist", allowed_hosts=["example.com"]).model_dump(mode="json"))
+    )
     findings = lint_repo(tmp_path)
     assert not [f for f in findings if f.severity == "error" and "network" in f.message], findings
 
 
 # --- worker with FakeSandbox ---
 
+
 class EgressSandbox(FakeSandbox):
     """A FakeSandbox whose sessions report a proxy decision summary, as an allowlist session would."""
 
     def provision(self, *args, **kwargs):
         session = super().provision(*args, **kwargs)
-        session.egress = {"decisions": {"allow": 2, "deny": 1},
-                          "hosts": {"example.com": {"allow": 2}, "evil.example": {"deny": 1}}, "bytes": 512}
+        session.egress = {
+            "decisions": {"allow": 2, "deny": 1},
+            "hosts": {"example.com": {"allow": 2}, "evil.example": {"deny": 1}},
+            "bytes": 512,
+        }
         return session
 
 
 @pytest.fixture
 def store(tmp_path):
-    s = Ledger(tmp_path / 'egress.db')
-    s.ensure_account('default', 1_000_000)
+    s = Ledger(tmp_path / "egress.db")
+    s.ensure_account("default", 1_000_000)
     return s
 
 
@@ -597,10 +677,9 @@ def test_allowlist_server_events_and_egress_summary(store):
 
 # --- podman CLI calls (fake podman on PATH) ---
 
-PODMAN_HEAD = ('case "$*" in\n'
-               '  --version*) echo "podman version 5.2.1";;\n'
-               '  *Rootless*) echo true;;\n'
-               '  info*) echo true;;\n')
+PODMAN_HEAD = (
+    'case "$*" in\n  --version*) echo "podman version 5.2.1";;\n  *Rootless*) echo true;;\n  info*) echo true;;\n'
+)
 PROXY_IP = "10.89.7.2"
 SUBNET = "10.89.7.0/24"
 
@@ -613,15 +692,14 @@ def podman(tmp_path, extra=""):
 
 EGRESS_CASES = (
     f"  network\\ inspect*) echo {SUBNET};;\n"
-    "  logs*) echo '{\"event\": \"ready\", \"bind\": \"0.0.0.0\"}';;\n"
+    '  logs*) echo \'{"event": "ready", "bind": "0.0.0.0"}\';;\n'
     f"  inspect*) echo {PROXY_IP};;\n"
 )
 
 
 def provision_allowlist(tmp_path):
     sb = podman(tmp_path, EGRESS_CASES)
-    session = sb.provision(cli_profile(), RUN_ID, network="allowlist",
-                           egress=EgressSpec(("example.com",), (443, 80)))
+    session = sb.provision(cli_profile(), RUN_ID, network="allowlist", egress=EgressSpec(("example.com",), (443, 80)))
     return session, calls(tmp_path, "podman")
 
 
@@ -644,8 +722,9 @@ def test_allowlist_provisioning_builds_internal_network_and_hardened_proxy(tmp_p
     assert opt(proxy_run, "--user") == "65534:65534"
     assert opt(proxy_run, "--network") == "podman"  # the default network: the way out
     assert "-u" in proxy_run and "-c" in proxy_run  # the proxy source is passed inline with -c
-    config = json.loads(next(e for e in opts(proxy_run, "--env") if e.startswith("MAEF_EGRESS_CONFIG="))
-                        .split("=", 1)[1])
+    config = json.loads(
+        next(e for e in opts(proxy_run, "--env") if e.startswith("MAEF_EGRESS_CONFIG=")).split("=", 1)[1]
+    )
     assert config["hosts"] == ["example.com"] and config["ports"] == [443, 80]
     assert config["client_cidrs"] == [SUBNET]
 
@@ -663,7 +742,11 @@ def test_allowlist_mcp_container_gets_only_the_internal_network_and_proxy_env(tm
     env = dict(e.split("=", 1) for e in opts(mcp_run, "--env"))
     url = f"http://{PROXY_IP}:{ep.PROXY_PORT}"
     assert {k: env[k] for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")} == {
-        "HTTP_PROXY": url, "HTTPS_PROXY": url, "http_proxy": url, "https_proxy": url}
+        "HTTP_PROXY": url,
+        "HTTPS_PROXY": url,
+        "http_proxy": url,
+        "https_proxy": url,
+    }
     # NO_PROXY is set empty on purpose (the MCP container must not bypass the proxy).
     assert env["NO_PROXY"] == "" and env["no_proxy"] == ""
 
@@ -680,7 +763,7 @@ def test_teardown_removes_proxy_mcp_container_and_network(tmp_path):
 
 
 def test_cleanup_orphans_removes_labelled_networks_and_containers(tmp_path):
-    sb = podman(tmp_path, '  ps\\ -a*) echo cid-orphan;;\n  network\\ ls*) echo maef-egress-old-1;;\n')
+    sb = podman(tmp_path, "  ps\\ -a*) echo cid-orphan;;\n  network\\ ls*) echo maef-egress-old-1;;\n")
     assert sb.cleanup_orphans() == 1
     cl = calls(tmp_path, "podman")
     assert first(cl, lambda c: c[:4] == ["ps", "-a", "-q", "--filter"])[-1] == "label=maef.run"

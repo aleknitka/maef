@@ -3,6 +3,7 @@
 `schemas/<name>.schema.json` is committed; `check_schemas` reports drift so CI can fail a model change
 that was not re-exported.
 """
+
 import json
 from pathlib import Path
 

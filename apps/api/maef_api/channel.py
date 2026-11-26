@@ -3,6 +3,7 @@
 LocalChannel calls the Ledger directly (tests, single-host). HttpChannel speaks to the
 `/api/v1/worker/` routes with urllib, so a worker needs nothing but outbound HTTPS.
 """
+
 import json
 import time
 import urllib.error
@@ -32,8 +33,9 @@ class WorkerChannel(Protocol):
     def heartbeat(self, lease: Lease) -> bool:
         """Returns whether cancellation was requested. Raises FencingError when the lease is no longer this worker's."""
 
-    def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
-               status: str | None = None) -> bool:
+    def report(
+        self, lease: Lease, wseq: int, type: str, payload: dict | None = None, status: str | None = None
+    ) -> bool:
         """Returns whether cancellation was requested. Raises FencingError or SequenceGap; a duplicate
         wseq is ignored."""
 
@@ -44,8 +46,9 @@ class WorkerChannel(Protocol):
 
 
 class LocalChannel:
-    def __init__(self, ledger: Ledger, lease_seconds: float = 60, clock=time.time,
-                 artifacts: ArtifactStore | None = None):
+    def __init__(
+        self, ledger: Ledger, lease_seconds: float = 60, clock=time.time, artifacts: ArtifactStore | None = None
+    ):
         self._ledger, self._lease_seconds, self._clock = ledger, lease_seconds, clock
         self.artifacts = artifacts or InMemoryArtifactStore()
         self._intake = ArtifactIntake(ledger, self.artifacts)
@@ -59,13 +62,15 @@ class LocalChannel:
     def heartbeat(self, lease: Lease) -> bool:
         return self._ledger.heartbeat(lease.run_id, lease.fencing_token, self._lease_seconds, self._clock())
 
-    def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
-               status: str | None = None) -> bool:
+    def report(
+        self, lease: Lease, wseq: int, type: str, payload: dict | None = None, status: str | None = None
+    ) -> bool:
         return self._ledger.report(lease.run_id, lease.fencing_token, wseq, type, payload, status)
 
     def finish(self, lease: Lease, *, tokens_used: int, status: str, terminal_reason: str) -> None:
-        self._ledger.finish(lease.run_id, lease.fencing_token, tokens_used=tokens_used, status=status,
-                            terminal_reason=terminal_reason)
+        self._ledger.finish(
+            lease.run_id, lease.fencing_token, tokens_used=tokens_used, status=status, terminal_reason=terminal_reason
+        )
 
 
 _CONFLICTS = {"fencing": FencingError, "sequence_gap": SequenceGap}
@@ -74,10 +79,23 @@ _CONFLICTS = {"fencing": FencingError, "sequence_gap": SequenceGap}
 class HttpChannel:
     """Bearer-authenticated JSON over urllib. Error text never includes bodies or the token."""
 
-    def __init__(self, base_url: str, token: Secret, timeout: float = 30, *, allow_private: bool = False,
-                 policy: EgressPolicy | None = None):
+    def __init__(
+        self,
+        base_url: str,
+        token: Secret,
+        timeout: float = 30,
+        *,
+        allow_private: bool = False,
+        policy: EgressPolicy | None = None,
+    ):
         parsed = urlparse(base_url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname or parsed.username or parsed.query or parsed.fragment:
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username
+            or parsed.query
+            or parsed.fragment
+        ):
             raise ValueError("base_url must be http(s)://host[:port][/path]")
         self._base = base_url.rstrip("/")
         self._token, self._timeout = token, timeout
@@ -94,8 +112,9 @@ class HttpChannel:
             self._policy.check(url, allow_loopback=self._allow_loopback, allow_private=self._allow_private)
         except EgressDenied as exc:
             raise ChannelError(str(exc)) from None
-        req = urllib.request.Request(url, data=data, method="POST", headers={
-            **headers, "Authorization": f"Bearer {self._token.reveal()}"})
+        req = urllib.request.Request(
+            url, data=data, method="POST", headers={**headers, "Authorization": f"Bearer {self._token.reveal()}"}
+        )
         try:
             with opener.open(req, timeout=self._timeout) as resp:
                 raw = resp.read()
@@ -135,22 +154,44 @@ class HttpChannel:
         except (ValueError, AttributeError):
             raise ChannelError("bad_response") from None
 
-    def report(self, lease: Lease, wseq: int, type: str, payload: dict | None = None,
-               status: str | None = None) -> bool:
-        return self._cancel_flag(self._post(f"runs/{lease.run_id}/events", {
-            "fencing_token": lease.fencing_token, "wseq": wseq, "type": type, "payload": payload or {}, "status": status}))
+    def report(
+        self, lease: Lease, wseq: int, type: str, payload: dict | None = None, status: str | None = None
+    ) -> bool:
+        return self._cancel_flag(
+            self._post(
+                f"runs/{lease.run_id}/events",
+                {
+                    "fencing_token": lease.fencing_token,
+                    "wseq": wseq,
+                    "type": type,
+                    "payload": payload or {},
+                    "status": status,
+                },
+            )
+        )
 
     def upload(self, lease: Lease, *, name: str, mime: str, data: bytes) -> ArtifactRef:
         raw = self._send(
-            f"runs/{lease.run_id}/artifacts?{urlencode({'name': name, 'mime': mime})}", data,
-            {"Content-Type": "application/octet-stream", "X-Fencing-Token": str(lease.fencing_token),
-             "X-Content-Digest": sha256_digest(data)})
+            f"runs/{lease.run_id}/artifacts?{urlencode({'name': name, 'mime': mime})}",
+            data,
+            {
+                "Content-Type": "application/octet-stream",
+                "X-Fencing-Token": str(lease.fencing_token),
+                "X-Content-Digest": sha256_digest(data),
+            },
+        )
         try:
             return ArtifactRef.model_validate_json(raw or b"")
         except ValueError:
             raise ChannelError("bad_response") from None
 
     def finish(self, lease: Lease, *, tokens_used: int, status: str, terminal_reason: str) -> None:
-        self._post(f"runs/{lease.run_id}/finish", {
-            "fencing_token": lease.fencing_token, "tokens_used": tokens_used, "status": status,
-            "terminal_reason": terminal_reason})
+        self._post(
+            f"runs/{lease.run_id}/finish",
+            {
+                "fencing_token": lease.fencing_token,
+                "tokens_used": tokens_used,
+                "status": status,
+                "terminal_reason": terminal_reason,
+            },
+        )

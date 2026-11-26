@@ -4,6 +4,7 @@
 (decisions-api.dev, Cloudflare Workers AI) share the System One question and answer shapes; each
 adapter wraps them differently. Responses are validated strictly and failures never echo bodies.
 """
+
 import json
 import math
 import uuid
@@ -42,10 +43,14 @@ class Question(BaseModel):
         c = self.criteria
         if self.type == "choice":
             if not isinstance(c, dict) or not CHOICE_OPTIONS[0] <= len(c) <= CHOICE_OPTIONS[1]:
-                raise ValueError(f"choice needs criteria: {CHOICE_OPTIONS[0]}-{CHOICE_OPTIONS[1]} options as {{option: description}}")
+                raise ValueError(
+                    f"choice needs criteria: {CHOICE_OPTIONS[0]}-{CHOICE_OPTIONS[1]} options as {{option: description}}"
+                )
         elif self.type == "score":
             if not isinstance(c, list) or not SCORE_LEVELS[0] <= len(c) <= SCORE_LEVELS[1]:
-                raise ValueError(f"score needs criteria: {SCORE_LEVELS[0]}-{SCORE_LEVELS[1]} ordered level descriptions")
+                raise ValueError(
+                    f"score needs criteria: {SCORE_LEVELS[0]}-{SCORE_LEVELS[1]} ordered level descriptions"
+                )
         elif c is not None and (not isinstance(c, dict) or not set(c) <= {"true", "false"}):
             raise ValueError('noul criteria may only be {"true": ..., "false": ...}')
         return self
@@ -81,6 +86,7 @@ class DecisionRequest(BaseModel):
 
 class DecisionRunRequest(DecisionRequest):
     """Body of POST /api/v1/decisions."""
+
     profile_id: str
     max_tokens: int | None = Field(default=None, ge=1, le=100_000_000)
 
@@ -144,12 +150,20 @@ def parse_answers(req: DecisionRequest, raw: object) -> dict[str, Answer]:
             choice = a.get("choice")
             if not isinstance(choice, str) or choice not in options:
                 raise _invalid()
-            out[name] = Answer(type="choice", value=choice, confidence=confidence,
-                               probabilities=_probabilities(a.get("probabilities"), options))
+            out[name] = Answer(
+                type="choice",
+                value=choice,
+                confidence=confidence,
+                probabilities=_probabilities(a.get("probabilities"), options),
+            )
         else:
             levels = len(q.criteria)
-            out[name] = Answer(type="score", value=_num(a.get("score"), 0, levels - 1), confidence=confidence,
-                               probabilities=_probabilities(a.get("probabilities"), {str(i) for i in range(levels)}))
+            out[name] = Answer(
+                type="score",
+                value=_num(a.get("score"), 0, levels - 1),
+                confidence=confidence,
+                probabilities=_probabilities(a.get("probabilities"), {str(i) for i in range(levels)}),
+            )
     return out
 
 
@@ -162,17 +176,20 @@ def _decision(req: DecisionRequest, result: object) -> Decision:
     if not isinstance(result, dict):
         raise _invalid()
     model = result.get("model")
-    return Decision(answers=parse_answers(req, result.get("answers")),
-                    input_tokens=_tokens(result.get("usage"), "input_tokens"),
-                    output_tokens=_tokens(result.get("usage"), "output_tokens"),
-                    model=model[:200] if isinstance(model, str) else None)
+    return Decision(
+        answers=parse_answers(req, result.get("answers")),
+        input_tokens=_tokens(result.get("usage"), "input_tokens"),
+        output_tokens=_tokens(result.get("usage"), "output_tokens"),
+        model=model[:200] if isinstance(model, str) else None,
+    )
 
 
 class _HttpDecisionAdapter:
     _endpoint_type: type
 
-    def __init__(self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None,
-                 policy: EgressPolicy | None = None):
+    def __init__(
+        self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None, policy: EgressPolicy | None = None
+    ):
         if not isinstance(profile.endpoint, self._endpoint_type):
             raise TypeError(f"Profile {profile.id} is not a {self._endpoint_type.__name__} profile")
         self.profile = profile
@@ -188,9 +205,17 @@ class _HttpDecisionAdapter:
 
     def _post(self, url: str, headers: dict, body: dict, timeout_seconds: float) -> dict:
         ep = self.profile.endpoint
-        reply = post_json(url, headers, body, timeout=timeout_seconds, policy=self._policy,
-                          allow_loopback=ep.is_loopback, allow_private=ep.allow_private_network,
-                          max_retries=self.profile.max_retries, **self._extra)
+        reply = post_json(
+            url,
+            headers,
+            body,
+            timeout=timeout_seconds,
+            policy=self._policy,
+            allow_loopback=ep.is_loopback,
+            allow_private=ep.allow_private_network,
+            max_retries=self.profile.max_retries,
+            **self._extra,
+        )
         if not isinstance(reply, dict):
             raise _invalid()
         return reply
@@ -198,6 +223,7 @@ class _HttpDecisionAdapter:
 
 class DecisionsApiAdapter(_HttpDecisionAdapter):
     """decisions-api.dev `POST /v1/systemone` (Jev). Answers are at data.result.answers when code == 0."""
+
     _endpoint_type = DecisionsApiEndpoint
 
     def decide(self, req: DecisionRequest, *, timeout_seconds: float) -> Decision:
@@ -217,6 +243,7 @@ class DecisionsApiAdapter(_HttpDecisionAdapter):
 class WorkersAiDecisionAdapter(_HttpDecisionAdapter):
     """Cloudflare Workers AI clef models: `POST /accounts/{id}/ai/run/@cf/cloudflare/clef-omni`.
     The REST envelope {result, success, errors, messages} is unwrapped when present."""
+
     _endpoint_type = WorkersAiEndpoint
 
     def decide(self, req: DecisionRequest, *, timeout_seconds: float) -> Decision:
@@ -224,7 +251,9 @@ class WorkersAiDecisionAdapter(_HttpDecisionAdapter):
         headers = {"Authorization": f"Bearer {self._key()}"}
         # The body selects the model by its short name ("clef-omni" for @cf/cloudflare/clef-omni).
         body = {"model": ep.model_id.rsplit("/", 1)[-1], "state": req.state, "questions": req.wire_questions()}
-        reply = self._post(f"{ep.base_url}/accounts/{ep.account_id}/ai/run/{ep.model_id}", headers, body, timeout_seconds)
+        reply = self._post(
+            f"{ep.base_url}/accounts/{ep.account_id}/ai/run/{ep.model_id}", headers, body, timeout_seconds
+        )
         if "result" in reply:
             if reply.get("success") is not True:
                 raise ModelHTTPError(None, "provider_error")
@@ -251,11 +280,19 @@ class FakeDecisionAdapter:
             for name, q in req.questions.items():
                 if q.type == "choice":
                     first = next(iter(q.criteria))
-                    raw[name] = {"type": "choice", "choice": first, "confidence": 1.0,
-                                 "probabilities": {k: 1.0 if k == first else 0.0 for k in q.criteria}}
+                    raw[name] = {
+                        "type": "choice",
+                        "choice": first,
+                        "confidence": 1.0,
+                        "probabilities": {k: 1.0 if k == first else 0.0 for k in q.criteria},
+                    }
                 elif q.type == "score":
                     raw[name] = {"type": "score", "score": 0.0, "confidence": 1.0}
                 else:
                     raw[name] = {"type": "noul", "noul": 0.5}
-        return Decision(answers=parse_answers(req, raw), input_tokens=self.input_tokens,
-                        output_tokens=self.output_tokens, model="fake")
+        return Decision(
+            answers=parse_answers(req, raw),
+            input_tokens=self.input_tokens,
+            output_tokens=self.output_tokens,
+            model="fake",
+        )

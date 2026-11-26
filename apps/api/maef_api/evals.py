@@ -6,6 +6,7 @@ Checks run on the run's result text (output.md), its status and token use, and, 
 answers.json artifact. Result text is only used to evaluate checks; reports carry check names and short details,
 never the text itself.
 """
+
 import json
 import re
 from datetime import datetime
@@ -29,6 +30,7 @@ class JsonPathEquals(BaseModel):
 
 class Check(BaseModel):
     """Exactly one of the fields is set."""
+
     model_config = ConfigDict(extra="forbid")
     contains: str | None = None
     not_contains: str | None = None
@@ -40,7 +42,9 @@ class Check(BaseModel):
     @model_validator(mode="after")
     def _one(self):
         if len(self.model_fields_set) != 1:
-            raise ValueError("a check sets exactly one of contains, not_contains, regex, max_tokens, status, json_path_equals")
+            raise ValueError(
+                "a check sets exactly one of contains, not_contains, regex, max_tokens, status, json_path_equals"
+            )
         return self
 
     @field_validator("regex")
@@ -153,8 +157,11 @@ def _check(check: Check, *, status: str, tokens: int | None, text: str, answers)
     found = _json_path(answers, spec.path) if answers is not None else _MISSING
     if found is _MISSING:
         return CheckResult(name=name, passed=False, detail="path not found")
-    return CheckResult(name=name, passed=found == spec.value and type(found) is type(spec.value),
-                       detail="" if found == spec.value else "value differs")
+    return CheckResult(
+        name=name,
+        passed=found == spec.value and type(found) is type(spec.value),
+        detail="" if found == spec.value else "value differs",
+    )
 
 
 def _answers(client: MaefClient, run_id: str, text: str):
@@ -173,7 +180,9 @@ def _answers(client: MaefClient, run_id: str, text: str):
 
 def _seconds(run: dict) -> float | None:
     try:
-        return round((datetime.fromisoformat(run["finished_at"]) - datetime.fromisoformat(run["created_at"])).total_seconds(), 3)
+        return round(
+            (datetime.fromisoformat(run["finished_at"]) - datetime.fromisoformat(run["created_at"])).total_seconds(), 3
+        )
     except (KeyError, TypeError, ValueError):
         return None
 
@@ -184,8 +193,12 @@ def _run_task(client: MaefClient, task: EvalTask, revision: str | None, timeout_
         run_id = client.submit(task.agent_id, task.instruction, budget, revision)["run_id"]
         run = client.wait(run_id, timeout_seconds)
     except MaefClientError as exc:
-        return TaskResult(task_id=task.id, status="error", terminal_reason=f"api_error:{exc.code}",
-                          checks=[CheckResult(name="run", passed=False, detail=f"{exc.code}")])
+        return TaskResult(
+            task_id=task.id,
+            status="error",
+            terminal_reason=f"api_error:{exc.code}",
+            checks=[CheckResult(name="run", passed=False, detail=f"{exc.code}")],
+        )
     reason = run.get("terminal_reason")
     if run["status"] not in TERMINAL_STATUSES:
         reason = "eval_timeout"
@@ -203,12 +216,20 @@ def _run_task(client: MaefClient, task: EvalTask, revision: str | None, timeout_
     tokens = run.get("tokens_used")
     results = [_check(c, status=run["status"], tokens=tokens, text=text, answers=answers) for c in task.checks]
     status = "error" if reason == "eval_timeout" else run["status"]
-    return TaskResult(task_id=task.id, run_id=run_id, status=status, terminal_reason=reason,
-                      tokens_used=tokens, duration_seconds=_seconds(run), checks=results)
+    return TaskResult(
+        task_id=task.id,
+        run_id=run_id,
+        status=status,
+        terminal_reason=reason,
+        tokens_used=tokens,
+        duration_seconds=_seconds(run),
+        checks=results,
+    )
 
 
-def run_suite(client: MaefClient, suite: EvalSuite, *, revision: str | None = None,
-              timeout_seconds: float = 600, on_task=None) -> SuiteResult:
+def run_suite(
+    client: MaefClient, suite: EvalSuite, *, revision: str | None = None, timeout_seconds: float = 600, on_task=None
+) -> SuiteResult:
     """Run every task sequentially at `revision` (None: the working tree). `on_task(TaskResult)` reports progress."""
     results = []
     for task in suite.tasks:
@@ -248,10 +269,16 @@ class Comparison(BaseModel):
 
     def to_markdown(self) -> str:
         label = lambda r: r or "working tree"
-        lines = [f"# Eval `{self.suite_id}`", "",
-                 "| revision | passed | pass rate | total tokens | mean tokens |", "|---|---|---|---|---|"]
-        lines += [f"| {label(r.revision)} | {r.passed}/{r.total} | {r.pass_rate:.0%} | {r.total_tokens} | {r.mean_tokens:.0f} |"
-                  for r in self.revisions]
+        lines = [
+            f"# Eval `{self.suite_id}`",
+            "",
+            "| revision | passed | pass rate | total tokens | mean tokens |",
+            "|---|---|---|---|---|",
+        ]
+        lines += [
+            f"| {label(r.revision)} | {r.passed}/{r.total} | {r.pass_rate:.0%} | {r.total_tokens} | {r.mean_tokens:.0f} |"
+            for r in self.revisions
+        ]
         header = "| task | " + " | ".join(label(r.revision) for r in self.revisions) + " |"
         lines += ["", header, "|---|" + "---|" * len(self.revisions)]
         for task in self.tasks:
@@ -259,7 +286,9 @@ class Comparison(BaseModel):
             for e in task.entries:
                 tokens = "?" if e.tokens_used is None else str(e.tokens_used)
                 delta = "" if e.tokens_delta is None else f" ({e.tokens_delta:+d})"
-                cells.append(f"{'pass' if e.passed else 'FAIL'} {tokens}{delta}" + ("" if e.passed else f" [{e.status}]"))
+                cells.append(
+                    f"{'pass' if e.passed else 'FAIL'} {tokens}{delta}" + ("" if e.passed else f" [{e.status}]")
+                )
             lines.append(f"| {task.task_id} | " + " | ".join(cells) + " |")
         return "\n".join(lines) + "\n"
 
@@ -270,9 +299,17 @@ def compare(results: list[SuiteResult]) -> Comparison:
         raise ValueError("nothing to compare")
     if len({r.suite_id for r in results}) != 1:
         raise ValueError("results are from different suites")
-    summaries = [RevisionSummary(
-        revision=r.revision, passed=r.passed, total=len(r.tasks), pass_rate=r.pass_rate, total_tokens=r.total_tokens,
-        mean_tokens=r.total_tokens / len(r.tasks) if r.tasks else 0.0) for r in results]
+    summaries = [
+        RevisionSummary(
+            revision=r.revision,
+            passed=r.passed,
+            total=len(r.tasks),
+            pass_rate=r.pass_rate,
+            total_tokens=r.total_tokens,
+            mean_tokens=r.total_tokens / len(r.tasks) if r.tasks else 0.0,
+        )
+        for r in results
+    ]
     by_task = [{t.task_id: t for t in r.tasks} for r in results]
     task_ids = list(dict.fromkeys(i for tasks in by_task for i in tasks))
     comparisons = []
@@ -284,9 +321,15 @@ def compare(results: list[SuiteResult]) -> Comparison:
             if t is None:
                 entries.append(TaskEntry(revision=r.revision, passed=False, tokens_used=None, status="missing"))
                 continue
-            delta = None if t is base or base is None or base.tokens_used is None or t.tokens_used is None \
+            delta = (
+                None
+                if t is base or base is None or base.tokens_used is None or t.tokens_used is None
                 else t.tokens_used - base.tokens_used
-            entries.append(TaskEntry(revision=r.revision, passed=t.passed, tokens_used=t.tokens_used,
-                                     tokens_delta=delta, status=t.status))
+            )
+            entries.append(
+                TaskEntry(
+                    revision=r.revision, passed=t.passed, tokens_used=t.tokens_used, tokens_delta=delta, status=t.status
+                )
+            )
         comparisons.append(TaskComparison(task_id=task_id, entries=entries))
     return Comparison(suite_id=results[0].suite_id, revisions=summaries, tasks=comparisons)

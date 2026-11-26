@@ -4,6 +4,7 @@ Canonical (noise 0): 10 pins, 10 frames, strike bonus = next 2 rolls, spare bonu
 function `score(rolls)`. Higher noise changes the numbers and the names. The reference below defines the truth for
 every variant; the hidden cases are computed from it.
 """
+
 import json
 import random
 
@@ -73,9 +74,9 @@ def reference_score(rolls, pins, frames, strike_bonus, spare_bonus) -> int:
     total = total_last
     for start, kind in starts:
         if kind == "strike":
-            total += pins + sum(rolls[start + 1:start + 1 + strike_bonus])
+            total += pins + sum(rolls[start + 1 : start + 1 + strike_bonus])
         elif kind == "spare":
-            total += pins + sum(rolls[start + 2:start + 2 + spare_bonus])
+            total += pins + sum(rolls[start + 2 : start + 2 + spare_bonus])
         else:
             total += rolls[start] + rolls[start + 1]
     return total
@@ -215,7 +216,9 @@ D3. `/workspace/out/NOTES.md`: your approach, your assumptions, and how to run t
         cases.append(("strike then spares", [pins] + [h, pins - h] * (frames - 2) + [h, pins - h] + [h] * pb))
         cases.append(("last frame open", [pins] * (frames - 1) + [1, 1]))
         cases.append(("last frame strike, gutter fills", [0] * (2 * (frames - 1)) + [pins] + [0] * sb))
-        cases.append(("last frame spare, max fill", [0] * (2 * (frames - 1)) + [h, pins - h] + [pins] * 1 + [0] * (pb - 1)))
+        cases.append(
+            ("last frame spare, max fill", [0] * (2 * (frames - 1)) + [h, pins - h] + [pins] * 1 + [0] * (pb - 1))
+        )
         cases.append(("strike then open", [pins, 1, 2] + [0] * (2 * (frames - 2))))
         for k in range(24):
             cases.append((f"random game {k}", _random_game(rng, *args)))
@@ -249,10 +252,11 @@ D3. `/workspace/out/NOTES.md`: your approach, your assumptions, and how to run t
 
     def grader_source(self, v: Variant) -> str:
         return _GRADER.replace("__MODULE__", json.dumps(v.names["module"])).replace(
-            "__FUNCTION__", json.dumps(v.names["function"]))
+            "__FUNCTION__", json.dumps(v.names["function"])
+        )
 
 
-_GRADER = r'''
+_GRADER = r"""
 import importlib, json, signal, sys, traceback
 
 MODULE, FUNCTION = __MODULE__, __FUNCTION__
@@ -320,7 +324,7 @@ try:
 except BaseException as exc:
     out = {"passed": 0, "failed": 0, "errors": [{"case": "grader", "expected": "", "got": repr(exc)}]}
 print(json.dumps(out))
-'''
+"""
 
 
 def _self_check() -> None:

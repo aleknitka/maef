@@ -5,6 +5,7 @@ Interface: `run_git(root, *args)`, `safe_relpath(path)`, `GitRepo(root)` with `t
 `resolve_revision(revision)` and `read_blob(sha, relpath)`. Paths are repository-relative with `/`,
 never absolute, empty, `.` or `..`; only regular files (not symlinks) are readable.
 """
+
 import os
 import re
 import subprocess
@@ -20,13 +21,20 @@ class GitError(Exception):
     """A git command failed or the request was not a safe revision/path."""
 
 
-def run_git(root: Path | str, *args: str, input: bytes | None = None, env: dict[str, str] | None = None,
-            timeout: float = 30) -> bytes:
+def run_git(
+    root: Path | str, *args: str, input: bytes | None = None, env: dict[str, str] | None = None, timeout: float = 30
+) -> bytes:
     """Run `git -C root args...` and return stdout; GitError carries a short stderr message."""
     full_env = {**os.environ, **env} if env else None
     try:
-        proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True, input=input,
-                              timeout=timeout, env=full_env, check=False)
+        proc = subprocess.run(
+            ["git", "-C", str(root), *args],
+            capture_output=True,
+            input=input,
+            timeout=timeout,
+            env=full_env,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         raise GitError("git is unavailable or timed out") from None
     if proc.returncode != 0:

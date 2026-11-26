@@ -13,6 +13,7 @@ SUPPORTED_DIALECTS = ("bedrock-converse", "openai-compatible", "anthropic")
 # Decision models answer typed questions about a state (POST /api/v1/decisions); agents cannot use them.
 DECISION_DIALECTS = ("decisions-api", "workers-ai-decision")
 
+
 class BedrockEndpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
     kind: Literal["amazon-bedrock"]
@@ -22,6 +23,7 @@ class BedrockEndpoint(BaseModel):
     # Where requests may be served: the selected Region only, a geography, or anywhere.
     routing: Literal["in-region", "geo", "global"]
 
+
 def is_loopback_host(host: str) -> bool:
     if host == "localhost":
         return True
@@ -29,6 +31,7 @@ def is_loopback_host(host: str) -> bool:
         return ip_address(host).is_loopback
     except ValueError:
         return False
+
 
 class _HttpEndpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -57,51 +60,69 @@ class _HttpEndpoint(BaseModel):
     def is_loopback(self) -> bool:
         return is_loopback_host(urlparse(self.base_url).hostname)
 
+
 class OpenAICompatibleEndpoint(_HttpEndpoint):
     """OpenAI (https://api.openai.com/v1) or any local server speaking chat/completions."""
+
     kind: Literal["openai-compatible"]
     # OpenAI's newer models reject max_tokens; many local servers only know max_tokens.
     token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
     # Sent as top-level `reasoning_effort` when set (OpenAI and OpenRouter accept it).
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 
+
 class AnthropicEndpoint(_HttpEndpoint):
     kind: Literal["anthropic"]
     base_url: str = "https://api.anthropic.com"
 
+
 class DecisionsApiEndpoint(_HttpEndpoint):
     """decisions-api.dev: POST /v1/systemone (Jev and other decision models)."""
+
     kind: Literal["decisions-api"]
     base_url: str = "https://decisions-api.dev"
 
+
 class WorkersAiEndpoint(_HttpEndpoint):
     """Cloudflare Workers AI decision models (Clef): POST /accounts/{account_id}/ai/run/{model_id}."""
+
     kind: Literal["cloudflare-workers-ai"]
     base_url: str = "https://api.cloudflare.com/client/v4"
     account_id: str = Field(pattern=r"^[0-9a-f]{32}$")
     model_id: str = Field(pattern=r"^@cf/[a-z0-9._-]+/[a-z0-9._-]+$", max_length=200)
 
+
 Endpoint = Annotated[
     BedrockEndpoint | OpenAICompatibleEndpoint | AnthropicEndpoint | DecisionsApiEndpoint | WorkersAiEndpoint,
-    Field(discriminator="kind")]
-_KIND_DIALECT = {"amazon-bedrock": "bedrock-converse", "openai-compatible": "openai-compatible", "anthropic": "anthropic",
-                 "decisions-api": "decisions-api", "cloudflare-workers-ai": "workers-ai-decision"}
+    Field(discriminator="kind"),
+]
+_KIND_DIALECT = {
+    "amazon-bedrock": "bedrock-converse",
+    "openai-compatible": "openai-compatible",
+    "anthropic": "anthropic",
+    "decisions-api": "decisions-api",
+    "cloudflare-workers-ai": "workers-ai-decision",
+}
+
 
 class ModelCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
     input_modalities: list[Literal["text", "image"]] = Field(default_factory=lambda: ["text"])
     streaming: bool = False
 
+
 class ModelEndpointProfile(BaseModel):
     """Model endpoint profile (see docs/ARCHITECTURE.md). Never embeds credentials."""
+
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["maef.dev/v1alpha1"]
     id: str = Field(pattern=PROFILE_ID_PATTERN)
     version: str
     display_name: str
     vendor: str
-    api_dialect: Literal["bedrock-converse", "openai-compatible", "anthropic", "cli-adapter",
-                         "decisions-api", "workers-ai-decision"]
+    api_dialect: Literal[
+        "bedrock-converse", "openai-compatible", "anthropic", "cli-adapter", "decisions-api", "workers-ai-decision"
+    ]
     endpoint: Endpoint
     # Where credentials come from, never a secret value: aws:default-chain, env:NAME, none:local.
     credential_ref: str = Field(pattern=r"^(aws:default-chain|none:local|env:[A-Z][A-Z0-9_]{1,63})$")
@@ -117,15 +138,19 @@ class ModelEndpointProfile(BaseModel):
             raise ValueError(f"api_dialect {self.api_dialect} does not match endpoint kind {self.endpoint.kind}")
         return self
 
+
 _PINNED_IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*@sha256:[0-9a-f]{64}$")
+
 
 def is_pinned_image(image: str) -> bool:
     return _PINNED_IMAGE.fullmatch(image) is not None
+
 
 class SandboxProfile(BaseModel):
     """Sandbox profile: the OCI image and resource limits a run's commands execute under.
     Never embeds credentials or mounts. Tag-only images are checked at provisioning time
     (they need MAEF_ALLOW_UNPINNED_IMAGES=1 in the worker environment)."""
+
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["maef.dev/v1alpha1"]
     id: str = Field(pattern=PROFILE_ID_PATTERN)
@@ -138,16 +163,19 @@ class SandboxProfile(BaseModel):
     require_rootless: bool = True
     user: str = Field(default="65534:65534", pattern=r"^[0-9]+(:[0-9]+)?$")
 
+
 _ENV_NAME = r"^[A-Za-z_][A-Za-z0-9_]{0,63}$"
 # Names that would change how the worker's own container CLI behaves, since secrets travel to it
 # through its process environment (`exec -e NAME`).
 _PROTECTED_ENV = frozenset({"PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "PWD", "IFS", "ENV"})
 _PROTECTED_ENV_PREFIXES = ("LD_", "DYLD_", "DOCKER_", "CONTAINER", "PODMAN_", "XDG_", "DBUS_", "BASH_")
 
+
 class McpServerManifest(BaseModel):
     """MCP server manifest (`mcp-servers/<id>.yaml`): a stdio server that runs in its own container.
     `env` holds non-secret values only; `secrets` maps ENV_NAME to a credential_ref that the worker
     resolves at run time (never stored or logged). Tag-only images are checked at provisioning."""
+
     model_config = ConfigDict(extra="forbid")
     schema_version: Literal["maef.dev/v1alpha1"]
     id: str = Field(pattern=PROFILE_ID_PATTERN)
@@ -162,7 +190,9 @@ class McpServerManifest(BaseModel):
     network: Literal["none", "allowlist", "open"]
     # allowlist only: exact hostnames, `*.suffix` (subdomains only) or `*` (any PUBLIC host; addresses
     # are always vetted by the proxy). Ports are the destination ports the proxy will connect to.
-    allowed_hosts: list[Annotated[str, Field(min_length=1, max_length=253)]] = Field(default_factory=list, max_length=256)
+    allowed_hosts: list[Annotated[str, Field(min_length=1, max_length=253)]] = Field(
+        default_factory=list, max_length=256
+    )
     allowed_ports: list[Annotated[int, Field(ge=1, le=65535)]] = Field(default_factory=lambda: [443, 80], max_length=16)
     permission: Literal["read-only", "side-effects"]
     max_tools: int = Field(default=32, ge=1, le=256)
@@ -179,17 +209,18 @@ class McpServerManifest(BaseModel):
             from .egress_proxy import (
                 normalize_pattern,  # local: the proxy module is standalone
             )
+
             if any(normalize_pattern(h) is None for h in self.allowed_hosts):
                 raise ValueError("allowed_hosts has an invalid entry")
         elif self.allowed_hosts or self.allowed_ports != [443, 80]:
             raise ValueError("allowed_hosts and allowed_ports are only valid with network: allowlist")
         for name in (*self.env, *self.secrets):
-            if (not re.fullmatch(_ENV_NAME, name) or name in _PROTECTED_ENV
-                    or name.startswith(_PROTECTED_ENV_PREFIXES)):
+            if not re.fullmatch(_ENV_NAME, name) or name in _PROTECTED_ENV or name.startswith(_PROTECTED_ENV_PREFIXES):
                 raise ValueError(f"environment variable name not allowed: {name}")
         if set(self.env) & set(self.secrets):
             raise ValueError("a name cannot be in both env and secrets")
         return self
+
 
 class Budget(BaseModel):
     # Total model tokens (input + output) a run may use. Integers: exact and provider-neutral.
@@ -197,14 +228,17 @@ class Budget(BaseModel):
     max_duration_seconds: int = Field(default=300, ge=1, le=86400)
     max_turns: int = Field(default=20, ge=1, le=100000)
 
+
 class Runtime(BaseModel):
     model_profile: str = "local-default"
     sandbox_profile: str = "restricted-local"
+
 
 class AgentPermissions(BaseModel):
     model_config = ConfigDict(extra="forbid")
     # Lets MCP servers whose manifest says `network: allowlist` or `open` run. Default: no network anywhere.
     network_open: bool = False
+
 
 class AgentDefinition(BaseModel):
     schema_version: Literal["maef.dev/v1alpha1"]
@@ -224,12 +258,15 @@ class AgentDefinition(BaseModel):
     budget: Budget = Field(default_factory=Budget)
     outputs: list[str] = Field(default_factory=list)
 
+
 class BudgetOverride(BaseModel):
     """A request's budget: each field may only tighten the agent's ceiling; omitted fields keep it."""
+
     model_config = ConfigDict(extra="forbid")
     max_tokens: int | None = Field(default=None, ge=1, le=100_000_000)
     max_duration_seconds: int | None = Field(default=None, ge=1, le=86400)
     max_turns: int | None = Field(default=None, ge=1, le=100000)
+
 
 class RunRequest(BaseModel):
     agent_id: str
@@ -238,6 +275,7 @@ class RunRequest(BaseModel):
     # Run the definition as committed at this revision: a 40-hex commit sha, or a branch/tag name that is
     # resolved to a sha when the run is submitted. Omitted: the working tree (dirty state applies).
     agent_revision: str | None = Field(default=None, pattern=r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
+
 
 class RunPreview(BaseModel):
     agent_id: str
@@ -250,12 +288,14 @@ class RunPreview(BaseModel):
     status: Literal["preview_only"] = "preview_only"
     message: str = "No model invocation or sandbox execution has occurred."
 
+
 class ExecutionEvent(BaseModel):
     run_id: str
     seq: int
     type: str
     ts: str
     payload: dict = Field(default_factory=dict)
+
 
 class RunRecord(BaseModel):
     id: str
@@ -274,11 +314,14 @@ class RunRecord(BaseModel):
     finished_at: str | None
     cancel_requested: bool = False
 
+
 class RunDetail(RunRecord):
     events: list[ExecutionEvent]
 
+
 class ResultManifest(BaseModel):
     """Written as the final run event. Usage is in tokens as reported by the provider."""
+
     run_id: str
     status: Literal["succeeded", "failed", "cancelled"]
     agent_id: str

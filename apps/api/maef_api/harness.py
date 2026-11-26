@@ -5,6 +5,7 @@ never logged: events carry sizes and counts only. The model's final answer is st
 `output.md` artifact; `run.output` carries only its ref. Sandbox files under /workspace/out/ are
 collected as artifacts after the loop and listed in the manifest.
 """
+
 import json
 import time
 from collections.abc import Callable
@@ -135,7 +136,10 @@ def _clip_value(value, keep: int):
 
 def _encode_transcript(records: list[dict], limit: int) -> tuple[bytes, bool]:
     """JSON Lines. If too big, shorten long strings (keep the head) with a shrinking cap until it fits."""
-    def encode(rs): return ("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n").encode()
+
+    def encode(rs):
+        return ("\n".join(json.dumps(r, ensure_ascii=False) for r in rs) + "\n").encode()
+
     data = encode(records)
     if len(data) <= limit:
         return data, False
@@ -194,12 +198,21 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                 status, reason = ("cancelled", "cancelled_by_user") if stop == "cancelled" else ("failed", stop)
                 break
             turn = guard.turns + 1
-            sink.append("model.request", {
-                "turn": turn, "profile": profile.id, "prompt_bytes": prompt_bytes,
-                "max_output_tokens": profile.max_output_tokens, "tools": len(specs)})
+            sink.append(
+                "model.request",
+                {
+                    "turn": turn,
+                    "profile": profile.id,
+                    "prompt_bytes": prompt_bytes,
+                    "max_output_tokens": profile.max_output_tokens,
+                    "tools": len(specs),
+                },
+            )
             call_start = clock()
             response = adapter.converse(
-                system=pinned.instructions, messages=list(messages), tools=specs,
+                system=pinned.instructions,
+                messages=list(messages),
+                tools=specs,
                 max_output_tokens=profile.max_output_tokens,
                 timeout_seconds=min(float(profile.timeout_seconds), guard.remaining_seconds()),
             )
@@ -207,27 +220,64 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
             guard.record(response.input_tokens, response.output_tokens)
             in_tokens += response.input_tokens
             out_tokens += response.output_tokens
-            ids = {k: v for k, v in (("provider", response.provider), ("response_id", response.response_id),
-                                     ("model", response.model)) if v is not None}
-            sink.append("model.response", {
-                "turn": turn, "stop_reason": response.stop_reason, "tool_calls": len(response.tool_calls),
-                "latency_ms": latency_ms, **ids})
-            sink.append("usage.recorded", {
-                "turn": turn, "input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
-                "total_tokens": response.input_tokens + response.output_tokens,
-                "cache_read_tokens": response.cache_read_tokens, "cache_write_tokens": response.cache_write_tokens,
-                "reasoning_tokens": response.reasoning_tokens,
-                **({"cost_usd": response.cost_usd} if response.cost_usd is not None else {})})
+            ids = {
+                k: v
+                for k, v in (
+                    ("provider", response.provider),
+                    ("response_id", response.response_id),
+                    ("model", response.model),
+                )
+                if v is not None
+            }
+            sink.append(
+                "model.response",
+                {
+                    "turn": turn,
+                    "stop_reason": response.stop_reason,
+                    "tool_calls": len(response.tool_calls),
+                    "latency_ms": latency_ms,
+                    **ids,
+                },
+            )
+            sink.append(
+                "usage.recorded",
+                {
+                    "turn": turn,
+                    "input_tokens": response.input_tokens,
+                    "output_tokens": response.output_tokens,
+                    "total_tokens": response.input_tokens + response.output_tokens,
+                    "cache_read_tokens": response.cache_read_tokens,
+                    "cache_write_tokens": response.cache_write_tokens,
+                    "reasoning_tokens": response.reasoning_tokens,
+                    **({"cost_usd": response.cost_usd} if response.cost_usd is not None else {}),
+                },
+            )
             if run.record_transcript:
-                records.append({
-                    "type": "assistant", "turn": turn, "t": elapsed(), "latency_ms": latency_ms,
-                    "stop_reason": response.stop_reason, "text": response.text, "reasoning": response.reasoning,
-                    "tool_calls": [{"id": c.id, "name": c.name, "arguments": c.arguments} for c in response.tool_calls],
-                    "usage": {"input_tokens": response.input_tokens, "output_tokens": response.output_tokens,
-                              "cache_read_tokens": response.cache_read_tokens,
-                              "cache_write_tokens": response.cache_write_tokens,
-                              "reasoning_tokens": response.reasoning_tokens, "cost_usd": response.cost_usd},
-                    "provider": response.provider, "response_id": response.response_id, "model": response.model})
+                records.append(
+                    {
+                        "type": "assistant",
+                        "turn": turn,
+                        "t": elapsed(),
+                        "latency_ms": latency_ms,
+                        "stop_reason": response.stop_reason,
+                        "text": response.text,
+                        "reasoning": response.reasoning,
+                        "tool_calls": [
+                            {"id": c.id, "name": c.name, "arguments": c.arguments} for c in response.tool_calls
+                        ],
+                        "usage": {
+                            "input_tokens": response.input_tokens,
+                            "output_tokens": response.output_tokens,
+                            "cache_read_tokens": response.cache_read_tokens,
+                            "cache_write_tokens": response.cache_write_tokens,
+                            "reasoning_tokens": response.reasoning_tokens,
+                            "cost_usd": response.cost_usd,
+                        },
+                        "provider": response.provider,
+                        "response_id": response.response_id,
+                        "model": response.model,
+                    }
+                )
             messages.append(Message("assistant", response.text, response.tool_calls))
 
             if response.stop_reason == "tool_use":
@@ -238,19 +288,38 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                     if guard.cancelled():
                         break  # skip the remaining calls; the next guard check ends the run
                     server = {"server": s} if (s := server_of(call.name)) else {}
-                    sink.append("tool.call", {
-                        "turn": turn, "name": call.name, "argument_bytes": _size(call.arguments), **server})
+                    sink.append(
+                        "tool.call",
+                        {"turn": turn, "name": call.name, "argument_bytes": _size(call.arguments), **server},
+                    )
                     tool_start = clock()
                     result = _invoke(tools, call)
                     duration_ms = int((clock() - tool_start) * 1000)
-                    sink.append("tool.result", {
-                        "turn": turn, "name": call.name, "result_bytes": len(result.content.encode()),
-                        "is_error": result.is_error, "duration_ms": duration_ms, **server})
+                    sink.append(
+                        "tool.result",
+                        {
+                            "turn": turn,
+                            "name": call.name,
+                            "result_bytes": len(result.content.encode()),
+                            "is_error": result.is_error,
+                            "duration_ms": duration_ms,
+                            **server,
+                        },
+                    )
                     if run.record_transcript:
-                        records.append({
-                            "type": "tool", "turn": turn, "t": elapsed(), "duration_ms": duration_ms, "id": call.id,
-                            "name": call.name, "arguments": call.arguments, "content": result.content,
-                            "is_error": result.is_error})
+                        records.append(
+                            {
+                                "type": "tool",
+                                "turn": turn,
+                                "t": elapsed(),
+                                "duration_ms": duration_ms,
+                                "id": call.id,
+                                "name": call.name,
+                                "arguments": call.arguments,
+                                "content": result.content,
+                                "is_error": result.is_error,
+                            }
+                        )
                     messages.append(Message("tool", result.content, tool_call_id=call.id, is_error=result.is_error))
                 continue
 
@@ -282,10 +351,17 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     # charged 0 and the reservation is released (known gap: a timeout may still consume upstream).
     # The manifest is written before settle(), whose task.* event is the terminal one.
     manifest = ResultManifest(
-        run_id=run.run_id, status=status, agent_id=pinned.agent.id,
-        agent_revision=pinned.git_rev, dirty=pinned.dirty,
-        definition_digest=pinned.definition_digest, model_profile_revision=pinned.profile_digest,
-        input_tokens=in_tokens, output_tokens=out_tokens, tokens_used=guard.tokens_used, terminal_reason=reason,
+        run_id=run.run_id,
+        status=status,
+        agent_id=pinned.agent.id,
+        agent_revision=pinned.git_rev,
+        dirty=pinned.dirty,
+        definition_digest=pinned.definition_digest,
+        model_profile_revision=pinned.profile_digest,
+        input_tokens=in_tokens,
+        output_tokens=out_tokens,
+        tokens_used=guard.tokens_used,
+        terminal_reason=reason,
         artifacts=artifacts,
     )
     sink.append("run.manifest", manifest.model_dump(mode="json"))

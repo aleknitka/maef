@@ -1,5 +1,6 @@
 """Hidden-case grading. Non-container tests cover error handling and result parsing. The `oci` tests run the
 reference and a broken solution through the real hardened podman/docker grader."""
+
 import inspect
 import json
 import textwrap
@@ -17,10 +18,12 @@ def reference_module(v) -> str:
     """A deliverable that is the reference rule set exposed under the variant's module and function names."""
     p = v.params
     body = textwrap.dedent(inspect.getsource(reference_score))
-    return (body + "\n\n"
-            f"def {v.names['function']}(rolls):\n"
-            f"    return reference_score(rolls, {p['pins']}, {p['frames']}, {p['strike_bonus_rolls']}, "
-            f"{p['spare_bonus_rolls']})\n")
+    return (
+        body + "\n\n"
+        f"def {v.names['function']}(rolls):\n"
+        f"    return reference_score(rolls, {p['pins']}, {p['frames']}, {p['strike_bonus_rolls']}, "
+        f"{p['spare_bonus_rolls']})\n"
+    )
 
 
 class _NoRuntime:
@@ -28,6 +31,7 @@ class _NoRuntime:
 
 
 # --- no container runtime (no real containers needed) -----------------------------------------------
+
 
 def test_no_runtime_is_an_error_result_not_an_exception(tmp_path, monkeypatch):
     monkeypatch.setattr(grade, "detect_sandbox", lambda: None)
@@ -45,14 +49,20 @@ def test_runtime_binary_missing_is_an_error_result(tmp_path, monkeypatch):
 def test_unexpected_exception_is_reported_not_raised(tmp_path, monkeypatch):
     def boom():
         raise RuntimeError("boom")
+
     monkeypatch.setattr(grade, "detect_sandbox", boom)
     res = grade.run_grader("print('x')", [], tmp_path)
     assert res["error"] == "grading failed: RuntimeError: boom"
 
 
 def test_parse_output_takes_the_last_result_line():
-    out = "noise\n" + json.dumps({"passed": 0, "failed": 9, "errors": []}) + "\n" \
-        + json.dumps({"passed": 3, "failed": 1, "errors": [{"case": "c", "expected": 1, "got": "2"}]}) + "\n"
+    out = (
+        "noise\n"
+        + json.dumps({"passed": 0, "failed": 9, "errors": []})
+        + "\n"
+        + json.dumps({"passed": 3, "failed": 1, "errors": [{"case": "c", "expected": 1, "got": "2"}]})
+        + "\n"
+    )
     res = grade.parse_output(out, "", 0, 4)
     assert res == {"passed": 3, "failed": 1, "total": 4, "errors": [{"case": "c", "expected": 1, "got": "2"}]}
 
@@ -118,8 +128,10 @@ def test_broken_solution_fails_the_cases_it_gets_wrong(tmp_path):
     art = tmp_path / "artifacts"
     art.mkdir()
     # Ignores bonuses entirely: wrong for every spare and strike, right for gutter and invalid-input cases.
-    (art / "bowling.py").write_text("def score(rolls):\n    if not rolls:\n        raise ValueError('empty')\n"
-                                    "    return sum(rolls)\n", encoding="utf-8")
+    (art / "bowling.py").write_text(
+        "def score(rolls):\n    if not rolls:\n        raise ValueError('empty')\n    return sum(rolls)\n",
+        encoding="utf-8",
+    )
     res = grade.run_grader(FAM.grader_source(v), cases, art)
     assert "error" not in res, res
     assert res["total"] == len(cases)

@@ -1,5 +1,6 @@
 """Analyse a transcript.jsonl into TDD metrics. Heuristic: only `run_command` calls are classified, by regex over
 the joined argv. See docs/BENCHMARKS.md for the definitions."""
+
 import json
 import re
 from collections import Counter
@@ -165,7 +166,14 @@ def _verdict(wrote_tests: bool, tests_first: bool, runs: list[dict], any_green: 
 
 def _timeline(a: dict) -> dict:
     u = a.get("usage") or {}
-    return {"turn": a.get("turn"), "t": a.get("t"), "latency_ms": a.get("latency_ms"),
-            "input_tokens": u.get("input_tokens"), "cache_read_tokens": u.get("cache_read_tokens"),
-            "output_tokens": u.get("output_tokens"), "reasoning_tokens": u.get("reasoning_tokens"),
-            "cost_usd": u.get("cost_usd"), "tool_calls": len(a.get("tool_calls") or [])}
+    return {
+        "turn": a.get("turn"),
+        "t": a.get("t"),
+        "latency_ms": a.get("latency_ms"),
+        "input_tokens": u.get("input_tokens"),
+        "cache_read_tokens": u.get("cache_read_tokens"),
+        "output_tokens": u.get("output_tokens"),
+        "reasoning_tokens": u.get("reasoning_tokens"),
+        "cost_usd": u.get("cost_usd"),
+        "tool_calls": len(a.get("tool_calls") or []),
+    }

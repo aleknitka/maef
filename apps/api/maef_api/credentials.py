@@ -1,10 +1,12 @@
 """Credential references resolved at call time. Values never leave a Secret except via reveal()."""
+
 import os
 from collections.abc import Mapping
 
 
 class Secret:
     """Opaque wrapper: repr, str and format all print a mask; compare by identity only."""
+
     __slots__ = ("_value",)
 
     def __init__(self, value: str):

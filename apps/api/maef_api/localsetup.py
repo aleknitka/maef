@@ -3,6 +3,7 @@
 Writes `model-profiles/local-default.yaml` (the profile the shipped agents use) from the Ollama or LM Studio
 example, creates the local artifact directory and the SQLite ledger, and reports anything still pointing at a
 remote service. Idempotent: an existing profile is kept unless `force`."""
+
 import ipaddress
 import os
 import re
@@ -43,8 +44,9 @@ def _set_line(text: str, key: str, value: str, indent: str = "") -> str:
     return pattern.sub(f"{indent}{key}: {value}", text, count=1)
 
 
-def render_profile(backend: str, model_id: str | None = None, base_url: str | None = None,
-                   examples_dir: Path = EXAMPLES_DIR) -> str:
+def render_profile(
+    backend: str, model_id: str | None = None, base_url: str | None = None, examples_dir: Path = EXAMPLES_DIR
+) -> str:
     """The example profile text with id `local-default` and optional overrides (comments kept)."""
     if backend not in BACKENDS:
         raise InitError(f"unknown backend {backend!r}; choose one of {', '.join(BACKENDS)}")
@@ -57,7 +59,9 @@ def render_profile(backend: str, model_id: str | None = None, base_url: str | No
         text = _set_line(text, "base_url", base_url, "  ")
         if not _is_loopback(base_url):
             # e.g. WSL2 reaching Ollama on the Windows host: a private address must be opted into.
-            text = re.sub(r"^  # allow_private_network:.*$", "  allow_private_network: true", text, count=1, flags=re.MULTILINE)
+            text = re.sub(
+                r"^  # allow_private_network:.*$", "  allow_private_network: true", text, count=1, flags=re.MULTILINE
+            )
             if "allow_private_network: true" not in text:
                 text = _set_line(text, "base_url", f"{base_url}\n  allow_private_network: true", "  ")
     profile = ModelEndpointProfile.model_validate(yaml.safe_load(text))  # fail before writing anything
@@ -66,10 +70,16 @@ def render_profile(backend: str, model_id: str | None = None, base_url: str | No
     return text
 
 
-def init_local(backend: str = "ollama", model_id: str | None = None, base_url: str | None = None,
-               force: bool = False, profiles_dir: Path = MODEL_PROFILES_DIR,
-               artifacts_dir: Path | None = None, db: str | Path | None = None,
-               examples_dir: Path = EXAMPLES_DIR) -> dict:
+def init_local(
+    backend: str = "ollama",
+    model_id: str | None = None,
+    base_url: str | None = None,
+    force: bool = False,
+    profiles_dir: Path = MODEL_PROFILES_DIR,
+    artifacts_dir: Path | None = None,
+    db: str | Path | None = None,
+    examples_dir: Path = EXAMPLES_DIR,
+) -> dict:
     report: dict = {"warnings": []}
     profiles_dir = Path(profiles_dir)
     path = profiles_dir / f"{PROFILE_ID}.yaml"
@@ -84,12 +94,16 @@ def init_local(backend: str = "ollama", model_id: str | None = None, base_url: s
         report["profile"] = {"path": str(path), "action": "written", "backend": backend}
         if backend in REMOTE_BACKENDS:
             key = REMOTE_BACKENDS[backend]
-            report["warnings"].append(f"{VENDORS[backend]} is a hosted service: prompts and tool results leave this "
-                                      f"machine. Export {key} in the worker's environment.")
+            report["warnings"].append(
+                f"{VENDORS[backend]} is a hosted service: prompts and tool results leave this "
+                f"machine. Export {key} in the worker's environment."
+            )
 
     if os.environ.get("MAEF_ARTIFACTS_URL"):
-        report["warnings"].append("MAEF_ARTIFACTS_URL is set: artifacts go to S3, not this machine. "
-                                  "Unset it to use the local directory store.")
+        report["warnings"].append(
+            "MAEF_ARTIFACTS_URL is set: artifacts go to S3, not this machine. "
+            "Unset it to use the local directory store."
+        )
     artifacts = Path(artifacts_dir or os.environ.get("MAEF_ARTIFACTS_DIR") or ROOT / "artifacts")
     artifacts.mkdir(parents=True, exist_ok=True)
     report["artifacts"] = str(artifacts)
@@ -100,6 +114,7 @@ def init_local(backend: str = "ollama", model_id: str | None = None, base_url: s
         report["ledger"] = "postgres (not touched)"
     else:
         from .ledger import Ledger
+
         Path(db).parent.mkdir(parents=True, exist_ok=True)
         Ledger.open(db)  # creates and migrates the SQLite file
         report["ledger"] = db
@@ -107,6 +122,8 @@ def init_local(backend: str = "ollama", model_id: str | None = None, base_url: s
     runtimes = [r for r in ("podman", "docker") if shutil.which(r)]
     report["oci_runtime"] = runtimes[0] if runtimes else None
     if not runtimes:
-        report["warnings"].append("no podman or docker found: agents with run_command or MCP servers cannot run "
-                                  "(tool-less agents still work).")
+        report["warnings"].append(
+            "no podman or docker found: agents with run_command or MCP servers cannot run "
+            "(tool-less agents still work)."
+        )
     return report

@@ -4,6 +4,7 @@ API tokens are `maef_<32 random bytes, urlsafe>` and worker credentials `maefw_<
 once at creation; the ledger stores only their sha256. Verification looks the hash up, then compares
 it in constant time. `admin` implies every scope. Nothing here logs or returns a token after issue.
 """
+
 import hashlib
 import hmac
 import os
@@ -46,7 +47,10 @@ def parse_scopes(text: str) -> tuple[str, ...]:
     scopes = tuple(dict.fromkeys(s.strip() for s in text.split(",") if s.strip()))
     unknown = [s for s in scopes if s not in SCOPES]
     if not scopes or unknown:
-        raise AuthError(f"scopes must be a comma list of: {', '.join(SCOPES)}" + (f" (unknown: {', '.join(unknown)})" if unknown else ""))
+        raise AuthError(
+            f"scopes must be a comma list of: {', '.join(SCOPES)}"
+            + (f" (unknown: {', '.join(unknown)})" if unknown else "")
+        )
     return scopes
 
 

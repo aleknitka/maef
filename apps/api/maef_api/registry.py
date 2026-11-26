@@ -16,6 +16,7 @@ SANDBOX_PROFILES_DIR = ROOT / "sandbox-profiles"
 MCP_SERVERS_DIR = ROOT / "mcp-servers"
 _ID_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 
+
 class ModelProfileRegistry:
     def __init__(self, root: Path = MODEL_PROFILES_DIR):
         self.root = Path(root).resolve()
@@ -39,6 +40,7 @@ class ModelProfileRegistry:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return ModelEndpointProfile.model_validate(data)
 
+
 class SandboxProfileRegistry:
     def __init__(self, root: Path = SANDBOX_PROFILES_DIR):
         self.root = Path(root).resolve()
@@ -60,6 +62,7 @@ class SandboxProfileRegistry:
     @staticmethod
     def _parse(path: Path) -> SandboxProfile:
         return SandboxProfile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+
 
 class McpServerRegistry:
     def __init__(self, root: Path = MCP_SERVERS_DIR):
@@ -88,6 +91,7 @@ class McpServerRegistry:
     @staticmethod
     def _parse(data: bytes) -> McpServerManifest:
         return McpServerManifest.model_validate(yaml.safe_load(data.decode("utf-8")))
+
 
 class AgentRegistry:
     def __init__(self, root: Path = AGENTS_DIR):

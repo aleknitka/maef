@@ -5,6 +5,7 @@ Checked: every `agents/*/agent.yaml` (schema, id matches directory, instruction/
 the agent directory, built-in tools, MCP references resolve to exact versions, network_open consistency,
 sandbox profile), plus `sandbox-profiles/`, `mcp-servers/` and `model-profiles/` when present.
 """
+
 from pathlib import Path
 from typing import Literal
 
@@ -65,8 +66,15 @@ def _lint_files(root: Path, directory: str, model: type[BaseModel], out: list[Fi
     return loaded
 
 
-def _lint_agent(root: Path, agent_dir: Path, mcps: dict[str, McpServerManifest], sandboxes: dict,
-                have_model_profiles: bool, models: dict, out: list[Finding]) -> None:
+def _lint_agent(
+    root: Path,
+    agent_dir: Path,
+    mcps: dict[str, McpServerManifest],
+    sandboxes: dict,
+    have_model_profiles: bool,
+    models: dict,
+    out: list[Finding],
+) -> None:
     rel_dir = f"agents/{agent_dir.name}"
     definition = agent_dir / "agent.yaml"
     if not definition.is_file():
@@ -114,23 +122,44 @@ def _lint_agent(root: Path, agent_dir: Path, mcps: dict[str, McpServerManifest],
         if manifest is None:
             out.append(Finding(path=rel, message=f"MCP server not found: {server_id}"))
         elif manifest.version != version:
-            out.append(Finding(path=rel, message=f"MCP server {server_id} is version {manifest.version}, "
-                                                  f"agent requires {version}"))
+            out.append(
+                Finding(
+                    path=rel, message=f"MCP server {server_id} is version {manifest.version}, agent requires {version}"
+                )
+            )
         else:
             manifests.append(manifest)
     if len(manifests) == len(agent.mcp_servers) and mcp_ref_problem(agent, manifests) == "network_not_permitted":
-        out.append(Finding(path=rel, message="an MCP server needs open network (network: open or allowlist) but permissions.network_open is not set"))
+        out.append(
+            Finding(
+                path=rel,
+                message="an MCP server needs open network (network: open or allowlist) but permissions.network_open is not set",
+            )
+        )
     elif agent.permissions.network_open and not any(m.network != "none" for m in manifests):
-        out.append(Finding(path=rel, severity="warning",
-                           message="permissions.network_open is set but no referenced MCP server needs open network"))
+        out.append(
+            Finding(
+                path=rel,
+                severity="warning",
+                message="permissions.network_open is set but no referenced MCP server needs open network",
+            )
+        )
     sandbox_id = agent.runtime.sandbox_profile
     if sandbox_id not in sandboxes:
         needed = any(t in SANDBOXED_TOOLS for t in agent.tools)
-        out.append(Finding(path=rel, severity="error" if needed else "warning",
-                           message=f"sandbox profile not found: {sandbox_id}"))
+        out.append(
+            Finding(
+                path=rel, severity="error" if needed else "warning", message=f"sandbox profile not found: {sandbox_id}"
+            )
+        )
     if have_model_profiles and agent.runtime.model_profile not in models:
-        out.append(Finding(path=rel, severity="warning",
-                           message=f"model profile not found in model-profiles/: {agent.runtime.model_profile}"))
+        out.append(
+            Finding(
+                path=rel,
+                severity="warning",
+                message=f"model profile not found in model-profiles/: {agent.runtime.model_profile}",
+            )
+        )
 
 
 def lint_repo(root: Path | str, only_agent: str | None = None) -> list[Finding]:

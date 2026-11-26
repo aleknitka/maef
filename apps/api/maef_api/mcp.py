@@ -5,6 +5,7 @@ delimited JSON-RPC over the `Process` the sandbox spawned. Everything a server s
 descriptions are sanitised and capped, schemas must be JSON objects, results are size-capped, and
 no failure raises out of `McpToolSet.invoke`. Tool arguments and results are never logged.
 """
+
 import itertools
 import json
 import re
@@ -48,11 +49,16 @@ def sandbox_profile_for(manifest: McpServerManifest, base: SandboxProfile | None
     """The container config for a server: its own image, resource limits and user from the agent's
     sandbox profile when it has one, else conservative defaults. Network is passed separately."""
     return SandboxProfile(
-        schema_version="maef.dev/v1alpha1", id=manifest.id, image=manifest.image,
-        cpus=base.cpus if base else 1.0, memory_mb=base.memory_mb if base else 256,
-        pids_limit=base.pids_limit if base else 128, workspace_mb=base.workspace_mb if base else 64,
+        schema_version="maef.dev/v1alpha1",
+        id=manifest.id,
+        image=manifest.image,
+        cpus=base.cpus if base else 1.0,
+        memory_mb=base.memory_mb if base else 256,
+        pids_limit=base.pids_limit if base else 128,
+        workspace_mb=base.workspace_mb if base else 64,
         require_rootless=True if manifest.user == "0:0" else (base.require_rootless if base else True),
-        user=manifest.user or (base.user if base else "65534:65534"))
+        user=manifest.user or (base.user if base else "65534:65534"),
+    )
 
 
 class _Rpc:
@@ -107,8 +113,14 @@ class _Rpc:
 class McpToolSet:
     """The tools of one MCP server, exposed as `mcp__<server_id>__<tool>`. Call `start()` once."""
 
-    def __init__(self, name: str, process: Process, *, max_tools: int = 32,
-                 timeout: Callable[[], float] = lambda: DEFAULT_TIMEOUT):
+    def __init__(
+        self,
+        name: str,
+        process: Process,
+        *,
+        max_tools: int = 32,
+        timeout: Callable[[], float] = lambda: DEFAULT_TIMEOUT,
+    ):
         self.name, self._process, self._max_tools, self._timeout = name, process, max_tools, timeout
         self._rpc = _Rpc(process)
         self._tools: dict[str, str] = {}  # exposed name -> server's tool name
@@ -120,9 +132,15 @@ class McpToolSet:
     def start(self) -> "McpToolSet":
         """Handshake and list tools; raises McpError. A failed start leaves the set unusable."""
         try:
-            info = self._rpc.request("initialize", {
-                "protocolVersion": PROTOCOL_VERSION, "capabilities": {},
-                "clientInfo": {"name": "maef", "version": "0.1.0"}}, self._budget())
+            info = self._rpc.request(
+                "initialize",
+                {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "maef", "version": "0.1.0"},
+                },
+                self._budget(),
+            )
             if not isinstance(info.get("protocolVersion"), str):
                 raise McpError("malformed_result")
             self._rpc.notify("notifications/initialized")
@@ -233,14 +251,20 @@ class CompositeToolSet:
 
 # --- test adapter ---
 
+
 class FakeMcpServer:
     """In-memory `Process` that answers MCP JSON-RPC. `tools` are tools/list entries; `call(name,
     arguments)` returns the tools/call result dict. `page_size` paginates tools/list. Everything
     the client sent is kept in `received`; `junk` lines are emitted before each response."""
 
-    def __init__(self, tools: list[dict] | None = None,
-                 call: Callable[[str, dict], dict] | None = None, *,
-                 page_size: int | None = None, junk: list[bytes] | None = None):
+    def __init__(
+        self,
+        tools: list[dict] | None = None,
+        call: Callable[[str, dict], dict] | None = None,
+        *,
+        page_size: int | None = None,
+        junk: list[bytes] | None = None,
+    ):
         self.tools = tools or []
         self._call = call or (lambda name, arguments: {"content": [{"type": "text", "text": "ok"}]})
         self.page_size, self.junk = page_size, junk or []
@@ -259,19 +283,24 @@ class FakeMcpServer:
         self._out.extend(self.junk)
         method, params = message["method"], message.get("params") or {}
         if method == "initialize":
-            result = {"protocolVersion": PROTOCOL_VERSION, "capabilities": {"tools": {}},
-                      "serverInfo": {"name": "fake", "version": "0"}}
+            result = {
+                "protocolVersion": PROTOCOL_VERSION,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "fake", "version": "0"},
+            }
         elif method == "tools/list":
             start = int(params.get("cursor") or 0)
             size = self.page_size or len(self.tools) or 1
-            result = {"tools": self.tools[start:start + size]}
+            result = {"tools": self.tools[start : start + size]}
             if start + size < len(self.tools):
                 result["nextCursor"] = str(start + size)
         elif method == "tools/call":
             result = self._call(params["name"], params["arguments"])
         else:
-            self._out.append(json.dumps({"jsonrpc": "2.0", "id": message["id"],
-                                         "error": {"code": -32601, "message": "no"}}).encode() + b"\n")
+            self._out.append(
+                json.dumps({"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32601, "message": "no"}}).encode()
+                + b"\n"
+            )
             return
         self._out.append(json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}).encode() + b"\n")
 

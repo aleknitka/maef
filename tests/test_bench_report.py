@@ -1,4 +1,5 @@
 """Benchmark report building and rendering, plus runner.report_existing / run_bench with a fake MAEF client."""
+
 import json
 
 import pytest
@@ -8,9 +9,13 @@ from maef_api.bench.families.base import STRAPLINE, Variant
 from maef_api.bench.families.bowling import Bowling
 
 FAM = Bowling()
-VARIANT = Variant(family="bowling", seed=7, noise=2,
-                  params={"pins": 8, "frames": 6, "strike_bonus_rolls": 2, "spare_bonus_rolls": 1},
-                  names={"module": "lanes", "function": "tally"})
+VARIANT = Variant(
+    family="bowling",
+    seed=7,
+    noise=2,
+    params={"pins": 8, "frames": 6, "strike_bonus_rolls": 2, "spare_bonus_rolls": 1},
+    names={"module": "lanes", "function": "tally"},
+)
 CANON = FAM.sample(0, 0)
 RUN = {"run_id": "run-1", "status": "succeeded", "terminal_reason": None, "agent_revision": "rev-9"}
 ALL_PASS = {"passed": 2, "failed": 0, "total": 2, "errors": []}
@@ -29,9 +34,18 @@ def usage(turn, inp, out, cost=None, cache=None, ts=None):
 
 
 def build(events=(), rows=(), trace=None, grade_result=ALL_PASS, names=("lanes.py", "test_lanes.py", "NOTES.md")):
-    return report.build(run=RUN, events=list(events), rows=list(rows), trace=trace, grade=grade_result,
-                        variant=VARIANT, family=FAM, canonical=CANON, agent_id="tdd-engineer",
-                        artifact_names=list(names))
+    return report.build(
+        run=RUN,
+        events=list(events),
+        rows=list(rows),
+        trace=trace,
+        grade=grade_result,
+        variant=VARIANT,
+        family=FAM,
+        canonical=CANON,
+        agent_id="tdd-engineer",
+        artifact_names=list(names),
+    )
 
 
 def test_token_and_cost_sums_across_turns():
@@ -75,11 +89,21 @@ def test_no_events_and_no_transcript_still_renders():
 
 
 def test_events_fill_gaps_in_the_transcript_timeline_but_do_not_override_it():
-    trace_timeline = [{"turn": 1, "t": 1.5, "latency_ms": None, "input_tokens": 999, "output_tokens": 1,
-                       "cost_usd": None, "tool_calls": 1}]
-    events = [usage(1, 100, 20, cost=0.01),
-              {"type": "model.response", "payload": {"turn": 1, "latency_ms": 900, "provider": "openrouter",
-                                                    "model": "m-x"}}]
+    trace_timeline = [
+        {
+            "turn": 1,
+            "t": 1.5,
+            "latency_ms": None,
+            "input_tokens": 999,
+            "output_tokens": 1,
+            "cost_usd": None,
+            "tool_calls": 1,
+        }
+    ]
+    events = [
+        usage(1, 100, 20, cost=0.01),
+        {"type": "model.response", "payload": {"turn": 1, "latency_ms": 900, "provider": "openrouter", "model": "m-x"}},
+    ]
     trace = {"turns": 1, "tool_calls": 1, "timeline": trace_timeline, "tool_calls_by_kind": {}}
     r = build(events=events, trace=trace)
     row = r["per_turn"][0]
@@ -97,9 +121,11 @@ def test_wall_seconds_from_event_timestamps():
 
 def test_grading_problem_and_pass_counts_render():
     assert "Grading problem: no podman or docker available" in report.render(
-        build(grade_result={"passed": 0, "failed": 0, "total": 0, "errors": [], "error": "no podman or docker available"}))
-    failing = {"passed": 1, "failed": 1, "total": 2,
-               "errors": [{"case": "gutter game", "expected": 0, "got": "2"}]}
+        build(
+            grade_result={"passed": 0, "failed": 0, "total": 0, "errors": [], "error": "no podman or docker available"}
+        )
+    )
+    failing = {"passed": 1, "failed": 1, "total": 2, "errors": [{"case": "gutter game", "expected": 0, "got": "2"}]}
     text = report.render(build(grade_result=failing))
     assert "**1 / 2 passed** (1 failed)" in text
     assert "- `gutter game`: expected 0, got 2" in text
@@ -123,10 +149,19 @@ def test_render_header_and_variant_table():
 
 def test_tdd_section_renders_verdict_and_test_runs():
     trace_result = {
-        "turns": 3, "tool_calls": 3, "tool_calls_by_kind": {"file_write": 2, "test_run": 1}, "timeline": [],
-        "verdict": "test-first (never red)", "first_test_file_write": 1, "first_impl_write": 2,
-        "tests_written_first": True, "first_test_run_turn": 3, "first_test_run_failed": False,
-        "red_to_green_cycles": 0, "turns_to_first_green": 3, "final_tests_green": True,
+        "turns": 3,
+        "tool_calls": 3,
+        "tool_calls_by_kind": {"file_write": 2, "test_run": 1},
+        "timeline": [],
+        "verdict": "test-first (never red)",
+        "first_test_file_write": 1,
+        "first_impl_write": 2,
+        "tests_written_first": True,
+        "first_test_run_turn": 3,
+        "first_test_run_failed": False,
+        "red_to_green_cycles": 0,
+        "turns_to_first_green": 3,
+        "final_tests_green": True,
         "rewrites": {"/workspace/lanes.py": 1},
         "test_runs": [{"turn": 3, "passed": True, "ran": 4, "failures": 0, "errors": 0}],
         "final_test_result": {"turn": 3, "passed": True, "ran": 4, "failures": 0, "errors": 0},
@@ -141,6 +176,7 @@ def test_tdd_section_renders_verdict_and_test_runs():
 def test_git_revision_falls_back_to_unknown(monkeypatch):
     def boom(*a, **k):
         raise OSError("no git")
+
     monkeypatch.setattr(report.subprocess, "run", boom)
     assert report.git_revision() == "unknown"
 
@@ -161,6 +197,7 @@ def test_ts_rejects_bool():
 
 
 # --- runner with a fake client ---------------------------------------------------------------------
+
 
 class FakeClient:
     def __init__(self, run_id="run-1", artifacts=None, events=(), run=None):
@@ -190,11 +227,22 @@ class FakeClient:
 
 def transcript_bytes():
     rows = [
-        {"type": "assistant", "turn": 1, "tool_calls": [{"id": "a", "name": "run_command",
-                                                       "arguments": {"argv": ["tee", "test_lanes.py"], "stdin": "x"}}]},
-        {"type": "tool", "turn": 1, "id": "a", "name": "run_command",
-         "arguments": {"argv": ["tee", "test_lanes.py"], "stdin": "x"},
-         "content": json.dumps({"exit_code": 0, "stdout": "", "stderr": "", "timed_out": False}), "is_error": False},
+        {
+            "type": "assistant",
+            "turn": 1,
+            "tool_calls": [
+                {"id": "a", "name": "run_command", "arguments": {"argv": ["tee", "test_lanes.py"], "stdin": "x"}}
+            ],
+        },
+        {
+            "type": "tool",
+            "turn": 1,
+            "id": "a",
+            "name": "run_command",
+            "arguments": {"argv": ["tee", "test_lanes.py"], "stdin": "x"},
+            "content": json.dumps({"exit_code": 0, "stdout": "", "stderr": "", "timed_out": False}),
+            "is_error": False,
+        },
     ]
     return ("\n".join(json.dumps(r) for r in rows) + "\n").encode()
 
@@ -202,14 +250,23 @@ def transcript_bytes():
 def test_report_existing_writes_all_run_files(tmp_path, monkeypatch):
     monkeypatch.setattr(runner.grade, "run_grader", lambda src, cases, d: dict(ALL_PASS))
     blobs = {"d1": b"def tally(r): ...", "d2": transcript_bytes()}
-    client = FakeClient(artifacts=[{"name": "lanes.py", "digest": "d1"},
-                                   {"name": "transcript.jsonl", "digest": "d2"}],
-                        events=[usage(1, 50, 5, cost=0.002, ts="2026-11-24T10:00:00")])
+    client = FakeClient(
+        artifacts=[{"name": "lanes.py", "digest": "d1"}, {"name": "transcript.jsonl", "digest": "d2"}],
+        events=[usage(1, 50, 5, cost=0.002, ts="2026-11-24T10:00:00")],
+    )
     client.blobs = blobs
     rep = runner.report_existing(client, "run-1", "bowling", 7, 2, tmp_path)
     run_dir = tmp_path / "run-1"
-    for name in ("task.md", "variant.json", "cases.json", "events.jsonl", "report.json", "report.md",
-                 "artifacts/lanes.py", "artifacts/transcript.jsonl"):
+    for name in (
+        "task.md",
+        "variant.json",
+        "cases.json",
+        "events.jsonl",
+        "report.json",
+        "report.md",
+        "artifacts/lanes.py",
+        "artifacts/transcript.jsonl",
+    ):
         assert (run_dir / name).exists(), name
     assert rep["tdd"]["verdict"] == "test-first (tests never run)"
     assert rep["cost_usd"] == pytest.approx(0.002)
