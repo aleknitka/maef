@@ -130,6 +130,9 @@ Not done yet: workers on a *second* machine (planned next), and the web Studio s
 | [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md) | Jev and Clef wire formats |
 | [packages/contracts/CONTRACTS.md](packages/contracts/CONTRACTS.md) | Exact file and API formats |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | What MAEF is for and what comes next: experiments, FAIR records, released specialists |
+| [docs/USE_CASES.md](docs/USE_CASES.md) | What MAEF is used for, with examples and status |
+| [docs/PLAN_OF_ACTION.md](docs/PLAN_OF_ACTION.md) | The roadmap as work packages with checks; [M1_PLAN.md](docs/M1_PLAN.md) for v0.1.0 |
+| [docs/HARNESSES.md](docs/HARNESSES.md) | Running Deep Agents and AWS Strands agents inside MAEF (design) |
 | [docs/BACKEND_PLAN.md](docs/BACKEND_PLAN.md) | The build plan and what is finished |
 
 ## Repository layout
