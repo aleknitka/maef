@@ -5,7 +5,33 @@ All notable changes to this project are recorded here. The format follows
 
 ## [Unreleased]
 
-_Nothing yet._
+Phase 1 of the roadmap: runs you can trust.
+
+### Fixed
+
+- Token accounting (R1): every settle path, including lease expiry, charges min(max(reported, recorded),
+  reservation); over-reports are clamped and recorded as `budget.overreport`; `tokens_used` is bounded.
+- Worker outages (R2): the worker retries reports and heartbeats with capped, jittered backoff until its lease
+  deadline, and stops at once when the run is no longer its own; artifact store failures end the run as
+  `artifact_error` instead of crashing the worker.
+- Gateway output (R3) is wrapped in a block with a per-call random delimiter; `maef-result` tags inside it are
+  neutralised.
+- Sandbox output (R4) is streamed with a per-stream byte cap, and the command is stopped when it overflows.
+- Worker credentials (R7): only names referenced by local model profiles or MCP manifests, or listed in
+  `MAEF_WORKER_ALLOWED_CREDENTIALS`, are resolved; a profile's key works only with that profile's endpoint; an MCP
+  server's secrets are passed only when the lease's manifest matches the worker's local copy.
+- `docs/SECURITY.md` and `docs/BUDGETS_OBSERVABILITY.md` describe what the code does, with known gaps listed.
+
+### Added
+
+- Run endings: every terminal reason is an agent outcome or an infrastructure loss (`ending` on the run record);
+  bench reports leave losses out of the score. Model endpoint failures end as `provider_error`.
+- `maef admin account reset` starts a new budget period (audited).
+- The fetch MCP server ships an explicit host list; `maef lint` warns on `*` in an allowlist.
+
+### Changed
+
+- A worker without a project folder needs `MAEF_WORKER_ALLOWED_CREDENTIALS` to resolve any `env:` credential.
 
 ## [0.1.0] - 2026-11-26
 

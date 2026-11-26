@@ -587,7 +587,7 @@ class Ledger:
                 "artifact_bytes": int(one("SELECT COALESCE(SUM(size), 0) AS n FROM run_artifacts")["n"]),
             }
 
-    # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
+    # --- queue and leases (worker side; see packages/contracts/CONTRACTS.md) ---
 
     def claim(self, worker_id: str, lease_seconds: float, now: float) -> Lease | None:
         """Lease the oldest queued run to `worker_id`, or None when the queue is empty."""

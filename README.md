@@ -15,7 +15,7 @@ can hand it a task. MAEF:
 
 - **checks the request** and reserves a token budget before anything runs,
 - **runs the agent** in a separate worker process, with its tools locked inside containers,
-- **records everything** that happens (each model call, tool call and token spent) in an append-only log,
+- **records** each model call, tool call and the tokens spent in an append-only log (sizes and counts, not prompt text unless you turn the transcript on),
 - **stores the result** as a file you can download and check.
 
 Everything works **offline-first**: the database is a file, results go into a local folder, models can come from

@@ -126,7 +126,16 @@ async def lifespan(_: FastAPI):
             t.join(timeout=5)
 
 
-app = FastAPI(title="MAEF Control Plane", version="0.1.0", lifespan=lifespan)
+def _package_version() -> str:
+    from importlib import metadata
+
+    try:
+        return metadata.version("maef-control-plane")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+app = FastAPI(title="MAEF Control Plane", version=_package_version(), lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -580,7 +589,7 @@ def start_decision(request: DecisionRunRequest, http: Request, principal: Princi
     return {"run_id": record.id, "status": record.status}
 
 
-# --- Worker protocol (docs/ARCHITECTURE.md "Proposed remote-worker protocol") ---
+# --- Worker protocol (packages/contracts/CONTRACTS.md, worker section) ---
 # Each worker holds its own credential (`maef admin worker create`); the bearer token identifies the
 # worker_id, which the lease is bound to. MAEF_AUTH_DISABLED does not apply to these routes.
 

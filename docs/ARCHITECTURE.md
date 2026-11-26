@@ -112,8 +112,10 @@ be tested without containers, model servers or the network.
 - **Git is the source of truth for agents.** Runs record the commit and a digest of the files, so a result can always
   be traced to the exact instructions and settings that produced it. Draft edits happen on their own branch; a human
   merges.
-- **Append-only log.** Events cannot be changed or deleted (enforced by database triggers), so the record of what an
-  agent did is trustworthy.
+- **Append-only log.** Events cannot be changed or deleted through the application (database triggers reject UPDATE and DELETE), so the
+  record of what an agent did is not edited in place. A database administrator can still drop the triggers, and there
+  is no hash chain, so it is not tamper-evident. Event payloads hold sizes and token counts; commands and outputs are
+  recorded only when the transcript is switched on.
 - **Tokens, not money.** Prices change and differ per provider; tokens are what the models report.
 - **Fail closed.** Unknown profiles, unpinned images, a rootful runtime when rootless is required, or a missing
   container runtime stop the run instead of running it less safely.
