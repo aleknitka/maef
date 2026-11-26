@@ -18,6 +18,8 @@ SANDBOXED_TOOLS = frozenset({"run_command"})
 DEFAULT_EXEC_TIMEOUT = 30.0
 MAX_RESULT_BYTES = 32 * 1024
 _STREAM_CAP = 12 * 1024
+_CAP_HEADROOM = 4 * 1024  # read a little past the model-visible cap so truncation is detected
+_CAP_HEADROOM = 4 * 1024  # read a little past the model-visible cap so truncation is detected
 _MARKER = "\n[truncated]"
 
 _SPECS = {
@@ -135,7 +137,11 @@ class BuiltinTools:
         try:
             extra = {"cancel": self._cancel} if self._cancel is not None else {}
             res = self._session.exec(
-                argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout, **extra
+                argv,
+                stdin=stdin.encode() if stdin is not None else None,
+                timeout=timeout,
+                max_bytes=_STREAM_CAP + _CAP_HEADROOM,
+                **extra,
             )
         except (SandboxError, ValueError):
             return ToolResult("sandbox_error", True)
@@ -146,6 +152,21 @@ class BuiltinTools:
             "stderr": res.stderr[:_STREAM_CAP].decode("utf-8", errors="replace"),
             "timed_out": res.timed_out,
         }
+        if res.truncated:
+            body["truncated"] = True
+            body["note"] = (
+                f"output truncated at {_STREAM_CAP} bytes per stream; command stopped"
+                f" (at least {res.discarded_bytes} more bytes were discarded)"
+            )
+        elif max(len(res.stdout), len(res.stderr)) > _STREAM_CAP:
+            body["truncated"] = True
+            body["note"] = f"output truncated at {_STREAM_CAP} bytes per stream"
+        if res.truncated:
+            body["truncated"] = True
+            body["note"] = (
+                f"output truncated at {_STREAM_CAP} bytes per stream; command stopped"
+                f" (at least {res.discarded_bytes} more bytes were discarded)"
+            )
         if res.cancelled:
             body["cancelled"] = True
         return ToolResult(json.dumps(body), res.timed_out or res.cancelled)

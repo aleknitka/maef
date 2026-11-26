@@ -6,6 +6,7 @@ in WSL2); the sandbox itself still enforces every other restriction.
 """
 
 import subprocess
+import time
 import uuid
 
 import pytest
@@ -210,3 +211,12 @@ def test_cleanup_orphans_removes_labelled_networks(egress_session):
     assert _labelled(egress_session.run_id)
     SANDBOX.cleanup_orphans()
     assert _labelled(egress_session.run_id) == []
+
+
+def test_endless_output_is_capped_and_session_stays_usable(session):
+    start = time.monotonic()
+    r = session.exec(["yes"], timeout=30, max_bytes=16 * 1024)
+    assert time.monotonic() - start < 10
+    assert r.truncated and not r.timed_out and len(r.stdout) == 16 * 1024 and r.discarded_bytes > 0
+    again = session.exec(["echo", "still-here"], timeout=20)
+    assert again.stdout.strip() == b"still-here" and not again.truncated
