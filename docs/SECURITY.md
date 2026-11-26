@@ -25,6 +25,8 @@ On macOS and Windows Docker usually executes inside a VM; Linux execution semant
 ## Review process
 A definition change is reviewed as code: show prompt diff, tool-permission diff, newly requested domains/secrets, tests and benchmark results before approving/publishing. Version changes to agent instructions and MCP manifests trigger re-review.
 
+MCP manifest binding. Before resolving any secret for an MCP server, the worker requires its own project's `mcp-servers/<id>.yaml` to equal the manifest in the lease (every field: image and digest, command, env, secrets mapping, network mode, hosts and ports, user, and so on). On a mismatch or a missing local file the server is not started and the run ends `mcp_manifest_mismatch:<id>` (infrastructure); the log names the differing fields, never values. Servers with no `secrets` are exempt, so a worker with no project folder can still run them; they hold nothing to steal and stay inside their sandbox and network mode.
+
 Worker credentials. The worker resolves an `env:NAME` reference only when NAME appears in the project's own `model-profiles/` or `mcp-servers/` files or in `MAEF_WORKER_ALLOWED_CREDENTIALS`; a lease cannot make it read any other variable (for example its own token or cloud keys). `aws:default-chain` is not an environment read: Bedrock calls go to AWS only, signed by the worker's default boto3 chain.
 
 Fetch server. Anything an agent can fetch is also a place it can send data (a URL can carry conversation text). The shipped `fetch` manifest therefore lists a few documentation hosts instead of `*`, and `maef lint` warns on `*`. Widen the list only for tasks that need it.

@@ -198,6 +198,8 @@ see the comment in `mcp-servers/fetch.yaml`). Edit that list to the sites your t
 (any public site) still works but `maef lint` warns about it: whatever a run can fetch, a prompt-injected run can
 also send data to.
 
+**MCP manifests and secrets.** A server that has `secrets` only starts when the worker's own `mcp-servers/<id>.yaml` is identical to the manifest in the lease; otherwise the run ends `mcp_manifest_mismatch:<id>` (check that the worker runs in, or has `MAEF_HOME` pointing at, the same project and that its copy is current). Servers without secrets need no local file.
+
 **Worker credentials.** The worker only resolves `env:NAME` references that your own `model-profiles/` and
 `mcp-servers/` files mention, plus names listed in `MAEF_WORKER_ALLOWED_CREDENTIALS` (comma-separated, `*` globs
 allowed, for example `OPENROUTER_API_KEY,MYCO_*`). A lease naming any other variable is refused (`setup_error` or

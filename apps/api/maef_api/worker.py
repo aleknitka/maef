@@ -15,6 +15,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 import yaml
@@ -281,6 +282,7 @@ class Worker:
         sandbox: Sandbox | None = None,
         credentials: Credentials | None = None,
         decision_factory: DecisionFactory | None = None,
+        project_root: Callable[[], Path | None] | None = None,
         sleep: Callable[[float], object] | None = None,
         lease_clock=time.monotonic,
     ):
@@ -290,6 +292,7 @@ class Worker:
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
         self._sandbox = sandbox
         self._credentials = credentials or Credentials()
+        self._project_root = project_root or _project_or_none
         self._decision_factory = decision_factory or default_decision_factory(self._credentials)
 
     def run_once(self) -> bool:
@@ -504,6 +507,20 @@ class Worker:
             and mcp_ref_problem(pinned.agent, pinned.mcp_servers) in (None, "network_not_permitted")
         )
 
+    def _local_mcp_differences(self, manifest: McpServerManifest) -> list[str]:
+        """Field names where the lease's manifest differs from this worker's `mcp-servers/<id>.yaml`
+        (`["<missing>"]` when there is no usable local file). Names only, never values."""
+        try:
+            root = self._project_root()
+            path = root / "mcp-servers" / f"{manifest.id}.yaml" if root is not None else None
+            if path is None or not path.is_file():
+                return ["<missing>"]
+            local = McpServerManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError):
+            return ["<missing>"]
+        mine, theirs = manifest.model_dump(), local.model_dump()
+        return sorted(k for k in mine.keys() | theirs.keys() if mine.get(k) != theirs.get(k))
+
     def _start_mcp(
         self, lease: Lease, pinned, handles: list[_McpHandle], remaining: Callable[[], float]
     ) -> list[McpToolSet]:
@@ -513,6 +530,11 @@ class Worker:
             return []
         resolved: dict[str, dict[str, str]] = {}
         for manifest in pinned.mcp_servers:  # before any container exists or any model call
+            if manifest.secrets:  # a secret is only ever bound to the worker's own copy of the manifest
+                differing = self._local_mcp_differences(manifest)
+                if differing:
+                    log.warning("mcp manifest %s differs from the local file in: %s", manifest.id, ", ".join(differing))
+                    raise _StartupFailure(f"mcp_manifest_mismatch:{manifest.id}")
             env = dict(manifest.env)
             for name, ref in manifest.secrets.items():
                 try:
