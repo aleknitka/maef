@@ -24,6 +24,7 @@ from .artifacts import (
     ArtifactNotFound,
     ArtifactRef,
     ArtifactRejected,
+    ArtifactStoreError,
     default_artifact_store,
 )
 from .auth import (
@@ -125,7 +126,16 @@ async def lifespan(_: FastAPI):
             t.join(timeout=5)
 
 
-app = FastAPI(title="MAEF Control Plane", version="0.1.0", lifespan=lifespan)
+def _package_version() -> str:
+    from importlib import metadata
+
+    try:
+        return metadata.version("maef-control-plane")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
+app = FastAPI(title="MAEF Control Plane", version=_package_version(), lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -579,7 +589,7 @@ def start_decision(request: DecisionRunRequest, http: Request, principal: Princi
     return {"run_id": record.id, "status": record.status}
 
 
-# --- Worker protocol (docs/ARCHITECTURE.md "Proposed remote-worker protocol") ---
+# --- Worker protocol (packages/contracts/CONTRACTS.md, worker section) ---
 # Each worker holds its own credential (`maef admin worker create`); the bearer token identifies the
 # worker_id, which the lease is bound to. MAEF_AUTH_DISABLED does not apply to these routes.
 
@@ -624,7 +634,8 @@ class EventRequest(BaseModel):
 
 class FinishRequest(BaseModel):
     fencing_token: int
-    tokens_used: int = Field(ge=0)
+    # Upper bound only guards against absurd values; the ledger clamps to the run's reservation (budget.overreport).
+    tokens_used: int = Field(ge=0, le=10_000_000_000)
     status: Literal["succeeded", "failed", "cancelled"]
     terminal_reason: str = Field(min_length=1, max_length=200)
 
@@ -720,6 +731,8 @@ async def worker_artifact(
         )
     except FencingError as exc:
         raise _conflict("fencing", exc) from exc
+    except ArtifactStoreError as exc:
+        raise HTTPException(status_code=507, detail={"code": exc.code}) from exc
     except ArtifactRejected as exc:
         raise HTTPException(
             status_code=400 if exc.code == "digest_mismatch" else 413, detail={"code": exc.code}

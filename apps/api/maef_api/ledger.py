@@ -33,7 +33,7 @@ TERMINAL = ("succeeded", "failed", "cancelled")
 # Statuses a worker may move a run to through report(); terminal states only via finish().
 WORKER_STATUSES = ("running",)
 # Event types only the ledger itself may write.
-RESERVED_PREFIXES = ("task.", "lease.", "artifact.", "cancel.")
+RESERVED_PREFIXES = ("task.", "lease.", "artifact.", "cancel.", "budget.")
 
 
 class UnknownRun(Exception):
@@ -140,6 +140,32 @@ class Ledger:
                 "ON CONFLICT(id) DO UPDATE SET limit_tokens=excluded.limit_tokens",
                 (account_id, limit_tokens),
             )
+
+    def reset_account(self, account_id: str, *, force: bool = False, principal: str = "local-cli") -> int:
+        """Start a new budget period: zero `spent_tokens` and write an audit row. Refuses while runs hold a
+        reservation unless `force` (their later settlement still charges the new period). Returns the cleared spend."""
+        with self._transaction() as conn:
+            acct = conn.execute("SELECT * FROM budget_accounts WHERE id=?" + self.d.row_lock, (account_id,)).fetchone()
+            if acct is None:
+                raise AdmissionError("no_account", f"Unknown budget account: {account_id}")
+            if acct["reserved_tokens"] > 0 and not force:
+                raise AdmissionError(
+                    "reserved",
+                    f"{acct['reserved_tokens']} tokens are reserved by open runs; use --force to reset anyway.",
+                )
+            conn.execute("UPDATE budget_accounts SET spent_tokens=0 WHERE id=?", (account_id,))
+            conn.execute(
+                "INSERT INTO audit_log (ts, principal, action, target, outcome, client) VALUES (?, ?, ?, ?, ?, ?)",
+                (
+                    now(),
+                    principal,
+                    "account.reset",
+                    f"account:{account_id}",
+                    f"ok cleared={acct['spent_tokens']} reserved={acct['reserved_tokens']} force={int(force)}",
+                    "local",
+                ),
+            )
+            return int(acct["spent_tokens"])
 
     def account(self, account_id: str) -> dict | None:
         with self.connect() as conn:
@@ -561,7 +587,7 @@ class Ledger:
                 "artifact_bytes": int(one("SELECT COALESCE(SUM(size), 0) AS n FROM run_artifacts")["n"]),
             }
 
-    # --- queue and leases (worker side; see docs/ARCHITECTURE.md remote-worker protocol) ---
+    # --- queue and leases (worker side; see packages/contracts/CONTRACTS.md) ---
 
     def claim(self, worker_id: str, lease_seconds: float, now: float) -> Lease | None:
         """Lease the oldest queued run to `worker_id`, or None when the queue is empty."""
@@ -642,21 +668,15 @@ class Ledger:
     ) -> None:
         """Settle the run on behalf of the lease holder. A second finish is a FencingError.
 
-        Charges max(reported tokens, sum of usage.recorded events) so a worker cannot under-report."""
+        Charges max(reported tokens, recorded usage), capped at the reservation (see `_settle`)."""
         with self._transaction() as conn:
             _check_lease(self.d, conn, run_id, token, worker_id)
-            # Never charge less than the per-turn usage the worker already reported.
-            recorded = sum(
-                self.d.load_json(row["payload"]).get("total_tokens", 0)
-                for row in conn.execute(
-                    "SELECT payload FROM run_events WHERE run_id=? AND type='usage.recorded'", (run_id,)
-                )
-            )
-            _settle(self.d, conn, run_id, max(tokens_used, recorded), status, terminal_reason)
+            _settle(self.d, conn, run_id, tokens_used, status, terminal_reason)
 
     def expire_leases(self, now: float) -> int:
         """Fail runs whose lease lapsed (or that hold none from before leases existed). Their spend
-        is unknown, so the whole reservation is charged (fail closed). Queued runs are untouched.
+        is the usage the worker recorded, or the whole reservation when it recorded none (fail closed).
+        Queued runs are untouched.
         Legacy queued runs without a stored task could never run and are failed too."""
         with self._transaction() as conn:
             rows = conn.execute(
@@ -675,7 +695,7 @@ class Ledger:
                         "lease.expired",
                         {"worker_id": r["worker_id"], "fencing_token": r["fencing_token"]},
                     )
-                _settle(self.d, conn, r["id"], r["reserved_tokens"], "failed", "worker_lost")
+                _settle(self.d, conn, r["id"], 0, "failed", "worker_lost", fail_closed=True)
         return len(rows)
 
 
@@ -705,7 +725,23 @@ def _artifact_guard(d, conn, run_id: str, token: int | None, size: int, worker_i
         raise ArtifactRejected("run_limit")
 
 
-def _settle(d, conn, run_id: str, tokens_used: int, status: str, terminal_reason: str) -> None:
+def _recorded_usage(d, conn, run_id: str) -> int:
+    """Sum of the per-turn usage the worker reported through usage.recorded events."""
+    return sum(
+        d.load_json(row["payload"]).get("total_tokens", 0)
+        for row in conn.execute("SELECT payload FROM run_events WHERE run_id=? AND type='usage.recorded'", (run_id,))
+    )
+
+
+def _settle(
+    d, conn, run_id: str, tokens_used: int, status: str, terminal_reason: str, *, fail_closed: bool = False
+) -> None:
+    """Charge min(max(reported, recorded), reservation) and close the run, on every settle path.
+
+    Policy for over-reporting: clamp, do not reject. A figure above the reservation cannot be real spend the
+    ledger admitted, so it is capped at the reservation, a `budget.overreport` event records the reported and
+    charged values, and the run keeps its outcome (rejecting would strand the run and its reservation).
+    `fail_closed` (lease expiry) charges the whole reservation when the worker recorded nothing."""
     if status not in TERMINAL:
         raise ValueError(f"Invalid terminal status: {status}")
     if tokens_used < 0:
@@ -713,19 +749,41 @@ def _settle(d, conn, run_id: str, tokens_used: int, status: str, terminal_reason
     res = conn.execute("SELECT * FROM reservations WHERE run_id=?" + d.row_lock, (run_id,)).fetchone()
     if res is None or res["settled_tokens"] is not None:
         raise AdmissionError("not_open", f"Run {run_id} has no open reservation.")
-    released = max(res["reserved_tokens"] - tokens_used, 0)
+    reserved = res["reserved_tokens"]
+    recorded = _recorded_usage(d, conn, run_id)
+    claimed = max(tokens_used, recorded)
+    if fail_closed and claimed == 0:
+        claimed = reserved
+    charged = min(claimed, reserved)
+    if claimed > reserved:
+        _append(
+            d,
+            conn,
+            run_id,
+            "budget.overreport",
+            {
+                "reported_tokens": tokens_used,
+                "recorded_tokens": recorded,
+                "reserved_tokens": reserved,
+                "charged_tokens": charged,
+            },
+        )
+    released = reserved - charged
     conn.execute(
-        "UPDATE reservations SET settled_tokens=?, released_tokens=? WHERE run_id=?", (tokens_used, released, run_id)
+        "UPDATE reservations SET settled_tokens=?, released_tokens=? WHERE run_id=?", (charged, released, run_id)
     )
     conn.execute(
         "UPDATE budget_accounts SET reserved_tokens = reserved_tokens - ?, spent_tokens = spent_tokens + ? WHERE id=?",
-        (res["reserved_tokens"], tokens_used, res["account_id"]),
+        (reserved, charged, res["account_id"]),
     )
     conn.execute(
         "UPDATE runs SET status=?, tokens_used=?, terminal_reason=?, finished_at=? WHERE id=?",
-        (status, tokens_used, terminal_reason, now(), run_id),
+        (status, charged, terminal_reason, now(), run_id),
     )
-    payload = {"tokens_used": tokens_used, "released_tokens": released, "terminal_reason": terminal_reason}
-    if tokens_used > res["reserved_tokens"]:
-        payload["overrun_tokens"] = tokens_used - res["reserved_tokens"]
-    _append(d, conn, run_id, f"task.{status}", payload)
+    _append(
+        d,
+        conn,
+        run_id,
+        f"task.{status}",
+        {"tokens_used": charged, "released_tokens": released, "terminal_reason": terminal_reason},
+    )

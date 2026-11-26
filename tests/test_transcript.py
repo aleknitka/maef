@@ -190,10 +190,10 @@ def test_transcript_is_stored_with_a_recorded_event(store):
 
 def test_end_record_is_written_when_the_model_call_fails(store):
     run, sink = run_with(store, Scripted(TimeoutError("secret prompt echo")), record=True)
-    assert run.terminal_reason == "model_error:TimeoutError"
+    assert run.terminal_reason == "provider_error"
     recs = transcript(store, sink, run.id)
     assert [r["type"] for r in recs] == ["system", "user", "end"]  # no assistant line for a failed call
-    assert (recs[-1]["status"], recs[-1]["terminal_reason"]) == ("failed", "model_error:TimeoutError")
+    assert (recs[-1]["status"], recs[-1]["terminal_reason"]) == ("failed", "provider_error")
     assert "secret prompt echo" not in json.dumps(recs)
 
 

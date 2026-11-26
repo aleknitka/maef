@@ -3,6 +3,7 @@ pinning, worker startup and teardown, the OCI spawn command line, and admission.
 FakeMcpServer instances; the runtime is the fake podman CLI from test_sandbox_cli."""
 
 import json
+import logging
 
 import pytest
 import yaml
@@ -408,12 +409,17 @@ def test_mcp_events_bracket_the_run_and_carry_the_server_id(store):
     assert "mcp__fetch__fetch" in [s.name for s in adapter.calls[0]["tools"]]
 
 
-def test_missing_secret_fails_before_any_model_call(store):
+def test_missing_secret_fails_before_any_model_call(store, tmp_path):
     manifest = mcp_manifest(secrets={"FETCH_TOKEN": "env:FETCH_TOKEN"})
     run_id = admit_mcp(store, mcp_pinned(manifest))
     adapter, sandbox_ = ToolCallingAdapter("mcp__fetch__fetch"), FakeSandbox(spawn_factory=spawner([]))
     worker = Worker(
-        LocalChannel(store), lambda p: adapter, worker_id="w1", sandbox=sandbox_, credentials=Credentials(environ={})
+        LocalChannel(store),
+        lambda p: adapter,
+        worker_id="w1",
+        sandbox=sandbox_,
+        credentials=Credentials(environ={}),
+        project_root=lambda: local_project(tmp_path, manifest),
     )
     assert worker.run_once() is True
     detail = store.get(run_id)
@@ -532,3 +538,73 @@ def test_root_user_manifest_always_requires_rootless_runtime():
     profile = sandbox_profile_for(manifest, base)
     assert (profile.user, profile.require_rootless) == ("0:0", True)
     assert sandbox_profile_for(manifest.model_copy(update={"user": None}), base).user == base.user
+
+
+# --- the lease's manifest must equal the worker's local file before a secret is resolved ---
+
+SECRET_VALUE = "s3cr3t-value-do-not-leak"
+
+
+def bound_manifest(**overrides):
+    return mcp_manifest(secrets={"FETCH_TOKEN": "env:FETCH_TOKEN"}, **overrides)
+
+
+def local_project(tmp_path, manifest):
+    folder = tmp_path / "proj" / "mcp-servers"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{manifest.id}.yaml").write_text(yaml.safe_dump(manifest.model_dump(mode="json")))
+    return tmp_path / "proj"
+
+
+def run_with_local(store, tmp_path, leased, local):
+    root = local_project(tmp_path, local) if local is not None else None
+    run_id = admit_mcp(store, mcp_pinned(leased))
+    adapter = ToolCallingAdapter("mcp__fetch__fetch")
+    sandbox_ = FakeSandbox(spawn_factory=spawner([]))
+    creds = Credentials(environ={"FETCH_TOKEN": SECRET_VALUE})
+    worker = Worker(
+        LocalChannel(store),
+        lambda p: adapter,
+        worker_id="w1",
+        sandbox=sandbox_,
+        credentials=creds,
+        project_root=lambda: root,
+    )
+    assert worker.run_once() is True
+    return store.get(run_id), sandbox_
+
+
+def test_matching_local_manifest_starts_the_server(store, tmp_path):
+    m = bound_manifest()
+    detail, _ = run_with_local(store, tmp_path, m, m)
+    assert detail.status == "succeeded"
+
+
+@pytest.mark.parametrize(
+    ("change", "field"),
+    [
+        ({"image": "registry.example/evil:1"}, "image"),
+        ({"command": ["sh", "-c", "env"]}, "command"),
+        ({"allowed_hosts": ["docs.example.com", "*"]}, "allowed_hosts"),
+    ],
+)
+def test_changed_manifest_is_refused_before_any_secret_or_container(store, tmp_path, caplog, change, field):
+    local = bound_manifest(network="allowlist", allowed_hosts=["docs.example.com"])
+    leased = local.model_copy(update=change)
+    with caplog.at_level(logging.DEBUG):
+        detail, sandbox_ = run_with_local(store, tmp_path, leased, local)
+    assert (detail.status, detail.terminal_reason) == ("failed", "mcp_manifest_mismatch:fetch")
+    assert sandbox_.provisioned == []
+    assert field in caplog.text
+    assert SECRET_VALUE not in caplog.text and SECRET_VALUE not in json.dumps([e.payload for e in detail.events])
+
+
+def test_missing_local_manifest_is_refused(store, tmp_path):
+    detail, sandbox_ = run_with_local(store, tmp_path, bound_manifest(), None)
+    assert (detail.status, detail.terminal_reason) == ("failed", "mcp_manifest_mismatch:fetch")
+    assert sandbox_.provisioned == []
+
+
+def test_server_without_secrets_needs_no_local_manifest(store, tmp_path):
+    detail, _ = run_with_local(store, tmp_path, mcp_manifest(), None)
+    assert detail.status == "succeeded"

@@ -15,7 +15,7 @@ Approved 2026-11-22. Each step is self-contained: tests pass and it is committed
 | 8 | Host gateway | `maef` CLI + small MCP server over `Runs` | — | Claude Code/Codex delegate without loading agent tools |
 | 9 | Decision models (Jev, Clef) | `DecisionAdapter.decide(state, questions)` | Jev, Clef, fake | decisions metered in the same ledger |
 | 10 | Definition authoring | JSON Schema export, Git-backed edit/publish | — | publish pins a commit with prompt/permission diffs |
-| 11 | Auth + audit | auth on all routes, audit events, worker machine credentials | — | safe to bind beyond 127.0.0.1 |
+| 11 | Auth + audit | auth on all routes, audit events, worker machine credentials | — | every route authenticated and audited (not yet safe beyond 127.0.0.1: see the known gaps in SECURITY.md) |
 | 11b | Enforced egress allowlist proxy for open-network MCP servers (needs a container runtime to verify) | proxy in front of `network: open` MCP containers | — | an open server can reach only allowlisted hosts |
 | 12a | Postgres ledger + durable queue | second `Ledger` adapter (`_sql_sqlite.py`, `_sql_postgres.py`); `claim` via `FOR UPDATE SKIP LOCKED` | SQLite, Postgres | same ledger suite passes on both |
 | 12b | S3-compatible artifact store | second `ArtifactStore` adapter | local, S3-compatible | same artifact suite passes on both |

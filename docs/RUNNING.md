@@ -193,7 +193,21 @@ in the file. Network modes:
 | `open` | unfiltered (discouraged) |
 
 `allowlist` and `open` also need `permissions: {network_open: true}` on the agent. The shipped `research-analyst` uses
-the `fetch` server in `allowlist` mode with `allowed_hosts: ["*"]` (any public site).
+the `fetch` server in `allowlist` mode with a short example host list (documentation sites, arXiv, GitHub, PyPI;
+see the comment in `mcp-servers/fetch.yaml`). Edit that list to the sites your task needs. `allowed_hosts: ["*"]`
+(any public site) still works but `maef lint` warns about it: whatever a run can fetch, a prompt-injected run can
+also send data to.
+
+**MCP manifests and secrets.** A server that has `secrets` only starts when the worker's own `mcp-servers/<id>.yaml` is identical to the manifest in the lease; otherwise the run ends `mcp_manifest_mismatch:<id>` (check that the worker runs in, or has `MAEF_HOME` pointing at, the same project and that its copy is current). Servers without secrets need no local file.
+
+**Worker credentials.** The worker only resolves `env:NAME` references that your own `model-profiles/` and
+`mcp-servers/` files mention, plus names listed in `MAEF_WORKER_ALLOWED_CREDENTIALS` (comma-separated, `*` globs
+allowed, for example `OPENROUTER_API_KEY,MYCO_*`). A lease naming any other variable is refused (`setup_error` or
+`credential_not_allowed:NAME`) and the worker log names the variable, never its value. A credential that comes from a
+local model profile is also bound to that profile's endpoint (kind, base URL, region or account): a lease that
+points the same credential at a different URL is refused with `credential_endpoint_mismatch:NAME`. Names listed in
+`MAEF_WORKER_ALLOWED_CREDENTIALS` are not bound; that list is your explicit choice. A worker on another machine
+with no project folder needs the variable set explicitly.
 
 ## 7. Where data is stored
 
@@ -266,8 +280,9 @@ args = ["mcp"]
 env = { MAEF_API_URL = "http://127.0.0.1:8000", MAEF_API_TOKEN = "<token>" }
 ```
 
-Agent output is treated as untrusted: the gateway wraps it in `<maef-result run_id=... status=...>` and caps it at
-100 KiB.
+Agent output is treated as untrusted: the gateway wraps it in `<maef-result-NONCE run_id=... status=...>` ... `</maef-result-NONCE>` (a fresh random
+hex nonce per call, with a one-line preamble saying only that tag closes the block), neutralises any `maef-result`
+tag inside the text (`</maef-result` becomes `<\/maef-result`) and caps it at 100 KiB.
 
 ## 9. Decision models (Jev, Clef)
 

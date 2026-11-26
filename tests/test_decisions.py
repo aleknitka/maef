@@ -30,7 +30,7 @@ from maef_api.models import ModelEndpointProfile
 from maef_api.registry import ModelProfileRegistry
 from maef_api.worker import Worker
 from test_cli import cli
-from test_gateway import call, text_of, wrapped
+from test_gateway import call, text_of, unwrap
 from test_http_adapters import Fake
 from test_run_execution import definition
 
@@ -461,7 +461,7 @@ def test_gateway_decide_returns_wrapped_answers(decisions, live_api):
     run_id = re.search(r"run_id=(\S+)", text).group(1)
     assert "isError" not in result
     assert "status=succeeded" in text.splitlines()[0]
-    assert wrapped(run_id, json.dumps(decisions.client.answers(run_id), indent=2)) in text
+    assert unwrap(text, run_id)[1] == json.dumps(decisions.client.answers(run_id), indent=2)
 
 
 def test_gateway_decide_api_error_is_a_tool_error(decisions):

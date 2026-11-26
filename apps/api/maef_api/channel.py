@@ -17,6 +17,7 @@ from .artifacts import (
     ArtifactRef,
     ArtifactRejected,
     ArtifactStore,
+    ArtifactStoreError,
     InMemoryArtifactStore,
     sha256_digest,
 )
@@ -133,7 +134,9 @@ class HttpChannel:
                 except (ValueError, KeyError, TypeError):
                     code = "rejected"
                 raise ArtifactRejected(code if isinstance(code, str) else "rejected") from None
-            raise ChannelError(f"http_error (HTTP {exc.code})") from None
+            if exc.code == 507 and "/artifacts" in path:
+                raise ArtifactStoreError() from None
+            raise ChannelError(f"http_error (HTTP {exc.code})", status=exc.code) from None
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             raise ChannelError("connection_error") from None
 

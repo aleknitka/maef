@@ -56,6 +56,13 @@ class ArtifactCorrupt(ArtifactError):
     code = "corrupt"
 
 
+class ArtifactStoreError(ArtifactError):
+    """The store could not write (disk full, permissions, remote outage). An infrastructure loss: the
+    run ends `artifact_error`."""
+
+    code = "store_failed"
+
+
 class ArtifactRejected(ArtifactError):
     """Refused at intake and not retryable: `too_large`, `digest_mismatch`, `run_limit`."""
 
@@ -273,6 +280,11 @@ class ArtifactIntake:
         self._log.check_artifact_room(
             run_id, token, len(data), digest=sha256_digest(data), name=clean_name(name), worker_id=worker_id
         )
-        ref = self._store.put(data, name=name, mime=mime)
+        try:
+            ref = self._store.put(data, name=name, mime=mime)
+        except ArtifactError:
+            raise
+        except Exception:  # noqa: BLE001  # OSError (ENOSPC), botocore errors: the cause is not the caller's concern
+            raise ArtifactStoreError() from None
         self._log.add_artifact(run_id, token, ref, worker_id=worker_id)
         return ref

@@ -3,9 +3,10 @@ from ipaddress import ip_address
 from typing import Annotated, Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from .artifacts import ArtifactRef
+from .endings import Ending, ending_of
 
 PROFILE_ID_PATTERN = r"^[a-z][a-z0-9-]{1,62}$"
 # Dialects the worker has an adapter for; Runs refuses to admit anything else.
@@ -319,6 +320,12 @@ class RunRecord(BaseModel):
     created_at: str
     finished_at: str | None
     cancel_requested: bool = False
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def ending(self) -> Ending | None:
+        """`agent` (the agent's own outcome) or `infrastructure` (a loss); None until the run ends."""
+        return ending_of(self.terminal_reason)
 
 
 class RunDetail(RunRecord):

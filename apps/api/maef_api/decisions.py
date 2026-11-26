@@ -11,7 +11,7 @@ from collections.abc import Callable
 from .adapters.base import model_error_reason
 from .adapters.decision import DecisionAdapter
 from .adapters.http import ModelHTTPError
-from .artifacts import ArtifactRejected
+from .artifacts import ArtifactRejected, ArtifactStoreError
 from .harness import RunSink, SinkFailure
 from .leases import TaskPayload
 from .models import ResultManifest
@@ -86,9 +86,16 @@ def execute_decision(
     except ModelHTTPError as exc:
         # The kind is a fixed code (never provider text), so it is safe to record.
         status = "failed"
-        reason = "invalid_decision" if str(exc).startswith("invalid_decision") else model_error_reason(exc)
+        if str(exc).startswith("invalid_decision"):
+            reason = "invalid_decision"
+        else:
+            reason = "provider_error"
+            sink.append("model.error", {"turn": 1, "code": model_error_reason(exc)})
+    except ArtifactStoreError:
+        status, reason = "failed", "artifact_error"
     except Exception as exc:  # noqa: BLE001  # class name only; messages may echo prompts or keys
-        status, reason = "failed", model_error_reason(exc)
+        status, reason = "failed", "provider_error"
+        sink.append("model.error", {"turn": 1, "code": model_error_reason(exc)})
     used = in_tokens + out_tokens
     manifest = ResultManifest(
         run_id=run_id,

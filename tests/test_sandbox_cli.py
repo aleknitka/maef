@@ -265,9 +265,8 @@ def test_exec_output_truncated_to_cap(tmp_path):
     big = 'case "$1" in exec) head -c 100000 /dev/zero; head -c 100000 /dev/zero >&2 ;; esac'
     session = sandbox(tmp_path, "podman", big).provision(profile(), RUN_ID)
     r = session.exec(["anything"], timeout=5)
-    assert (r.exit_code, r.timed_out) == (0, False)
+    assert (r.timed_out, r.truncated) == (False, True)  # the command is stopped once a stream passes the cap
     assert len(r.stdout) == MAX_OUTPUT_BYTES == 64 * 1024
-    assert len(r.stderr) == MAX_OUTPUT_BYTES
 
 
 def test_hanging_exec_times_out(tmp_path):

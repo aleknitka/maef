@@ -4,15 +4,18 @@ The worker never touches the ledger; it only speaks WorkerChannel. Model credent
 here, from the worker's own environment: a lease never carries secrets.
 """
 
+import contextlib
 import hashlib
 import logging
 import os
+import random
 import signal
 import socket
 import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import cast
 
 import yaml
@@ -29,7 +32,15 @@ from .adapters.decision import (
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .artifacts import ArtifactRef
 from .channel import HttpChannel, WorkerChannel
-from .credentials import CredentialError, Credentials, Secret
+from .credentials import (
+    CredentialError,
+    CredentialNotAllowed,
+    Credentials,
+    Secret,
+    explicit_credentials,
+    profile_endpoints,
+    worker_allowed_credentials,
+)
 from .decisions import execute_decision
 from .definitions import compute_definition_digest, mcp_ref_problem
 from .harness import PreparedRun, SinkFailure, execute
@@ -44,7 +55,9 @@ log = logging.getLogger("maef.worker")
 
 AdapterFactory = Callable[[ModelEndpointProfile], ModelAdapter]
 DecisionFactory = Callable[[ModelEndpointProfile], DecisionAdapter]
-SEND_ATTEMPTS = 3
+BACKOFF_CAP_SECONDS = 8.0  # longest single wait between retries of a channel call
+SAFETY_MARGIN_SECONDS = 3.0  # stop retrying this long before the lease runs out
+HEARTBEAT_RETRY_SECONDS = 2.0  # a failed heartbeat is retried this soon, not a whole interval later
 
 
 class NoAdapterForDialect(Exception):
@@ -53,6 +66,9 @@ class NoAdapterForDialect(Exception):
 
 def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
     def factory(profile: ModelEndpointProfile) -> ModelAdapter:
+        credentials.check(
+            profile.credential_ref, profile.endpoint
+        )  # refuse before any call; names the variable in the log only
         if profile.api_dialect == "bedrock-converse":
             return BedrockAdapter(profile)
         if profile.api_dialect == "openai-compatible":
@@ -66,6 +82,7 @@ def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
 
 def default_decision_factory(credentials: Credentials) -> DecisionFactory:
     def factory(profile: ModelEndpointProfile) -> DecisionAdapter:
+        credentials.check(profile.credential_ref, profile.endpoint)
         if profile.api_dialect == "decisions-api":
             return DecisionsApiAdapter(profile, credentials)
         if profile.api_dialect == "workers-ai-decision":
@@ -75,24 +92,55 @@ def default_decision_factory(credentials: Credentials) -> DecisionFactory:
     return factory
 
 
+class LeaseWatch:
+    """The worker's estimate of when its lease runs out. Only a successful heartbeat extends a lease, so
+    the estimate moves only when one succeeds (`renewed`); it is measured from just before that call, which
+    is conservative. Shared by the heartbeat thread and the sink."""
+
+    def __init__(self, ttl: float, clock=time.monotonic):
+        self._ttl, self._clock = max(ttl, 1.0), clock
+        self._valid_until = clock() + self._ttl
+
+    @classmethod
+    def for_lease(cls, lease: Lease, clock=time.monotonic) -> "LeaseWatch":
+        ttl = lease.expires_at - time.time()
+        return cls(ttl if 1 <= ttl <= 3600 else 60.0, clock)
+
+    def renewed(self, started: float) -> None:
+        self._valid_until = max(self._valid_until, started + self._ttl)
+
+    def now(self) -> float:
+        return self._clock()
+
+    def remaining(self) -> float:
+        return self._valid_until - self._clock()
+
+
 class ChannelSink:
     """RunSink over a WorkerChannel. Numbers its own events (wseq from 1) so a retried send is
-    idempotent. Any failure that retrying cannot fix becomes SinkFailure."""
+    idempotent. A channel error is retried with capped exponential backoff and jitter until the lease
+    deadline (less a safety margin); it becomes SinkFailure only when the lease is spent, the run is no
+    longer ours (fencing, sequence gap, a 4xx) or the worker was told to abandon it."""
 
     def __init__(
         self,
         channel: WorkerChannel,
         lease: Lease,
         abandoned: threading.Event | None = None,
-        sleep=time.sleep,
+        sleep: Callable[[float], object] | None = None,
         cancel: threading.Event | None = None,
+        watch: LeaseWatch | None = None,
+        clock=time.monotonic,
     ):
-        self._channel, self._lease, self._abandoned, self._sleep = channel, lease, abandoned, sleep
+        self._channel, self._lease, self._abandoned = channel, lease, abandoned
+        self._sleep = sleep or (abandoned.wait if abandoned is not None else time.sleep)
         self._cancel = cancel
+        self._watch = watch or LeaseWatch.for_lease(lease, clock)
         self._wseq = 0
 
     def _send(self, call: Callable[[], object]) -> object:
-        for attempt in range(SEND_ATTEMPTS):
+        attempt = 0
+        while True:
             if self._abandoned is not None and self._abandoned.is_set():
                 raise SinkFailure("lease_lost")
             try:
@@ -100,9 +148,14 @@ class ChannelSink:
             except (FencingError, SequenceGap) as exc:
                 raise SinkFailure(type(exc).__name__) from None
             except ChannelError as exc:
-                if attempt == SEND_ATTEMPTS - 1:
-                    raise SinkFailure(str(exc)) from None
-                self._sleep(min(2**attempt, 4))
+                if exc.run_not_ours:
+                    raise SinkFailure(f"{exc} (the run is no longer ours)") from None
+                budget = self._watch.remaining() - SAFETY_MARGIN_SECONDS
+                if budget <= 0:
+                    raise SinkFailure(f"{exc} (lease deadline reached after {attempt + 1} attempts)") from None
+                delay = min(2.0**attempt, BACKOFF_CAP_SECONDS) * random.uniform(0.5, 1.0)  # noqa: S311  jitter, not security
+                self._sleep(min(delay, budget))
+                attempt += 1
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
         wseq = self._wseq + 1
@@ -183,23 +236,34 @@ def _report_egress(sink, handle: _McpHandle) -> None:
 
 
 class _Heartbeat(threading.Thread):
-    def __init__(self, channel: WorkerChannel, lease: Lease, interval: float):
+    def __init__(self, channel: WorkerChannel, lease: Lease, interval: float, watch: LeaseWatch):
         super().__init__(name=f"maef-heartbeat-{lease.run_id[:8]}", daemon=True)
-        self._channel, self._lease, self._interval = channel, lease, interval
+        self._channel, self._lease, self._interval, self._watch = channel, lease, interval, watch
         self._stop_event = threading.Event()
         self.lost = threading.Event()
         self.cancelled = threading.Event()  # set once the control plane reports a cancel request
 
     def run(self) -> None:
-        while not self._stop_event.wait(self._interval):
+        wait = self._interval
+        while not self._stop_event.wait(wait):
+            started = self._watch.now()
+            wait = self._interval
             try:
                 if self._channel.heartbeat(self._lease):
                     self.cancelled.set()
+                self._watch.renewed(started)
             except FencingError:
                 self.lost.set()
                 return
-            except ChannelError:
-                log.warning("heartbeat failed for run %s; will retry", self._lease.run_id)
+            except ChannelError as exc:
+                if exc.run_not_ours:
+                    log.error("heartbeat for run %s refused (%s); the run is no longer ours", self._lease.run_id, exc)
+                    self.lost.set()
+                    return
+                log.warning("heartbeat failed for run %s; retrying soon", self._lease.run_id)
+                wait = min(HEARTBEAT_RETRY_SECONDS, self._interval)
+            except Exception as exc:  # noqa: BLE001  # a heartbeat thread must not die and let the lease lapse
+                log.warning("heartbeat error for run %s: %s", self._lease.run_id, type(exc).__name__)
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -218,11 +282,17 @@ class Worker:
         sandbox: Sandbox | None = None,
         credentials: Credentials | None = None,
         decision_factory: DecisionFactory | None = None,
+        project_root: Callable[[], Path | None] | None = None,
+        sleep: Callable[[float], object] | None = None,
+        lease_clock=time.monotonic,
     ):
+        self._sleep, self._lease_clock = sleep, lease_clock
+        self._watch: LeaseWatch | None = None
         self._channel, self._adapter_factory = channel, adapter_factory
         self.worker_id, self._heartbeat_seconds, self._clock = worker_id, heartbeat_seconds, clock
         self._sandbox = sandbox
         self._credentials = credentials or Credentials()
+        self._project_root = project_root or _project_or_none
         self._decision_factory = decision_factory or default_decision_factory(self._credentials)
 
     def run_once(self) -> bool:
@@ -230,22 +300,43 @@ class Worker:
         lease = self._channel.claim(self.worker_id)
         if lease is None:
             return False
-        heartbeat = _Heartbeat(self._channel, lease, self._heartbeat_seconds)
+        watch = LeaseWatch.for_lease(lease, self._lease_clock)
+        heartbeat = _Heartbeat(self._channel, lease, self._heartbeat_seconds, watch)
         heartbeat.start()
+        self._watch = watch
         try:
             self._run(lease, heartbeat.lost, heartbeat.cancelled)
         except SinkFailure as exc:
             log.error("run %s abandoned: %s", lease.run_id, exc)
+        except Exception as exc:  # noqa: BLE001  # a worker bug must end the run, not leave it to the sweep
+            log.error("run %s crashed in the worker: %s", lease.run_id, type(exc).__name__)
+            self._fail_internal(lease, heartbeat)
         finally:
             heartbeat.stop()
         return True
+
+    def _sink(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event | None = None) -> ChannelSink:
+        return ChannelSink(
+            self._channel,
+            lease,
+            abandoned,
+            sleep=self._sleep,
+            cancel=cancel,
+            watch=self._watch,
+            clock=self._lease_clock,
+        )
+
+    def _fail_internal(self, lease: Lease, heartbeat: _Heartbeat) -> None:
+        """Best effort: end a run the worker itself crashed on. Recorded usage is still charged by the ledger."""
+        with contextlib.suppress(SinkFailure):
+            self._sink(lease, heartbeat.lost).complete(tokens_used=0, status="failed", terminal_reason="internal_error")
 
     def _run_decision(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event) -> None:
         task = lease.task
         d = task.decision
         if d is None:  # TaskPayload validates this for kind == "decision"
             raise ValueError("decision task has no decision payload")
-        sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
+        sink = self._sink(lease, abandoned, cancel)
 
         def reject(reason: str) -> None:
             sink.append("run.rejected", {"reason": reason}, status="running")
@@ -273,7 +364,7 @@ class Worker:
         pinned = task.pinned
         if pinned is None:  # TaskPayload validates this for kind == "agent"
             raise ValueError("agent task has no pinned definition")
-        sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
+        sink = self._sink(lease, abandoned, cancel)
 
         def reject(reason: str, **detail) -> None:
             # Nothing ran, so nothing is charged and the whole reservation is released.
@@ -416,6 +507,20 @@ class Worker:
             and mcp_ref_problem(pinned.agent, pinned.mcp_servers) in (None, "network_not_permitted")
         )
 
+    def _local_mcp_differences(self, manifest: McpServerManifest) -> list[str]:
+        """Field names where the lease's manifest differs from this worker's `mcp-servers/<id>.yaml`
+        (`["<missing>"]` when there is no usable local file). Names only, never values."""
+        try:
+            root = self._project_root()
+            path = root / "mcp-servers" / f"{manifest.id}.yaml" if root is not None else None
+            if path is None or not path.is_file():
+                return ["<missing>"]
+            local = McpServerManifest.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValidationError):
+            return ["<missing>"]
+        mine, theirs = manifest.model_dump(), local.model_dump()
+        return sorted(k for k in mine.keys() | theirs.keys() if mine.get(k) != theirs.get(k))
+
     def _start_mcp(
         self, lease: Lease, pinned, handles: list[_McpHandle], remaining: Callable[[], float]
     ) -> list[McpToolSet]:
@@ -425,10 +530,17 @@ class Worker:
             return []
         resolved: dict[str, dict[str, str]] = {}
         for manifest in pinned.mcp_servers:  # before any container exists or any model call
+            if manifest.secrets:  # a secret is only ever bound to the worker's own copy of the manifest
+                differing = self._local_mcp_differences(manifest)
+                if differing:
+                    log.warning("mcp manifest %s differs from the local file in: %s", manifest.id, ", ".join(differing))
+                    raise _StartupFailure(f"mcp_manifest_mismatch:{manifest.id}")
             env = dict(manifest.env)
             for name, ref in manifest.secrets.items():
                 try:
                     secret = self._credentials.resolve(ref)
+                except CredentialNotAllowed:
+                    raise _StartupFailure(f"credential_not_allowed:{name}") from None
                 except CredentialError:
                     raise _StartupFailure(f"credential_missing:{name}") from None
                 if secret is None:
@@ -475,6 +587,15 @@ class Worker:
                 stop.wait(poll_seconds)
 
 
+def _project_or_none():
+    from .project import ProjectNotFoundError, project_root
+
+    try:
+        return project_root()
+    except ProjectNotFoundError:
+        return None
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     token = os.environ.get("MAEF_WORKER_CREDENTIAL")
@@ -493,7 +614,12 @@ def main() -> int:
     else:
         removed = sandbox.cleanup_orphans()
         log.info("sandbox runtime %s; removed %d orphaned containers", sandbox.info(), removed)
-    worker = Worker(channel, default_adapter_factory(Credentials()), worker_id=worker_id, sandbox=sandbox)
+    creds = Credentials(
+        allowed=lambda: worker_allowed_credentials(_project_or_none()),
+        explicit=explicit_credentials,
+        bound=lambda: profile_endpoints(_project_or_none()),
+    )
+    worker = Worker(channel, default_adapter_factory(creds), worker_id=worker_id, sandbox=sandbox, credentials=creds)
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())

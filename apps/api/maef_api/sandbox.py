@@ -39,7 +39,6 @@ RUNTIME_ENV = "MAEF_OCI_RUNTIME"
 EGRESS_PROXY_IMAGE = "docker.io/library/python@sha256:c5ba3deef00c7758561a0f03c26f44f10589263d40e732b8748e0d1f38f6dd89"
 _PROVISION_TIMEOUT = 300.0
 _CLI_TIMEOUT = 30.0
-_CANCEL_POLL_SECONDS = 0.25
 
 
 class SandboxError(Exception):
@@ -57,6 +56,8 @@ class ExecResult:
     stderr: bytes
     timed_out: bool = False
     cancelled: bool = False
+    truncated: bool = False  # a stream hit the byte cap; the command was stopped
+    discarded_bytes: int = 0  # lower bound on the bytes dropped beyond the cap (0 unless truncated)
 
 
 class Process(Protocol):
@@ -91,9 +92,17 @@ class EgressSpec:
 
 class Session(Protocol):
     def exec(
-        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+        self,
+        argv: list[str],
+        *,
+        stdin: bytes | None = None,
+        timeout: float,
+        cancel: threading.Event | None = None,
+        max_bytes: int | None = None,
     ) -> ExecResult:
-        """Best effort: once `cancel` is set the exec is killed like a timeout and `cancelled` is True."""
+        """Best effort: once `cancel` is set the exec is killed like a timeout and `cancelled` is True.
+        Output is read as a stream and kept to `max_bytes` per stream (default MAX_OUTPUT_BYTES); a
+        stream passing the cap stops the command and sets `truncated`."""
         ...
 
     def spawn(self, argv: list[str], *, env: dict[str, str]) -> Process:
@@ -138,8 +147,99 @@ def workspace_path(path: str) -> str:
     return norm
 
 
-def _cap(data: bytes | None) -> bytes:
-    return (data or b"")[:MAX_OUTPUT_BYTES]
+def _cap(data: bytes | None, limit: int = MAX_OUTPUT_BYTES) -> bytes:
+    return (data or b"")[:limit]
+
+
+_CHUNK = 64 * 1024
+
+
+def run_capped(
+    cmd: list[str],
+    *,
+    stdin: bytes | None,
+    timeout: float,
+    cancel: threading.Event | None = None,
+    max_bytes: int | None = None,
+    on_stop: Callable[[], None] | None = None,
+) -> ExecResult:
+    """Run `cmd`, reading stdout and stderr as streams and keeping at most `max_bytes` of each.
+
+    Memory stays bounded whatever the command prints. When a stream passes the cap, on timeout or on
+    cancel, the client is killed and `on_stop` is called (it should kill the command inside the
+    container); the captured prefix is returned. `discarded_bytes` is a lower bound.
+    """
+    limit = MAX_OUTPUT_BYTES if max_bytes is None else max_bytes
+    try:
+        popen = subprocess.Popen(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+            cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+    except OSError:
+        raise SandboxError("exec_failed") from None
+    if popen.stdin is None or popen.stdout is None or popen.stderr is None:  # pragma: no cover
+        popen.kill()
+        raise SandboxError("exec_failed")
+    bufs: list[bytearray] = [bytearray(), bytearray()]
+    dropped = [0, 0]
+    over = threading.Event()
+
+    def pump(stream: IO[bytes], i: int) -> None:
+        try:
+            while chunk := os.read(stream.fileno(), _CHUNK):
+                room = max(limit - len(bufs[i]), 0)
+                bufs[i] += chunk[:room]
+                if len(chunk) > room:
+                    dropped[i] += len(chunk) - room
+                    over.set()
+        except (OSError, ValueError):
+            pass
+
+    def feed(pipe: IO[bytes]) -> None:
+        try:
+            if stdin:
+                pipe.write(stdin)
+            pipe.close()
+        except (OSError, ValueError):
+            pass
+
+    threads = [
+        threading.Thread(target=pump, args=(popen.stdout, 0), daemon=True),
+        threading.Thread(target=pump, args=(popen.stderr, 1), daemon=True),
+        threading.Thread(target=feed, args=(popen.stdin,), daemon=True),
+    ]
+    for t in threads:
+        t.start()
+    deadline = time.monotonic() + max(timeout, 0.1)
+    timed_out = cancelled = False
+    while popen.poll() is None:
+        if cancel is not None and cancel.is_set():
+            cancelled = True
+        elif time.monotonic() >= deadline:
+            timed_out = True
+        if cancelled or timed_out or over.is_set():
+            break
+        over.wait(0.05)
+    stopped = popen.poll() is None
+    if stopped:
+        popen.kill()
+        if on_stop is not None:
+            on_stop()
+        with contextlib.suppress(subprocess.SubprocessError):
+            popen.wait(timeout=5)
+    for t in threads[:2]:
+        t.join(5)
+    for f in (popen.stdout, popen.stderr):
+        with contextlib.suppress(OSError, ValueError):
+            f.close()
+    return ExecResult(
+        -1 if stopped or popen.returncode is None else popen.returncode,
+        bytes(bufs[0]),
+        bytes(bufs[1]),
+        timed_out=timed_out and not cancelled,
+        cancelled=cancelled,
+        truncated=any(dropped),
+        discarded_bytes=sum(dropped),
+    )
 
 
 class OciCliSandbox:
@@ -413,63 +513,20 @@ class _OciSession:
         return self._summary
 
     def exec(
-        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+        self,
+        argv: list[str],
+        *,
+        stdin: bytes | None = None,
+        timeout: float,
+        cancel: threading.Event | None = None,
+        max_bytes: int | None = None,
     ) -> ExecResult:
         if not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError("invalid_argv")
-        if cancel is not None:
-            return self._exec_cancellable(argv, stdin, timeout, cancel)
-        try:
-            done = self._sb._run(
-                ["exec", "-i", "-w", WORKSPACE, self.name, *argv], timeout=max(timeout, 0.1), stdin=stdin or b""
-            )
-        except subprocess.TimeoutExpired as exc:
-            self._kill_all()
-            out = exc.stdout if isinstance(exc.stdout, bytes) else None
-            err = exc.stderr if isinstance(exc.stderr, bytes) else None
-            return ExecResult(-1, _cap(out), _cap(err), True)
-        except OSError:
-            raise SandboxError("exec_failed") from None
-        return ExecResult(done.returncode, _cap(done.stdout), _cap(done.stderr))
-
-    def _exec_cancellable(
-        self, argv: list[str], stdin: bytes | None, timeout: float, cancel: threading.Event
-    ) -> ExecResult:
-        """Like exec, but waits in short slices so `cancel` can interrupt it."""
-        if cancel.is_set():
+        if cancel is not None and cancel.is_set():
             return ExecResult(-1, b"", b"", cancelled=True)
         cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, self.name, *argv]
-        try:
-            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
-        except OSError:
-            raise SandboxError("exec_failed") from None
-        deadline = time.monotonic() + max(timeout, 0.1)
-        data = stdin or b""
-        while True:
-            try:
-                out, err = popen.communicate(input=data, timeout=_CANCEL_POLL_SECONDS)
-                return ExecResult(popen.returncode, _cap(out), _cap(err))
-            except subprocess.TimeoutExpired as exc:
-                data = None  # communicate() resumes; stdin was already handed over
-                timed_out, cancelled = time.monotonic() >= deadline, cancel.is_set()
-                if not (timed_out or cancelled):
-                    continue
-                popen.kill()
-                self._kill_all()
-                try:
-                    out, err = popen.communicate(timeout=5)
-                except (subprocess.SubprocessError, OSError):
-                    out, err = exc.stdout, exc.stderr
-                return ExecResult(
-                    -1,
-                    _cap(out if isinstance(out, bytes) else None),
-                    _cap(err if isinstance(err, bytes) else None),
-                    timed_out=timed_out and not cancelled,
-                    cancelled=cancelled,
-                )
-            except OSError:
-                popen.kill()
-                raise SandboxError("exec_failed") from None
+        return run_capped(cmd, stdin=stdin, timeout=timeout, cancel=cancel, max_bytes=max_bytes, on_stop=self._kill_all)
 
     def spawn(self, argv: list[str], *, env: dict[str, str]) -> Process:
         if not argv or not all(isinstance(a, str) for a in argv):
@@ -625,15 +682,29 @@ class FakeSession:
         return self.spawn_factory(list(argv), dict(env))
 
     def exec(
-        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+        self,
+        argv: list[str],
+        *,
+        stdin: bytes | None = None,
+        timeout: float,
+        cancel: threading.Event | None = None,
+        max_bytes: int | None = None,
     ) -> ExecResult:
         self.execs.append(list(argv))
         self.timeouts.append(timeout)
         if cancel is not None and cancel.is_set():
             return ExecResult(-1, b"", b"", cancelled=True)
         result = self.handler(argv, stdin)
+        limit = MAX_OUTPUT_BYTES if max_bytes is None else max_bytes
+        over = max(len(result.stdout) - limit, 0) + max(len(result.stderr) - limit, 0)
         return ExecResult(
-            result.exit_code, _cap(result.stdout), _cap(result.stderr), result.timed_out, result.cancelled
+            result.exit_code,
+            _cap(result.stdout, limit),
+            _cap(result.stderr, limit),
+            result.timed_out,
+            result.cancelled,
+            truncated=result.truncated or over > 0,
+            discarded_bytes=result.discarded_bytes + over,
         )
 
     def put(self, path: str, data: bytes) -> None:
