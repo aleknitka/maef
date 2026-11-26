@@ -266,8 +266,9 @@ args = ["mcp"]
 env = { MAEF_API_URL = "http://127.0.0.1:8000", MAEF_API_TOKEN = "<token>" }
 ```
 
-Agent output is treated as untrusted: the gateway wraps it in `<maef-result run_id=... status=...>` and caps it at
-100 KiB.
+Agent output is treated as untrusted: the gateway wraps it in `<maef-result-NONCE run_id=... status=...>` ... `</maef-result-NONCE>` (a fresh random
+hex nonce per call, with a one-line preamble saying only that tag closes the block), neutralises any `maef-result`
+tag inside the text (`</maef-result` becomes `<\/maef-result`) and caps it at 100 KiB.
 
 ## 9. Decision models (Jev, Clef)
 
