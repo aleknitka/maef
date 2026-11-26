@@ -56,8 +56,8 @@ def test_wait_timeout_exits_3(live_api, capsys):
     assert "timed out" in capsys.readouterr().err
 
 
-def test_unknown_agent_exits_2(live_api, capsys):
-    assert cli(live_api, "run", "no-such-agent", "Hello", "--wait") == 2
+def test_unknown_agent_exits_1(live_api, capsys):
+    assert cli(live_api, "run", "no-such-agent", "Hello", "--wait") == 1
     assert "Agent not found" in capsys.readouterr().err
 
 
@@ -75,7 +75,7 @@ def test_get_writes_bytes_and_refuses_overwrite_without_force(live_api, tmp_path
     assert cli(live_api, "get", digest, "-o", str(dest)) == 0
     assert dest.read_bytes() == b"Final answer."
     dest.write_bytes(b"keep me")
-    assert cli(live_api, "get", digest, "-o", str(dest)) == 2
+    assert cli(live_api, "get", digest, "-o", str(dest)) == 1
     assert dest.read_bytes() == b"keep me"
     assert cli(live_api, "get", digest, "-o", str(dest), "--force") == 0
     assert dest.read_bytes() == b"Final answer."

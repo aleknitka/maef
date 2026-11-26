@@ -12,7 +12,7 @@ import secrets
 from dataclasses import dataclass
 
 from .ledger import Ledger
-from .registry import ROOT
+from .project import project_root
 
 API_PREFIX = "maef_"
 WORKER_PREFIX = "maefw_"
@@ -107,4 +107,4 @@ def verify_worker_token(ledger: Ledger, token: str | None) -> str | None:
 
 def local_ledger() -> Ledger:
     """The ledger the API uses (MAEF_DB), opened directly: the bootstrap CLI is the root of trust."""
-    return Ledger.open(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+    return Ledger.open(os.environ.get("MAEF_DB") or project_root() / "runs" / "maef.db")

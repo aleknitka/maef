@@ -56,8 +56,8 @@ from .models import (
     is_loopback_host,
 )
 from .otel import OtlpExportError, export_pending, exporter_from_env
+from .project import project_root
 from .registry import (
-    ROOT,
     AgentRegistry,
     McpServerRegistry,
     ModelProfileRegistry,
@@ -155,8 +155,11 @@ def allow_dirty() -> bool:
     return os.environ.get("MAEF_ALLOW_DIRTY") == "1"
 
 
+# The API serves one project, resolved when the app starts (MAEF_HOME, the folder's maef.toml, or the checkout).
+PROJECT = project_root()
+
 # Ledger lives under the gitignored runs/ directory unless overridden.
-ledger = Ledger.open(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+ledger = Ledger.open(os.environ.get("MAEF_DB") or PROJECT / "runs" / "maef.db")
 ledger.ensure_account("default", int(os.environ.get("MAEF_ACCOUNT_LIMIT_TOKENS", "5000000")))
 artifacts = default_artifact_store()
 runs = Runs(
@@ -166,7 +169,7 @@ runs = Runs(
     allow_dirty=lambda: allow_dirty(),
 )
 
-drafts = Drafts(ROOT)
+drafts = Drafts(PROJECT)
 
 # --- Authentication and audit (BACKEND_PLAN step 11; scope table in packages/contracts/CONTRACTS.md) ---
 

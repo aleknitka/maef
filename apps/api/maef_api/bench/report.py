@@ -2,8 +2,9 @@
 
 import subprocess
 from datetime import datetime
+from importlib import metadata
 
-from ..registry import ROOT
+from ..project import ProjectNotFoundError, project_root
 from .families.base import STRAPLINE
 
 _NA = "not reported"
@@ -20,17 +21,26 @@ def _ts(value) -> float | None:
     return None
 
 
+def harness_version() -> str:
+    """The installed package version, the same one `maef --version` prints."""
+    try:
+        return metadata.version("maef-control-plane")
+    except metadata.PackageNotFoundError:
+        return "unknown"
+
+
 def git_revision() -> str:
+    """Short git revision of the project folder; 'unknown' when it is not a git checkout."""
     try:
         done = subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
-            ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],  # noqa: S607  fixed 'git' executable resolved from PATH by design
+            ["git", "-C", str(project_root()), "rev-parse", "--short", "HEAD"],  # noqa: S607  fixed 'git' executable resolved from PATH by design
             capture_output=True,
             text=True,
             timeout=10,
             check=False,
         )
         return done.stdout.strip() or "unknown"
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError, ProjectNotFoundError):
         return "unknown"
 
 
@@ -114,6 +124,7 @@ def build(
     return {
         "run_id": run.get("run_id") or run.get("id"),
         "agent_id": agent_id,
+        "harness_version": harness_version(),
         "git_revision": git_revision(),
         "agent_revision": run.get("agent_revision") or run.get("definition_digest"),
         "family": variant.family,
@@ -157,7 +168,8 @@ def render(r: dict) -> str:
         f"> {STRAPLINE}",
         "",
         f"- Run: `{r['run_id']}`",
-        f"- Agent: `{r['agent_id']}` (repo revision `{r['git_revision']}`"
+        f"- Agent: `{r['agent_id']}` (harness {r.get('harness_version', 'unknown')}, "
+        f"repo revision `{r['git_revision']}`"
         + (f", definition `{r['agent_revision']}`" if r.get("agent_revision") else "")
         + ")",
         f"- Model: {', '.join(r['models']) or _NA}; provider: {', '.join(r['providers']) or _NA}",

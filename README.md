@@ -70,6 +70,21 @@ maef run research-analyst "Summarise what HTTP caching headers do" --wait
 Prefer a screen? Run `make tui` for the terminal interface (needs [Bun](https://bun.sh); `cd apps/tui && bun install`
 once).
 
+## Install from a release
+
+Download the wheel from the release page, then install it as a tool and set up a project in an empty folder:
+
+```bash
+uv tool install maef_control_plane-0.1.0-py3-none-any.whl
+mkdir my-agents && cd my-agents
+maef init                           # starter agents, a git repository, model profile, results folder, database
+maef lint
+```
+
+`maef init` needs `git` (agent definitions are pinned by git revision). It writes `maef.toml`, which marks the folder
+as a project: run `maef` from it or any subfolder, or set `MAEF_HOME`. Then follow the access-key steps above, using
+`MAEF_EXECUTION_ENABLED=1 maef api` and `maef worker` in place of `make api` and `make worker`.
+
 ## The main ideas
 
 | Term | Meaning |
@@ -157,3 +172,8 @@ cd apps/tui && bun test
 5. Budgets in tokens, reserved before running.
 6. Fail closed: missing policy, unpinned images or unavailable isolation stop the run.
 7. A human reviews privileged changes; nothing is merged automatically.
+
+## Licence
+
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The MAEF name and logo are covered separately in
+[TRADEMARKS.md](TRADEMARKS.md).

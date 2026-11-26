@@ -11,11 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from ..registry import ROOT
+from ..registry import sandbox_profiles_dir
 from ..sandbox import detect_sandbox
 
 TIMEOUT_SECONDS = 120
-PROFILE = ROOT / "sandbox-profiles" / "python-sandbox.yaml"
 NOT_DELIVERABLES = {"output.md", "transcript.jsonl"}
 
 
@@ -24,7 +23,7 @@ def _error(msg: str) -> dict:
 
 
 def _image() -> str:
-    return yaml.safe_load(PROFILE.read_text(encoding="utf-8"))["image"]
+    return yaml.safe_load((sandbox_profiles_dir() / "python-sandbox.yaml").read_text(encoding="utf-8"))["image"]
 
 
 def _mount_opts() -> str:

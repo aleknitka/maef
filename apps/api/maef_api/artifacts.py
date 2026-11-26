@@ -222,9 +222,9 @@ def default_artifact_store() -> "ArtifactStore":
             credentials_ref=env("MAEF_S3_ACCESS_KEY_REF") or DEFAULT_CREDENTIALS_REF,
             secret_ref=env("MAEF_S3_SECRET_KEY_REF") or None,
         )
-    from .registry import ROOT
+    from .project import project_root
 
-    return LocalArtifactStore(os.environ.get("MAEF_ARTIFACTS_DIR") or ROOT / "artifacts")
+    return LocalArtifactStore(os.environ.get("MAEF_ARTIFACTS_DIR") or project_root() / "artifacts")
 
 
 class ArtifactLog(Protocol):
