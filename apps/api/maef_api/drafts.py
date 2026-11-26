@@ -208,7 +208,7 @@ class Drafts:
         if bool(agent_id) == bool(new_agent_id):
             raise DraftRejected("invalid_request", "Give exactly one of agent_id or new_agent_id.")
         target = agent_id or new_agent_id
-        if not _AGENT_ID.fullmatch(target or ""):
+        if not target or not _AGENT_ID.fullmatch(target):
             raise DraftRejected("invalid_request", "Agent id must match ^[a-z][a-z0-9-]{1,62}$.")
         with self._lock:
             try:

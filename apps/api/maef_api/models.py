@@ -59,7 +59,8 @@ class _HttpEndpoint(BaseModel):
 
     @property
     def is_loopback(self) -> bool:
-        return is_loopback_host(urlparse(self.base_url).hostname)
+        host = urlparse(self.base_url).hostname
+        return host is not None and is_loopback_host(host)
 
 
 class OpenAICompatibleEndpoint(_HttpEndpoint):
@@ -106,9 +107,13 @@ _KIND_DIALECT = {
 }
 
 
+def _text_only() -> list[Literal["text", "image"]]:
+    return ["text"]
+
+
 class ModelCapabilities(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    input_modalities: list[Literal["text", "image"]] = Field(default_factory=lambda: ["text"])
+    input_modalities: list[Literal["text", "image"]] = Field(default_factory=_text_only)
     streaming: bool = False
 
 

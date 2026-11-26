@@ -146,6 +146,8 @@ def parse_answers(req: DecisionRequest, raw: object) -> dict[str, Answer]:
         if q.type == "noul":
             out[name] = Answer(type="noul", value=_num(a.get("noul"), 0, 1), confidence=confidence)
         elif q.type == "choice":
+            if q.criteria is None:  # unreachable: Question validates criteria for choice
+                raise _invalid()
             options = set(q.criteria)
             choice = a.get("choice")
             if not isinstance(choice, str) or choice not in options:
@@ -157,6 +159,8 @@ def parse_answers(req: DecisionRequest, raw: object) -> dict[str, Answer]:
                 probabilities=_probabilities(a.get("probabilities"), options),
             )
         else:
+            if q.criteria is None:  # unreachable: Question validates criteria for score
+                raise _invalid()
             levels = len(q.criteria)
             out[name] = Answer(
                 type="score",
@@ -185,14 +189,16 @@ def _decision(req: DecisionRequest, result: object) -> Decision:
 
 
 class _HttpDecisionAdapter:
-    _endpoint_type: type
+    _endpoint_type: type[DecisionsApiEndpoint | WorkersAiEndpoint]
 
     def __init__(
         self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None, policy: EgressPolicy | None = None
     ):
-        if not isinstance(profile.endpoint, self._endpoint_type):
+        endpoint = profile.endpoint
+        if not isinstance(endpoint, self._endpoint_type):
             raise TypeError(f"Profile {profile.id} is not a {self._endpoint_type.__name__} profile")
         self.profile = profile
+        self._endpoint = endpoint
         self._credentials = credentials
         self._policy = policy or EgressPolicy()
         self._extra = {"sleep": sleep} if sleep else {}
@@ -204,7 +210,7 @@ class _HttpDecisionAdapter:
         return key.reveal()
 
     def _post(self, url: str, headers: dict, body: dict, timeout_seconds: float) -> dict:
-        ep = self.profile.endpoint
+        ep = self._endpoint
         reply = post_json(
             url,
             headers,
@@ -227,7 +233,9 @@ class DecisionsApiAdapter(_HttpDecisionAdapter):
     _endpoint_type = DecisionsApiEndpoint
 
     def decide(self, req: DecisionRequest, *, timeout_seconds: float) -> Decision:
-        ep = self.profile.endpoint
+        ep = self._endpoint
+        if not isinstance(ep, DecisionsApiEndpoint):
+            raise TypeError(f"Profile {self.profile.id} is not a DecisionsApiEndpoint profile")
         if req.request_bytes() > DECISIONS_API_MAX_BYTES:
             raise ModelHTTPError(None, "request_too_large")
         # One key per logical request; a retry after a failure may be answered 409 (fails closed, no double charge).
@@ -247,7 +255,9 @@ class WorkersAiDecisionAdapter(_HttpDecisionAdapter):
     _endpoint_type = WorkersAiEndpoint
 
     def decide(self, req: DecisionRequest, *, timeout_seconds: float) -> Decision:
-        ep = self.profile.endpoint
+        ep = self._endpoint
+        if not isinstance(ep, WorkersAiEndpoint):
+            raise TypeError(f"Profile {self.profile.id} is not a WorkersAiEndpoint profile")
         headers = {"Authorization": f"Bearer {self._key()}"}
         # The body selects the model by its short name ("clef-omni" for @cf/cloudflare/clef-omni).
         body = {"model": ep.model_id.rsplit("/", 1)[-1], "state": req.state, "questions": req.wire_questions()}
@@ -279,12 +289,13 @@ class FakeDecisionAdapter:
             raw = {}
             for name, q in req.questions.items():
                 if q.type == "choice":
-                    first = next(iter(q.criteria))
+                    options = q.criteria or {}  # a choice question always has criteria (Question validates)
+                    first = next(iter(options))
                     raw[name] = {
                         "type": "choice",
                         "choice": first,
                         "confidence": 1.0,
-                        "probabilities": {k: 1.0 if k == first else 0.0 for k in q.criteria},
+                        "probabilities": {k: 1.0 if k == first else 0.0 for k in options},
                     }
                 elif q.type == "score":
                     raw[name] = {"type": "score", "score": 0.0, "confidence": 1.0}

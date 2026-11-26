@@ -24,6 +24,8 @@ def execute_decision(
 ) -> None:
     """Run one decision to a terminal state. Failures are recorded, not raised; only SinkFailure escapes."""
     d = task.decision
+    if d is None:  # TaskPayload validates this for kind == "decision"
+        raise ValueError("decision task has no decision payload")
     profile, request = d.profile, d.request
     in_tokens = out_tokens = 0
     artifacts = []

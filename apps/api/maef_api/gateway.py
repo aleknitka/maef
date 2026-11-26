@@ -185,11 +185,11 @@ class Gateway:
                 )
                 or "No agents available."
             )
-        run_id = _str(a, "run_id") if name not in ("delegate", "decide") else None
         if name == "delegate":
             return self._delegate(a)
         if name == "decide":
             return self._decide(a)
+        run_id = _str(a, "run_id")
         if name == "run_status":
             return _summary(c.get_run(run_id))
         if name == "cancel_run":

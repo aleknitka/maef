@@ -53,9 +53,11 @@ class OpenAICompatibleAdapter:
     def __init__(
         self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None, policy: EgressPolicy | None = None
     ):
-        if not isinstance(profile.endpoint, OpenAICompatibleEndpoint):
+        endpoint = profile.endpoint
+        if not isinstance(endpoint, OpenAICompatibleEndpoint):
             raise TypeError(f"Profile {profile.id} is not an openai-compatible profile")
         self.profile = profile
+        self._endpoint = endpoint
         self._credentials = credentials
         self._policy = policy or EgressPolicy()
         self._extra = {"sleep": sleep} if sleep else {}
@@ -69,7 +71,7 @@ class OpenAICompatibleAdapter:
         max_output_tokens: int,
         timeout_seconds: float,
     ) -> ModelResponse:
-        ep = self.profile.endpoint
+        ep = self._endpoint
         key = self._credentials.resolve(self.profile.credential_ref)
         body = {
             "model": ep.model_id,

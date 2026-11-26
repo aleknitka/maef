@@ -690,10 +690,10 @@ async def worker_artifact(
     run_id: str,
     request: Request,
     worker_id: Annotated[str, Depends(require_worker)],
+    x_fencing_token: Annotated[int, Header()],
+    x_content_digest: Annotated[str, Header()],
     name: str = Query(min_length=1, max_length=512),
     mime: str = Query(default="application/octet-stream", max_length=200),
-    x_fencing_token: Annotated[int, Header()] = ...,
-    x_content_digest: Annotated[str, Header()] = ...,
 ):
     declared = request.headers.get("content-length")
     if declared and declared.isdigit() and int(declared) > MAX_ARTIFACT_BYTES:

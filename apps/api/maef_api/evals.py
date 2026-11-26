@@ -155,6 +155,8 @@ def _check(check: Check, *, status: str, tokens: int | None, text: str, answers)
     if check.status is not None:
         return CheckResult(name=name, passed=status == check.status, detail=f"was {status}")
     spec = check.json_path_equals
+    if spec is None:  # unreachable: Check validates that exactly one field is set
+        raise ValueError("check sets no condition")
     found = _json_path(answers, spec.path) if answers is not None else _MISSING
     if found is _MISSING:
         return CheckResult(name=name, passed=False, detail="path not found")

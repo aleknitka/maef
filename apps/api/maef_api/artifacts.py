@@ -231,11 +231,20 @@ class ArtifactLog(Protocol):
     """The ledger's side of intake. `token=None` skips fencing (in-process, single-host use)."""
 
     def check_artifact_room(
-        self, run_id: str, token: int | None, size: int, *, digest: str | None = None, name: str | None = None
+        self,
+        run_id: str,
+        token: int | None,
+        size: int,
+        *,
+        digest: str | None = None,
+        name: str | None = None,
+        worker_id: str | None = None,
     ) -> None:
         """Raises FencingError, or ArtifactRejected('run_limit')."""
 
-    def add_artifact(self, run_id: str, token: int | None, ref: ArtifactRef) -> None: ...
+    def add_artifact(
+        self, run_id: str, token: int | None, ref: ArtifactRef, *, worker_id: str | None = None
+    ) -> None: ...
 
 
 class ArtifactIntake:

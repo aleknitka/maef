@@ -13,6 +13,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import cast
 
 import yaml
 from pydantic import ValidationError
@@ -111,7 +112,9 @@ class ChannelSink:
             self._cancel.set()
 
     def upload(self, name: str, mime: str, data: bytes) -> ArtifactRef:
-        return self._send(lambda: self._channel.upload(self._lease, name=name, mime=mime, data=data))
+        ref = self._send(lambda: self._channel.upload(self._lease, name=name, mime=mime, data=data))
+        # _send returns the channel call's own result, which is the ArtifactRef from upload()
+        return cast(ArtifactRef, ref)
 
     def complete(self, *, tokens_used: int, status: str, terminal_reason: str) -> None:
         self._send(
@@ -126,7 +129,7 @@ class _TeardownSink:
     `sandbox.torn_down` recorded, before the terminal event (nothing can be appended once the run
     is terminal)."""
 
-    def __init__(self, inner: ChannelSink, steps: list[Callable[[ChannelSink], None]]):
+    def __init__(self, inner: ChannelSink, steps: list[Callable[[ChannelSink], object]]):
         self._inner, self._steps, self._done = inner, steps, False
 
     def append(self, type: str, payload: dict | None = None, *, status: str | None = None) -> None:
@@ -240,6 +243,8 @@ class Worker:
     def _run_decision(self, lease: Lease, abandoned: threading.Event, cancel: threading.Event) -> None:
         task = lease.task
         d = task.decision
+        if d is None:  # TaskPayload validates this for kind == "decision"
+            raise ValueError("decision task has no decision payload")
         sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
 
         def reject(reason: str) -> None:
@@ -266,6 +271,8 @@ class Worker:
         if task.kind == "decision":
             return self._run_decision(lease, abandoned, cancel)
         pinned = task.pinned
+        if pinned is None:  # TaskPayload validates this for kind == "agent"
+            raise ValueError("agent task has no pinned definition")
         sink = ChannelSink(self._channel, lease, abandoned, cancel=cancel)
 
         def reject(reason: str, **detail) -> None:
@@ -280,7 +287,9 @@ class Worker:
         if mcp_ref_problem(pinned.agent, pinned.mcp_servers) == "network_not_permitted":
             return reject("network_not_permitted")
         needs_sandbox = any(t in SANDBOXED_TOOLS for t in pinned.agent.tools)
-        if needs_sandbox and (self._sandbox is None or pinned.sandbox is None):
+        sandbox = self._sandbox
+        sandbox_profile = pinned.sandbox
+        if needs_sandbox and (sandbox is None or sandbox_profile is None):
             return reject("sandbox_unavailable")
         deadline = self._clock() + task.budget.max_duration_seconds
         session = None
@@ -288,8 +297,8 @@ class Worker:
         try:
             try:
                 adapter = self._adapter_factory(pinned.profile)
-                if needs_sandbox:
-                    session = self._sandbox.provision(pinned.sandbox, lease.run_id)
+                if needs_sandbox and sandbox is not None and sandbox_profile is not None:  # checked above
+                    session = sandbox.provision(sandbox_profile, lease.run_id)
                 tools = BuiltinTools(
                     pinned.agent.tools,
                     pinned.files,
@@ -308,23 +317,26 @@ class Worker:
             except _StartupFailure as failure:
                 return reject(failure.reason, **failure.detail)
             network_open = pinned.agent.permissions.network_open
-            if session is not None:
+            if session is not None and sandbox is not None and sandbox_profile is not None:  # set together above
                 sink.append(
                     "sandbox.provisioned",
                     {
-                        **self._sandbox.info(),
-                        "profile": pinned.sandbox.id,
+                        **sandbox.info(),
+                        "profile": sandbox_profile.id,
                         "network": "none",
                         "network_open": network_open,
-                        "unpinned_image_allowed": not is_pinned_image(pinned.sandbox.image),
+                        "unpinned_image_allowed": not is_pinned_image(sandbox_profile.image),
                     },
                 )
             for handle in mcp:
                 manifest = handle.manifest
+                handle_tools = handle.tools
+                if sandbox is None or handle_tools is None:  # a started server has a sandbox and a tool set
+                    raise RuntimeError("mcp server started without a sandbox or tool set")
                 sink.append(
                     "sandbox.provisioned",
                     {
-                        **self._sandbox.info(),
+                        **sandbox.info(),
                         "profile": manifest.id,
                         "server": manifest.id,
                         "network": manifest.network,
@@ -337,7 +349,7 @@ class Worker:
                     {
                         "server": manifest.id,
                         "version": manifest.version,
-                        "tool_count": len(handle.tools.specs()),
+                        "tool_count": len(handle_tools.specs()),
                         "network": manifest.network,
                     },
                 )
@@ -351,12 +363,12 @@ class Worker:
                             "ports": manifest.allowed_ports,
                         },
                     )
-                if handle.tools.truncated:
+                if handle_tools.truncated:
                     sink.append(
                         "mcp.tools_truncated",
-                        {"server": manifest.id, "listed": handle.tools.listed, "max_tools": manifest.max_tools},
+                        {"server": manifest.id, "listed": handle_tools.listed, "max_tools": manifest.max_tools},
                     )
-            steps: list[Callable[[ChannelSink], None]] = []
+            steps: list[Callable[[ChannelSink], object]] = []
             for handle in mcp:
                 steps.append(
                     lambda s, h=handle: (
@@ -365,10 +377,9 @@ class Worker:
                         _report_egress(s, h),
                     )
                 )
-            if session is not None:
-                steps.append(
-                    lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": pinned.sandbox.id}))
-                )
+            if session is not None and sandbox_profile is not None:
+                profile_id = sandbox_profile.id
+                steps.append(lambda s: (session.teardown(), s.append("sandbox.torn_down", {"profile": profile_id})))
             run_sink = _TeardownSink(sink, steps) if steps else sink
             outputs = None if session is None else (lambda: collect_outputs(session))
             run = PreparedRun(

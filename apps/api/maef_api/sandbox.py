@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import IO, Literal, Protocol
 
 from . import egress_proxy
 from .models import SandboxProfile, is_pinned_image
@@ -203,6 +203,8 @@ class OciCliSandbox:
         if network == "none":
             net_args = ["--network=none"]
         elif network == "allowlist":
+            if egress is None:  # unreachable: rejected above
+                raise SandboxUnavailable("egress_not_configured")
             net, proxy = f"maef-egress-{safe}-{suffix}", f"maef-proxy-{safe}-{suffix}"
             try:
                 proxy_ip = self._start_egress(net, proxy, run_id, egress)
@@ -525,7 +527,12 @@ class _OciProcess:
     and a chatty process is held back by the pipe instead of growing memory."""
 
     def __init__(self, popen: subprocess.Popen):
+        # spawn() opens both pipes; a Popen without them cannot be driven
+        if popen.stdin is None or popen.stdout is None:
+            raise ValueError("process needs stdin and stdout pipes")
         self._p = popen
+        self._stdin: IO[bytes] = popen.stdin
+        self._stdout: IO[bytes] = popen.stdout
         self._lines: queue.Queue[bytes] = queue.Queue(maxsize=64)
         self._closed = threading.Event()
         threading.Thread(target=self._pump, name="maef-oci-reader", daemon=True).start()
@@ -541,7 +548,7 @@ class _OciProcess:
     def _pump(self) -> None:
         try:
             while not self._closed.is_set():
-                line = self._p.stdout.readline(MAX_LINE_BYTES + 1)
+                line = self._stdout.readline(MAX_LINE_BYTES + 1)
                 self._put(line)
                 if not line:
                     return
@@ -550,8 +557,8 @@ class _OciProcess:
 
     def write(self, data: bytes) -> None:
         try:
-            self._p.stdin.write(data)
-            self._p.stdin.flush()
+            self._stdin.write(data)
+            self._stdin.flush()
         except (OSError, ValueError):
             raise SandboxError("process_write_failed") from None
 
@@ -563,7 +570,7 @@ class _OciProcess:
 
     def close(self) -> None:
         self._closed.set()
-        for stream in (self._p.stdin, self._p.stdout):
+        for stream in (self._stdin, self._stdout):
             with contextlib.suppress(OSError, ValueError):
                 stream.close()
         try:

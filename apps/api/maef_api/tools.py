@@ -130,6 +130,8 @@ class BuiltinTools:
         timeout = min(DEFAULT_EXEC_TIMEOUT, self._exec_timeout())
         if timeout <= 0:
             return ToolResult("duration_exhausted", True)
+        if self._session is None:  # unreachable: __init__ requires a session for sandboxed tools
+            return ToolResult("sandbox_error", True)
         try:
             extra = {"cancel": self._cancel} if self._cancel is not None else {}
             res = self._session.exec(

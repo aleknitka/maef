@@ -162,6 +162,8 @@ class Runs:
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
+        if record is None:  # the run was admitted just above
+            raise RunNotFound(run_id)
         return RunRecord.model_validate(record.model_dump(exclude={"events"}))
 
     def submit_decision(self, req: DecisionRunRequest) -> RunRecord:
@@ -187,6 +189,8 @@ class Runs:
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
+        if record is None:  # the run was admitted just above
+            raise RunNotFound(run_id)
         return RunRecord.model_validate(record.model_dump(exclude={"events"}))
 
     def get(self, run_id: str) -> RunDetail | None:

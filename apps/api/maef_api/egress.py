@@ -32,7 +32,7 @@ class EgressPolicy:
             infos = self._resolver(
                 host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM
             )
-            addrs = [ip_address(info[4][0].split("%")[0]) for info in infos]
+            addrs = [ip_address(str(info[4][0]).split("%")[0]) for info in infos]
         except (OSError, ValueError):
             raise EgressDenied("egress_denied:unresolvable") from None
         if not addrs:

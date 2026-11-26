@@ -44,6 +44,13 @@ markers = [
     "pg: runs against PostgreSQL (podman, or MAEF_TEST_POSTGRES_URL); skipped when neither is available (make test-pg)",
 ]
 
+[tool.ty.environment]
+python-version = "3.11"
+root = ["apps/api"]
+
+[tool.ty.src]
+include = ["apps/api"]
+
 [tool.ruff]
 line-length = 120
 target-version = "py311"

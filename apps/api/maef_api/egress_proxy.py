@@ -289,7 +289,7 @@ class _Proxy:
                 infos = await asyncio.wait_for(
                     asyncio.get_running_loop().getaddrinfo(normalize_host(host), port, type=socket.SOCK_STREAM), 10
                 )
-                addrs = list(dict.fromkeys(i[4][0] for i in infos))
+                addrs = list(dict.fromkeys(str(i[4][0]) for i in infos))
             except (TimeoutError, OSError):
                 addrs = []
             reason = vet_addresses(addrs)

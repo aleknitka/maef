@@ -16,6 +16,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse
 
 from .adapters.http import ModelHTTPError, post_json
@@ -300,7 +301,8 @@ def to_otlp(spans: list[Span]) -> dict:
     """The `ExportTraceServiceRequest` JSON body for these spans."""
     wire = []
     for s in spans:
-        item = {
+        status: dict[str, Any] = {"code": s.status}
+        item: dict[str, Any] = {
             "traceId": s.trace_id,
             "spanId": s.span_id,
             "name": s.name,
@@ -308,12 +310,12 @@ def to_otlp(spans: list[Span]) -> dict:
             "startTimeUnixNano": str(s.start_ns),
             "endTimeUnixNano": str(s.end_ns),
             "attributes": _kv(s.attributes),
-            "status": {"code": s.status},
+            "status": status,
         }
         if s.parent_id:
             item["parentSpanId"] = s.parent_id
         if s.status_message:
-            item["status"]["message"] = s.status_message
+            status["message"] = s.status_message
         wire.append(item)
     return {
         "resourceSpans": [

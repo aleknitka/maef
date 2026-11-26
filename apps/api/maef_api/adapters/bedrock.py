@@ -1,4 +1,4 @@
-from ..models import ModelEndpointProfile
+from ..models import BedrockEndpoint, ModelEndpointProfile
 from .base import (
     Message,
     ModelResponse,
@@ -33,7 +33,7 @@ def _wire_messages(messages: list[Message]) -> list[dict]:
             )
             continue
         for m in batch:
-            blocks = [{"text": m.text}] if m.text else []
+            blocks: list[dict] = [{"text": m.text}] if m.text else []
             blocks += [{"toolUse": {"toolUseId": c.id, "name": c.name, "input": c.arguments}} for c in m.tool_calls]
             out.append({"role": m.role, "content": blocks})
     return out
@@ -47,7 +47,11 @@ class BedrockAdapter:
             raise ValueError(f"Profile {profile.id} is not a bedrock-converse profile")
         if profile.credential_ref != "aws:default-chain":
             raise ValueError(f"Unsupported credential_ref: {profile.credential_ref}")
+        endpoint = profile.endpoint
+        if not isinstance(endpoint, BedrockEndpoint):
+            raise ValueError(f"Profile {profile.id} is not a bedrock profile")
         self.profile = profile
+        self._endpoint = endpoint
         self._client = client
 
     def _get_client(self, timeout_seconds: float):
@@ -59,7 +63,7 @@ class BedrockAdapter:
                 raise RuntimeError("Install the 'bedrock' extra: uv sync --extra bedrock") from exc
             self._client = boto3.client(
                 "bedrock-runtime",
-                region_name=self.profile.endpoint.region,
+                region_name=self._endpoint.region,
                 config=Config(
                     read_timeout=timeout_seconds,
                     connect_timeout=min(timeout_seconds, 10),
@@ -92,7 +96,7 @@ class BedrockAdapter:
                 ]
             }
         reply = self._get_client(timeout_seconds).converse(
-            modelId=self.profile.endpoint.model_id,
+            modelId=self._endpoint.model_id,
             system=[{"text": system}],
             messages=_wire_messages(messages),
             inferenceConfig={"maxTokens": max_output_tokens},

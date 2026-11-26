@@ -12,6 +12,7 @@ ends. Budgets are metered in tokens (input + output as reported by the provider)
 provider-neutral and exact. Fails closed on a dirty or unknown git state.
 """
 
+import builtins  # `list` is shadowed by Ledger.list in annotations
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -170,9 +171,7 @@ class Ledger:
     def is_terminal(self, run_id: str) -> bool:
         return self.status(run_id) in TERMINAL
 
-    def events_after(
-        self, run_id: str, after_seq: int, limit: int = 500
-    ) -> "list[ExecutionEvent]":  # `list` is shadowed by Ledger.list
+    def events_after(self, run_id: str, after_seq: int, limit: int = 500) -> builtins.list[ExecutionEvent]:
         """Events with seq > after_seq, oldest first (seq is gapless, so this is a resumable cursor)."""
         with self.connect() as conn:
             rows = conn.execute(
@@ -387,7 +386,7 @@ class Ledger:
             )
             _append(self.d, conn, run_id, "artifact.stored", ref.model_dump(include={"name", "digest", "size", "mime"}))
 
-    def artifacts(self, run_id: str) -> "list[ArtifactRef]":  # `list` is shadowed by Ledger.list
+    def artifacts(self, run_id: str) -> builtins.list[ArtifactRef]:
         with self.connect() as conn:
             rows = conn.execute(
                 "SELECT digest, size, mime, name FROM run_artifacts WHERE run_id=? ORDER BY seq", (run_id,)
@@ -425,7 +424,7 @@ class Ledger:
             ).fetchone()
         return None if row is None else {**dict(row), "scopes": tuple(s for s in row["scopes"].split(",") if s)}
 
-    def list_api_tokens(self) -> "list[dict]":  # `list` is shadowed by Ledger.list
+    def list_api_tokens(self) -> builtins.list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
                 f"SELECT id, name, scopes, created_at, revoked_at FROM api_tokens "
@@ -460,7 +459,7 @@ class Ledger:
             ).fetchone()
         return None if row is None else dict(row)
 
-    def list_worker_credentials(self) -> "list[dict]":
+    def list_worker_credentials(self) -> builtins.list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
                 f"SELECT worker_id, created_at, revoked_at FROM worker_credentials "
@@ -484,14 +483,14 @@ class Ledger:
                 (now(), principal, action[:200], target[:500], outcome[:200], client[:100]),
             )
 
-    def audit_after(self, after: int = 0, limit: int = 100) -> "list[dict]":
+    def audit_after(self, after: int = 0, limit: int = 100) -> builtins.list[dict]:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM audit_log WHERE seq>? ORDER BY seq LIMIT ?", (after, limit)).fetchall()
         return [dict(r) for r in rows]
 
     # --- observability (step 14) ---
 
-    def unexported_runs(self, limit: int = 20) -> "list[str]":  # `list` is shadowed by Ledger.list
+    def unexported_runs(self, limit: int = 20) -> builtins.list[str]:
         """Terminal runs not yet exported over OTLP, oldest first."""
         with self.connect() as conn:
             rows = conn.execute(

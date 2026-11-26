@@ -154,7 +154,7 @@ class PostgresDialect:
     @contextmanager
     def connect(self):
         """A fresh connection per use. Autocommit: transactions are explicit BEGIN/COMMIT, like SQLite."""
-        raw = self._psycopg.connect(self.url, autocommit=True, row_factory=self._dict_row)
+        raw = self._psycopg.connect(self.url, autocommit=True, row_factory=self._dict_row)  # ty: ignore[invalid-argument-type]  # psycopg row_factory overloads are not resolved by ty 0.0.111
         try:
             yield _Conn(raw)
         finally:
