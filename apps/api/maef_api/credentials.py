@@ -46,6 +46,10 @@ class CredentialNotAllowed(CredentialError):
     """The reference names an environment variable this process is not allowed to read."""
 
 
+class CredentialEndpointMismatch(CredentialNotAllowed):
+    """The credential is allowed, but not for the endpoint the lease's profile points at."""
+
+
 def referenced_env_names(root: Path) -> set[str]:
     """Environment variable names that the project's own model profiles and MCP manifests reference
     (`credential_ref: env:NAME` and `secrets: {X: env:NAME}`). Unreadable or malformed files are skipped."""
@@ -70,6 +74,35 @@ def referenced_env_names(root: Path) -> set[str]:
     return names
 
 
+def endpoint_destination(endpoint) -> tuple:
+    """Where a model profile sends its credential: kind plus base_url, region or account. The model id is
+    left out on purpose; changing the model does not change who receives the key."""
+    return tuple(getattr(endpoint, a, None) for a in ("kind", "base_url", "region", "account_id"))
+
+
+def profile_endpoints(root: Path | None) -> dict[str, set[tuple]]:
+    """env credential name -> destinations of the project's own model profiles that reference it."""
+    from .models import ModelEndpointProfile
+
+    found: dict[str, set[tuple]] = {}
+    folder = root / "model-profiles" if root is not None else None
+    for path in sorted(folder.glob("*.y*ml")) if folder is not None and folder.is_dir() else []:
+        try:
+            profile = ModelEndpointProfile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
+        except (OSError, UnicodeDecodeError, yaml.YAMLError, ValueError):
+            continue
+        m = _ENV_REF.match(profile.credential_ref)
+        if m:
+            found.setdefault(m.group(1), set()).add(endpoint_destination(profile.endpoint))
+    return found
+
+
+def explicit_credentials(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Names or globs the operator listed in MAEF_WORKER_ALLOWED_CREDENTIALS (never bound to an endpoint)."""
+    env = os.environ if environ is None else environ
+    return [p.strip() for p in env.get("MAEF_WORKER_ALLOWED_CREDENTIALS", "").split(",") if p.strip()]
+
+
 def worker_allowed_credentials(root: Path | None, environ: Mapping[str, str] | None = None) -> set[str]:
     """Patterns (names or simple `*` globs) a worker may resolve: what the project's model profiles and MCP
     manifests reference, plus the comma-separated `MAEF_WORKER_ALLOWED_CREDENTIALS`. Anything else is refused,
@@ -88,11 +121,17 @@ class Credentials:
         self,
         environ: Mapping[str, str] | None = None,
         allowed: Iterable[str] | Callable[[], Iterable[str]] | None = None,
+        *,
+        explicit: Callable[[], Iterable[str]] | None = None,
+        bound: Callable[[], Mapping[str, set[tuple]]] | None = None,
     ):
+        """`bound` (name -> permitted destinations) and `explicit` (operator-listed names, exempt) turn on
+        endpoint binding for `check(ref, endpoint=...)`."""
         self._environ = os.environ if environ is None else environ
         self._allowed = allowed
+        self._explicit, self._bound = explicit, bound
 
-    def check(self, ref: str) -> None:
+    def check(self, ref: str, endpoint=None) -> None:
         """Raise CredentialNotAllowed when `ref` is an `env:` reference outside the allowlist. Never reads the value."""
         scheme, _, name = ref.partition(":")
         if scheme != "env" or not name or self._allowed is None:
@@ -106,6 +145,16 @@ class Credentials:
                 name,
             )
             raise CredentialNotAllowed(f"credential_not_allowed:{name}")
+        if endpoint is None or self._bound is None:
+            return
+        if any(fnmatch.fnmatchcase(name, p) for p in (self._explicit() if self._explicit else ())):
+            return  # the operator named it explicitly: unbound
+        if endpoint_destination(endpoint) not in self._bound().get(name, set()):
+            log.error(
+                "credential reference refused: env:%s is not used by any local model profile with this endpoint",
+                name,
+            )
+            raise CredentialEndpointMismatch(f"credential_endpoint_mismatch:{name}")
 
     def resolve(self, ref: str) -> Secret | None:
         """none:local -> None (keyless server). env:NAME -> Secret. aws:default-chain -> None:

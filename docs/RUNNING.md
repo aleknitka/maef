@@ -201,7 +201,10 @@ also send data to.
 **Worker credentials.** The worker only resolves `env:NAME` references that your own `model-profiles/` and
 `mcp-servers/` files mention, plus names listed in `MAEF_WORKER_ALLOWED_CREDENTIALS` (comma-separated, `*` globs
 allowed, for example `OPENROUTER_API_KEY,MYCO_*`). A lease naming any other variable is refused (`setup_error` or
-`credential_not_allowed:NAME`) and the worker log names the variable, never its value. A worker on another machine
+`credential_not_allowed:NAME`) and the worker log names the variable, never its value. A credential that comes from a
+local model profile is also bound to that profile's endpoint (kind, base URL, region or account): a lease that
+points the same credential at a different URL is refused with `credential_endpoint_mismatch:NAME`. Names listed in
+`MAEF_WORKER_ALLOWED_CREDENTIALS` are not bound; that list is your explicit choice. A worker on another machine
 with no project folder needs the variable set explicitly.
 
 ## 7. Where data is stored

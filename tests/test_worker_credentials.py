@@ -93,3 +93,62 @@ def test_shipped_fetch_manifest_has_explicit_hosts():
     assert lint_repo(ROOT) == []
     hosts = (ROOT / "mcp-servers" / "fetch.yaml").read_text().split("allowed_hosts:")[1].split("allowed_ports")[0]
     assert "*" not in hosts.replace("#", "")
+
+
+# --- binding a profile credential to its local profile's endpoint ---
+
+PROFILE_YAML = """schema_version: maef.dev/v1alpha1
+id: p-one
+version: 0.1.0
+display_name: T
+vendor: T
+api_dialect: openai-compatible
+endpoint: {kind: openai-compatible, base_url: "https://openrouter.example/v1", model_id: m-1}
+credential_ref: env:OPENROUTER_API_KEY
+max_retries: 1
+"""
+
+
+def bound_creds(tmp_path, extra_allowed=""):
+    from maef_api.credentials import explicit_credentials, profile_endpoints
+
+    (tmp_path / "model-profiles").mkdir()
+    (tmp_path / "model-profiles" / "p.yaml").write_text(PROFILE_YAML)
+    environ = {"MAEF_WORKER_ALLOWED_CREDENTIALS": extra_allowed}
+    return Credentials(
+        environ,
+        allowed=lambda: worker_allowed_credentials(tmp_path, environ),
+        explicit=lambda: explicit_credentials(environ),
+        bound=lambda: profile_endpoints(tmp_path),
+    )
+
+
+def lease_profile(base_url, cred="env:OPENROUTER_API_KEY"):
+    from test_http_adapters import make_profile
+
+    return make_profile("openai-compatible", base_url, cred=cred)
+
+
+def test_matching_endpoint_is_allowed(tmp_path):
+    from maef_api.worker import default_adapter_factory
+
+    default_adapter_factory(bound_creds(tmp_path))(lease_profile("https://openrouter.example/v1"))
+
+
+def test_different_endpoint_is_refused_and_named_without_value(tmp_path, caplog):
+    from maef_api.credentials import CredentialEndpointMismatch
+    from maef_api.worker import default_adapter_factory
+
+    factory = default_adapter_factory(bound_creds(tmp_path))
+    with caplog.at_level(logging.INFO), pytest.raises(CredentialEndpointMismatch) as exc:
+        factory(lease_profile("https://attacker.example/v1"))
+    assert str(exc.value) == "credential_endpoint_mismatch:OPENROUTER_API_KEY"
+    assert SECRET not in caplog.text and "OPENROUTER_API_KEY" in caplog.text
+
+
+def test_env_var_allowed_name_is_unbound(tmp_path):
+    from maef_api.worker import default_adapter_factory
+
+    factory = default_adapter_factory(bound_creds(tmp_path, extra_allowed="OPENROUTER_API_KEY, FREE_KEY"))
+    factory(lease_profile("https://elsewhere.example/v1"))
+    factory(lease_profile("https://elsewhere.example/v1", cred="env:FREE_KEY"))

@@ -31,7 +31,15 @@ from .adapters.decision import (
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .artifacts import ArtifactRef
 from .channel import HttpChannel, WorkerChannel
-from .credentials import CredentialError, CredentialNotAllowed, Credentials, Secret, worker_allowed_credentials
+from .credentials import (
+    CredentialError,
+    CredentialNotAllowed,
+    Credentials,
+    Secret,
+    explicit_credentials,
+    profile_endpoints,
+    worker_allowed_credentials,
+)
 from .decisions import execute_decision
 from .definitions import compute_definition_digest, mcp_ref_problem
 from .harness import PreparedRun, SinkFailure, execute
@@ -57,7 +65,9 @@ class NoAdapterForDialect(Exception):
 
 def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
     def factory(profile: ModelEndpointProfile) -> ModelAdapter:
-        credentials.check(profile.credential_ref)  # refuse before any call; names the variable in the log only
+        credentials.check(
+            profile.credential_ref, profile.endpoint
+        )  # refuse before any call; names the variable in the log only
         if profile.api_dialect == "bedrock-converse":
             return BedrockAdapter(profile)
         if profile.api_dialect == "openai-compatible":
@@ -71,7 +81,7 @@ def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
 
 def default_decision_factory(credentials: Credentials) -> DecisionFactory:
     def factory(profile: ModelEndpointProfile) -> DecisionAdapter:
-        credentials.check(profile.credential_ref)
+        credentials.check(profile.credential_ref, profile.endpoint)
         if profile.api_dialect == "decisions-api":
             return DecisionsApiAdapter(profile, credentials)
         if profile.api_dialect == "workers-ai-decision":
@@ -582,7 +592,11 @@ def main() -> int:
     else:
         removed = sandbox.cleanup_orphans()
         log.info("sandbox runtime %s; removed %d orphaned containers", sandbox.info(), removed)
-    creds = Credentials(allowed=lambda: worker_allowed_credentials(_project_or_none()))
+    creds = Credentials(
+        allowed=lambda: worker_allowed_credentials(_project_or_none()),
+        explicit=explicit_credentials,
+        bound=lambda: profile_endpoints(_project_or_none()),
+    )
     worker = Worker(channel, default_adapter_factory(creds), worker_id=worker_id, sandbox=sandbox, credentials=creds)
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
