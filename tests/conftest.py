@@ -150,6 +150,9 @@ def live_api(tmp_path, monkeypatch):
 # Every container a test starts carries TEST_CONTAINER_LABEL. A fixture removes its own container by id in
 # a finally block; a session start removes whatever a killed earlier session left behind, and nothing else.
 TEST_CONTAINER_LABEL = "maef-test=1"
+# The pytest process that started the container: the sweep skips containers whose owner is still running,
+# so concurrent sessions (parallel agents, several terminals) never remove each other's containers.
+TEST_PID_LABEL = "maef-test-pid"
 
 
 def _remove_container(podman: str, container: str) -> None:
@@ -158,8 +161,22 @@ def _remove_container(podman: str, container: str) -> None:
     subprocess.run([podman, "rm", "-f", "-t", "0", container], capture_output=True, check=False, timeout=120)
 
 
+def _alive(pid: str) -> bool:
+    """True when `pid` names a running process (a container with no or a bad owner label counts as orphaned)."""
+    if not pid.isdigit():
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def pytest_sessionstart(session):
-    """Remove containers labelled by an earlier (interrupted) test session. Never touches other containers."""
+    """Remove test containers whose owning pytest process is gone (an interrupted session). Never touches
+    unlabelled containers or those of a session that is still running."""
     import shutil
     import subprocess
 
@@ -168,7 +185,15 @@ def pytest_sessionstart(session):
         return
     try:
         listed = subprocess.run(
-            [podman, "ps", "-aq", "--filter", f"label={TEST_CONTAINER_LABEL}"],
+            [
+                podman,
+                "ps",
+                "-a",
+                "--filter",
+                f"label={TEST_CONTAINER_LABEL}",
+                "--format",
+                f'{{{{.ID}}}} {{{{index .Labels "{TEST_PID_LABEL}"}}}}',
+            ],
             capture_output=True,
             text=True,
             check=False,
@@ -176,7 +201,11 @@ def pytest_sessionstart(session):
         )
     except (OSError, subprocess.TimeoutExpired):
         return
-    ids = listed.stdout.split()
+    ids = []
+    for line in listed.stdout.splitlines():
+        cid, _, owner = line.partition(" ")
+        if cid and not _alive(owner.strip()):
+            ids.append(cid)
     if ids:
         subprocess.run([podman, "rm", "-f", "-t", "0", *ids], capture_output=True, check=False, timeout=120)
 
@@ -237,6 +266,8 @@ def postgres_url():
             "--rm",
             "--label",
             TEST_CONTAINER_LABEL,
+            "--label",
+            f"{TEST_PID_LABEL}={os.getpid()}",
             "-p",
             f"127.0.0.1:{port}:5432",
             "-e",
@@ -397,6 +428,8 @@ def s3_server():
             "--rm",
             "--label",
             TEST_CONTAINER_LABEL,
+            "--label",
+            f"{TEST_PID_LABEL}={os.getpid()}",
             "-p",
             f"127.0.0.1:{port}:8333",
             "-e",
