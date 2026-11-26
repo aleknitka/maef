@@ -126,6 +126,10 @@ def _parser() -> argparse.ArgumentParser:
     w.add_parser("create", help="print a new worker credential once").add_argument("--id", required=True)
     w.add_parser("list")
     w.add_parser("revoke").add_argument("id")
+    ac = admin_sub.add_parser("account", help="token budget accounts").add_subparsers(dest="action", required=True)
+    s = ac.add_parser("reset", help="start a new period: zero the account's spent tokens (audited)")
+    s.add_argument("id", nargs="?", default="default")
+    s.add_argument("--force", action="store_true", help="reset even while runs hold a reservation")
     s = sub.add_parser("lint", help="validate definition files (default: this repository)")
     s.add_argument("paths", nargs="*", metavar="PATH")
     s = sub.add_parser("schema", help="JSON Schemas of the definition formats")
@@ -522,7 +526,16 @@ def _admin(args) -> int:
     ledger = local_ledger()
     who, kind, action = "local-cli", args.admin_cmd, args.action
     try:
-        if kind == "token" and action == "create":
+        if kind == "account":
+            from .ledger import AdmissionError
+
+            try:
+                cleared = ledger.reset_account(args.id, force=args.force, principal=who)
+            except AdmissionError as exc:
+                _err(f"error: {exc}")
+                return EXIT_FAILURE
+            _err(f"reset account {args.id}: cleared {cleared} spent tokens")
+        elif kind == "token" and action == "create":
             scopes = parse_scopes(args.scopes)
             token_id, token = issue_api_token(ledger, args.name, scopes)
             ledger.audit(who, "token.create", f"token:{token_id}", "ok", "local")

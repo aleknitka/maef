@@ -6,8 +6,8 @@ released, the account never exceeds its cap, every event sequence is contiguous,
 
 Two variants share the machine:
 - well-behaved workers (the harness guard keeps reports within the reservation): must pass;
-- over-reporting workers (tokens_used and usage above the reservation): the strict xfail documents R1
-  (docs/PLAN_OF_ACTION.md 1.1), where finish accepts the figure and overdraws the account.
+- over-reporting workers (tokens_used and usage above the reservation): must pass too (R1 fix,
+  docs/PLAN_OF_ACTION.md 1.1): the ledger charges at most the reservation.
 """
 
 import contextlib
@@ -168,19 +168,18 @@ class BudgetMachine(RuleBasedStateMachine):
             r = res[rid]
             if detail.status in ("succeeded", "failed", "cancelled"):
                 assert r["settled_tokens"] is not None, f"terminal run {rid} has open reservation"
-                if r["settled_tokens"] <= r["reserved_tokens"]:
-                    assert r["reserved_tokens"] == r["settled_tokens"] + r["released_tokens"], r
-                else:  # overrun: nothing is released
-                    assert r["released_tokens"] == 0
+                assert r["reserved_tokens"] == r["settled_tokens"] + r["released_tokens"], r
                 assert detail.tokens_used == r["settled_tokens"]
                 charged += r["settled_tokens"]
                 recorded = sum(e.payload.get("total_tokens", 0) for e in detail.events if e.type == "usage.recorded")
-                assert r["settled_tokens"] >= recorded, f"charged {r['settled_tokens']} < worker-recorded {recorded}"
+                cap = r["reserved_tokens"]
+                assert r["settled_tokens"] >= min(recorded, cap), f"charged {r['settled_tokens']} < recorded {recorded}"
+                assert r["settled_tokens"] <= cap, "charged above the reservation"
                 fin = self.final.get(rid)
                 if isinstance(fin, int):
-                    assert r["settled_tokens"] >= max(fin, recorded)
-                if fin == "expired":  # fail closed: a run whose lease lapsed is charged its whole reservation
-                    assert r["settled_tokens"] == r["reserved_tokens"]
+                    assert r["settled_tokens"] == min(max(fin, recorded), cap)
+                if fin == "expired":  # charged the recorded usage, or the whole reservation when none was recorded
+                    assert r["settled_tokens"] == (min(recorded, cap) if recorded else cap)
                 settled_events = [
                     e for e in detail.events if e.type in ("task.succeeded", "task.failed", "task.cancelled")
                 ]
@@ -212,11 +211,5 @@ TestBudgetWellBehaved = BudgetMachine.TestCase
 TestBudgetWellBehaved.settings = PROPERTY_SETTINGS
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "R1: finish accepts tokens_used above the reservation and overdraws the account (docs/PLAN_OF_ACTION.md 1.1)"
-    ),
-)
 class TestBudgetOverReporting(OverReportingMachine.TestCase):
     settings = PROPERTY_SETTINGS

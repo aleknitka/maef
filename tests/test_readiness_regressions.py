@@ -79,7 +79,6 @@ def sleeps(monkeypatch):
     return recorded
 
 
-@pytest.mark.xfail(strict=True, reason=R1)
 def test_r1a_overreported_tokens_are_rejected_or_clamped(store):
     run_id = admit(store)
     Worker(OverReportingChannel(store), lambda profile: FakeAdapter(), worker_id="w1").run_once()
@@ -89,7 +88,6 @@ def test_r1a_overreported_tokens_are_rejected_or_clamped(store):
     )
 
 
-@pytest.mark.xfail(strict=True, reason=R1)
 def test_r1b_expired_lease_charges_recorded_usage_above_reservation(store):
     run_id = admit(store)
     reserved = store.get(run_id).reserved_tokens
@@ -99,7 +97,9 @@ def test_r1b_expired_lease_charges_recorded_usage_above_reservation(store):
     store.report(run_id, lease.fencing_token, 1, "usage.recorded", {"total_tokens": recorded})
     store.expire_leases(now=1_031.0)  # the lease lapsed without a finish
     account = store.account("default")
-    assert account["spent_tokens"] >= recorded, (
+    # Plan 1.1: charge max(recorded, reported) capped at the reservation, so recorded usage above the
+    # reservation is charged as the reservation (the account can never be overdrawn).
+    assert account["spent_tokens"] == reserved, (
         f"charged {account['spent_tokens']} (the reservation was {reserved}); worker recorded {recorded}"
     )
 

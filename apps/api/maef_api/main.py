@@ -624,7 +624,8 @@ class EventRequest(BaseModel):
 
 class FinishRequest(BaseModel):
     fencing_token: int
-    tokens_used: int = Field(ge=0)
+    # Upper bound only guards against absurd values; the ledger clamps to the run's reservation (budget.overreport).
+    tokens_used: int = Field(ge=0, le=10_000_000_000)
     status: Literal["succeeded", "failed", "cancelled"]
     terminal_reason: str = Field(min_length=1, max_length=200)
 
