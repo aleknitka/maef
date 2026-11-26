@@ -41,6 +41,7 @@ INFRASTRUCTURE_REASONS: frozenset[str] = frozenset(
         "sandbox_unavailable",  # no usable OCI runtime or sandbox profile at start
         "mcp_unavailable",  # mcp_unavailable:<server>
         "credential_missing",  # credential_missing:<ENV>
+        "credential_not_allowed",  # credential_not_allowed:<ENV> (worker credential allowlist)
         "setup_error",  # setup_error:<Class>
         "definition_mismatch",  # the pinned bytes did not match their digest
         "api_error",  # api_error:<code>, a client could not read the run (evals)
