@@ -146,6 +146,41 @@ def live_api(tmp_path, monkeypatch):
     return LiveApi(AsgiTransport(main.app), store, adapter, worker)
 
 
+# --- Throwaway test containers ------------------------------------------------------------------
+# Every container a test starts carries TEST_CONTAINER_LABEL. A fixture removes its own container by id in
+# a finally block; a session start removes whatever a killed earlier session left behind, and nothing else.
+TEST_CONTAINER_LABEL = "maef-test=1"
+
+
+def _remove_container(podman: str, container: str) -> None:
+    import subprocess
+
+    subprocess.run([podman, "rm", "-f", "-t", "0", container], capture_output=True, check=False, timeout=120)
+
+
+def pytest_sessionstart(session):
+    """Remove containers labelled by an earlier (interrupted) test session. Never touches other containers."""
+    import shutil
+    import subprocess
+
+    podman = shutil.which("podman")
+    if podman is None:
+        return
+    try:
+        listed = subprocess.run(
+            [podman, "ps", "-aq", "--filter", f"label={TEST_CONTAINER_LABEL}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    ids = listed.stdout.split()
+    if ids:
+        subprocess.run([podman, "rm", "-f", "-t", "0", *ids], capture_output=True, check=False, timeout=120)
+
+
 # --- Ledger backends: SQLite and PostgreSQL ------------------------------------------------------
 # Ledger-level fixtures take `ledger_target` and call `Ledger(ledger_target('name.db'))`; every test using
 # them runs once per backend. Postgres needs MAEF_TEST_POSTGRES_URL (any database on a server the test
@@ -200,6 +235,8 @@ def postgres_url():
             "run",
             "-d",
             "--rm",
+            "--label",
+            TEST_CONTAINER_LABEL,
             "-p",
             f"127.0.0.1:{port}:5432",
             "-e",
@@ -223,7 +260,7 @@ def postgres_url():
         _wait_for_postgres(url)
         yield url
     finally:
-        subprocess.run([podman, "rm", "-f", container], capture_output=True, check=False)
+        _remove_container(podman, container)
 
 
 @pytest.fixture
@@ -358,6 +395,8 @@ def s3_server():
             "run",
             "-d",
             "--rm",
+            "--label",
+            TEST_CONTAINER_LABEL,
             "-p",
             f"127.0.0.1:{port}:8333",
             "-e",
@@ -383,7 +422,7 @@ def s3_server():
         _wait_for_s3(server)
         yield server
     finally:
-        subprocess.run([podman, "rm", "-f", "-t", "0", container], capture_output=True, check=False)
+        _remove_container(podman, container)
 
 
 @pytest.fixture
