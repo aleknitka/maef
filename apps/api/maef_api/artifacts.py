@@ -6,6 +6,8 @@ LocalChannel, the HTTP upload route and the in-process LedgerSink all use it), s
 digest checks and fencing are enforced in one place. Nothing here knows about SQL; the ledger
 records refs through the `ArtifactLog` protocol.
 """
+
+import contextlib
 import hashlib
 import os
 import re
@@ -22,8 +24,14 @@ MAX_RUN_ARTIFACT_BYTES = 200 * 1024 * 1024
 MAX_NAME_CHARS = 128
 
 SAFE_MIMES = (
-    "text/markdown", "text/plain", "application/json", "text/csv",
-    "image/png", "image/jpeg", "application/pdf", "application/octet-stream",
+    "text/markdown",
+    "text/plain",
+    "application/json",
+    "text/csv",
+    "image/png",
+    "image/jpeg",
+    "application/pdf",
+    "application/octet-stream",
 )
 DEFAULT_MIME = "application/octet-stream"
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -32,6 +40,7 @@ _UNSAFE_NAME = re.compile(r"[^\w.\- ()+,@=~]")
 
 class ArtifactError(Exception):
     """Base for artifact failures. `code` is stable and safe to show; messages never carry content."""
+
     code = "artifact_error"
 
     def __init__(self, code: str | None = None):
@@ -49,6 +58,7 @@ class ArtifactCorrupt(ArtifactError):
 
 class ArtifactRejected(ArtifactError):
     """Refused at intake and not retryable: `too_large`, `digest_mismatch`, `run_limit`."""
+
     code = "rejected"
 
 
@@ -170,10 +180,8 @@ class LocalArtifactStore:
                 os.fsync(f.fileno())
             os.replace(tmp, path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         return ref
 
@@ -198,30 +206,45 @@ def default_artifact_store() -> "ArtifactStore":
         from urllib.parse import urlparse
 
         from .artifacts_s3 import DEFAULT_CREDENTIALS_REF, S3ArtifactStore
+
         parsed = urlparse(url)
         if parsed.scheme != "s3" or not parsed.netloc:
             raise ValueError("MAEF_ARTIFACTS_URL must look like s3://bucket/prefix")
         env = os.environ.get
         return S3ArtifactStore(
-            parsed.netloc, prefix=parsed.path.lstrip("/") or "artifacts/",
-            endpoint_url=env("MAEF_S3_ENDPOINT_URL") or None, region=env("MAEF_S3_REGION") or None,
+            parsed.netloc,
+            prefix=parsed.path.lstrip("/") or "artifacts/",
+            endpoint_url=env("MAEF_S3_ENDPOINT_URL") or None,
+            region=env("MAEF_S3_REGION") or None,
             addressing_style=env("MAEF_S3_ADDRESSING_STYLE") or "auto",
             sse=env("MAEF_S3_SSE", "1").lower() not in ("0", "false", "no", "off"),
             allow_private=env("MAEF_S3_ALLOW_PRIVATE") == "1",
             credentials_ref=env("MAEF_S3_ACCESS_KEY_REF") or DEFAULT_CREDENTIALS_REF,
-            secret_ref=env("MAEF_S3_SECRET_KEY_REF") or None)
-    from .registry import ROOT
-    return LocalArtifactStore(os.environ.get("MAEF_ARTIFACTS_DIR") or ROOT / "artifacts")
+            secret_ref=env("MAEF_S3_SECRET_KEY_REF") or None,
+        )
+    from .project import project_root
+
+    return LocalArtifactStore(os.environ.get("MAEF_ARTIFACTS_DIR") or project_root() / "artifacts")
 
 
 class ArtifactLog(Protocol):
     """The ledger's side of intake. `token=None` skips fencing (in-process, single-host use)."""
 
-    def check_artifact_room(self, run_id: str, token: int | None, size: int, *,
-                            digest: str | None = None, name: str | None = None) -> None:
+    def check_artifact_room(
+        self,
+        run_id: str,
+        token: int | None,
+        size: int,
+        *,
+        digest: str | None = None,
+        name: str | None = None,
+        worker_id: str | None = None,
+    ) -> None:
         """Raises FencingError, or ArtifactRejected('run_limit')."""
 
-    def add_artifact(self, run_id: str, token: int | None, ref: ArtifactRef) -> None: ...
+    def add_artifact(
+        self, run_id: str, token: int | None, ref: ArtifactRef, *, worker_id: str | None = None
+    ) -> None: ...
 
 
 class ArtifactIntake:
@@ -231,15 +254,25 @@ class ArtifactIntake:
     def __init__(self, log: ArtifactLog, store: ArtifactStore):
         self._log, self._store = log, store
 
-    def accept(self, run_id: str, *, token: int | None, name: str, mime: str, data: bytes,
-               digest: str | None = None, worker_id: str | None = None) -> ArtifactRef:
+    def accept(
+        self,
+        run_id: str,
+        *,
+        token: int | None,
+        name: str,
+        mime: str,
+        data: bytes,
+        digest: str | None = None,
+        worker_id: str | None = None,
+    ) -> ArtifactRef:
         if len(data) > MAX_ARTIFACT_BYTES:
             raise ArtifactRejected("too_large")
         if digest is not None and digest != sha256_digest(data):
             raise ArtifactRejected("digest_mismatch")
         # A retry of an already-recorded upload is a no-op, even when the run is at its limit.
-        self._log.check_artifact_room(run_id, token, len(data),
-                                      digest=sha256_digest(data), name=clean_name(name), worker_id=worker_id)
+        self._log.check_artifact_room(
+            run_id, token, len(data), digest=sha256_digest(data), name=clean_name(name), worker_id=worker_id
+        )
         ref = self._store.put(data, name=name, mime=mime)
         self._log.add_artifact(run_id, token, ref, worker_id=worker_id)
         return ref

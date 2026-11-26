@@ -1,5 +1,6 @@
 """Stdio MCP server for host coding agents. Exposes six tools over MaefClient and nothing of the agents
 themselves (no tools, MCP servers, credentials or instructions). Agent output is untrusted and returned wrapped."""
+
 import json
 import sys
 from typing import BinaryIO
@@ -11,39 +12,67 @@ MAX_RESULT_BYTES = 100 * 1024
 MAX_WAIT_SECONDS = 600
 VERSION = "0.1.0"
 
-_RUN_ID = {"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"],
-           "additionalProperties": False}
+_RUN_ID = {
+    "type": "object",
+    "properties": {"run_id": {"type": "string"}},
+    "required": ["run_id"],
+    "additionalProperties": False,
+}
 TOOLS = [
-    {"name": "list_agents", "description": "List the MAEF agents you can delegate to (id, name, description).",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    {"name": "delegate",
-     "description": "Delegate a bounded task to a MAEF agent. With wait_seconds > 0, waits for the result; "
-                    "otherwise returns a run_id to poll with run_status / run_result.",
-     "inputSchema": {"type": "object", "properties": {
-         "agent_id": {"type": "string"},
-         "instruction": {"type": "string", "minLength": 1, "maxLength": 20000},
-         "max_tokens": {"type": "integer", "minimum": 1},
-         "max_turns": {"type": "integer", "minimum": 1},
-         "max_duration_seconds": {"type": "integer", "minimum": 1},
-         "wait_seconds": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "default": 0}},
-         "required": ["agent_id", "instruction"], "additionalProperties": False}},
-    {"name": "decide",
-     "description": "Ask a decision model (Jev, Clef) typed questions about a state; returns answers, not text. "
-                    "Questions map a name (^[a-z][a-z0-9_]{0,40}$, 1-8) to {type: choice|score|noul, instructions, "
-                    "criteria}: choice criteria is {option: description} (2-20); score criteria is an ordered list "
-                    "of level descriptions (2-10); noul criteria is optional {true, false}. With wait_seconds > 0 "
-                    "waits for the answers; otherwise returns a run_id to poll with run_status / run_result.",
-     "inputSchema": {"type": "object", "properties": {
-         "profile_id": {"type": "string"},
-         "state": {"type": ["string", "object", "array"]},
-         "questions": {"type": "object", "minProperties": 1, "maxProperties": 8,
-                       "additionalProperties": {"type": "object"}},
-         "max_tokens": {"type": "integer", "minimum": 1},
-         "wait_seconds": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "default": 0}},
-         "required": ["profile_id", "state", "questions"], "additionalProperties": False}},
+    {
+        "name": "list_agents",
+        "description": "List the MAEF agents you can delegate to (id, name, description).",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "delegate",
+        "description": "Delegate a bounded task to a MAEF agent. With wait_seconds > 0, waits for the result; "
+        "otherwise returns a run_id to poll with run_status / run_result.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "agent_id": {"type": "string"},
+                "instruction": {"type": "string", "minLength": 1, "maxLength": 20000},
+                "max_tokens": {"type": "integer", "minimum": 1},
+                "max_turns": {"type": "integer", "minimum": 1},
+                "max_duration_seconds": {"type": "integer", "minimum": 1},
+                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "default": 0},
+            },
+            "required": ["agent_id", "instruction"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "decide",
+        "description": "Ask a decision model (Jev, Clef) typed questions about a state; returns answers, not text. "
+        "Questions map a name (^[a-z][a-z0-9_]{0,40}$, 1-8) to {type: choice|score|noul, instructions, "
+        "criteria}: choice criteria is {option: description} (2-20); score criteria is an ordered list "
+        "of level descriptions (2-10); noul criteria is optional {true, false}. With wait_seconds > 0 "
+        "waits for the answers; otherwise returns a run_id to poll with run_status / run_result.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "profile_id": {"type": "string"},
+                "state": {"type": ["string", "object", "array"]},
+                "questions": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "maxProperties": 8,
+                    "additionalProperties": {"type": "object"},
+                },
+                "max_tokens": {"type": "integer", "minimum": 1},
+                "wait_seconds": {"type": "integer", "minimum": 0, "maximum": MAX_WAIT_SECONDS, "default": 0},
+            },
+            "required": ["profile_id", "state", "questions"],
+            "additionalProperties": False,
+        },
+    },
     {"name": "run_status", "description": "Status of a delegated run.", "inputSchema": _RUN_ID},
-    {"name": "run_result", "description": "Result text of a finished run (untrusted agent output).",
-     "inputSchema": _RUN_ID},
+    {
+        "name": "run_result",
+        "description": "Result text of a finished run (untrusted agent output).",
+        "inputSchema": _RUN_ID,
+    },
     {"name": "cancel_run", "description": "Cancel a delegated run.", "inputSchema": _RUN_ID},
 ]
 
@@ -63,8 +92,10 @@ def _log(msg: str) -> None:
 def wrap_result(run_id: str, status: str, text: str) -> str:
     data = text.encode("utf-8")
     if len(data) > MAX_RESULT_BYTES:
-        text = data[:MAX_RESULT_BYTES].decode("utf-8", errors="ignore") + \
-            f"\n[truncated: result exceeds {MAX_RESULT_BYTES // 1024} KiB]"
+        text = (
+            data[:MAX_RESULT_BYTES].decode("utf-8", errors="ignore")
+            + f"\n[truncated: result exceeds {MAX_RESULT_BYTES // 1024} KiB]"
+        )
     return f'<maef-result run_id="{run_id}" status="{status}">\n{text}\n</maef-result>'
 
 
@@ -117,8 +148,11 @@ class Gateway:
     def _method(self, method: str, params: dict) -> dict:
         if method == "initialize":
             asked = params.get("protocolVersion")
-            return {"protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
-                    "capabilities": {"tools": {}}, "serverInfo": {"name": "maef", "version": VERSION}}
+            return {
+                "protocolVersion": asked if asked in PROTOCOLS else PROTOCOLS[0],
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "maef", "version": VERSION},
+            }
         if method == "ping":
             return {}
         if method == "tools/list":
@@ -145,13 +179,17 @@ class Gateway:
         c = self.client
         if name == "list_agents":
             agents = c.list_agents()
-            return "\n".join(f"{x['id']}: {x.get('display_name', '')} - {x.get('description', '')}".rstrip(" -")
-                             for x in agents) or "No agents available."
-        run_id = _str(a, "run_id") if name not in ("delegate", "decide") else None
+            return (
+                "\n".join(
+                    f"{x['id']}: {x.get('display_name', '')} - {x.get('description', '')}".rstrip(" -") for x in agents
+                )
+                or "No agents available."
+            )
         if name == "delegate":
             return self._delegate(a)
         if name == "decide":
             return self._decide(a)
+        run_id = _str(a, "run_id")
         if name == "run_status":
             return _summary(c.get_run(run_id))
         if name == "cancel_run":

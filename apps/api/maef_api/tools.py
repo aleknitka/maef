@@ -1,4 +1,5 @@
 """Tools a model may call. Read-only built-ins only; results never raise and are size-capped."""
+
 import json
 import threading
 from collections.abc import Callable, Mapping
@@ -20,20 +21,27 @@ _STREAM_CAP = 12 * 1024
 _MARKER = "\n[truncated]"
 
 _SPECS = {
-    "current_time": ToolSpec("current_time", "Current UTC date and time as an ISO 8601 timestamp.",
-                             {"type": "object", "properties": {}}),
+    "current_time": ToolSpec(
+        "current_time", "Current UTC date and time as an ISO 8601 timestamp.", {"type": "object", "properties": {}}
+    ),
     "read_agent_file": ToolSpec(
         "read_agent_file",
         "Read one of this agent's own files (its instructions or a listed skill) by relative path.",
-        {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+        {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
+    ),
     "run_command": ToolSpec(
         "run_command",
         "Run a command in an isolated sandbox with no network. Working directory /workspace is "
         "writable; everything else is read-only. Returns JSON {exit_code, stdout, stderr, timed_out}.",
-        {"type": "object",
-         "properties": {"argv": {"type": "array", "items": {"type": "string"}, "minItems": 1},
-                        "stdin": {"type": "string"}},
-         "required": ["argv"]}),
+        {
+            "type": "object",
+            "properties": {
+                "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "stdin": {"type": "string"},
+            },
+            "required": ["argv"],
+        },
+    ),
 }
 
 
@@ -67,11 +75,15 @@ def cap_text(text: str) -> str:
 
 
 class BuiltinTools:
-    def __init__(self, names: list[str], files: Mapping[str, bytes],
-                 clock: Callable[[], datetime] = lambda: datetime.now(UTC),
-                 session: Session | None = None,
-                 exec_timeout: Callable[[], float] = lambda: DEFAULT_EXEC_TIMEOUT,
-                 cancel: threading.Event | None = None):
+    def __init__(
+        self,
+        names: list[str],
+        files: Mapping[str, bytes],
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        session: Session | None = None,
+        exec_timeout: Callable[[], float] = lambda: DEFAULT_EXEC_TIMEOUT,
+        cancel: threading.Event | None = None,
+    ):
         """`files` are the pinned instructions and skills (agent-relative path -> bytes); read_agent_file
         serves only these, so a run sees exactly what was digested and never touches the filesystem."""
         builtin_specs(names)  # validates
@@ -108,20 +120,32 @@ class BuiltinTools:
     def _run_command(self, arguments: dict) -> ToolResult:
         argv = arguments.get("argv") if isinstance(arguments, dict) else None
         stdin = arguments.get("stdin") if isinstance(arguments, dict) else None
-        if (not isinstance(argv, list) or not argv or not all(isinstance(a, str) for a in argv)
-                or not (stdin is None or isinstance(stdin, str))):
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or not all(isinstance(a, str) for a in argv)
+            or not (stdin is None or isinstance(stdin, str))
+        ):
             return ToolResult("invalid_arguments: argv must be a non-empty list of strings", True)
         timeout = min(DEFAULT_EXEC_TIMEOUT, self._exec_timeout())
         if timeout <= 0:
             return ToolResult("duration_exhausted", True)
+        if self._session is None:  # unreachable: __init__ requires a session for sandboxed tools
+            return ToolResult("sandbox_error", True)
         try:
             extra = {"cancel": self._cancel} if self._cancel is not None else {}
-            res = self._session.exec(argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout, **extra)
+            res = self._session.exec(
+                argv, stdin=stdin.encode() if stdin is not None else None, timeout=timeout, **extra
+            )
         except (SandboxError, ValueError):
             return ToolResult("sandbox_error", True)
         # Each stream is capped so the JSON stays valid after the overall result cap.
-        body = {"exit_code": res.exit_code, "stdout": res.stdout[:_STREAM_CAP].decode("utf-8", errors="replace"),
-                "stderr": res.stderr[:_STREAM_CAP].decode("utf-8", errors="replace"), "timed_out": res.timed_out}
+        body = {
+            "exit_code": res.exit_code,
+            "stdout": res.stdout[:_STREAM_CAP].decode("utf-8", errors="replace"),
+            "stderr": res.stderr[:_STREAM_CAP].decode("utf-8", errors="replace"),
+            "timed_out": res.timed_out,
+        }
         if res.cancelled:
             body["cancelled"] = True
         return ToolResult(json.dumps(body), res.timed_out or res.cancelled)

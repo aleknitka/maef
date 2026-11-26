@@ -1,0 +1,48 @@
+# On a version tag: build the wheel and sdist, check them, run the wheel smoke check, make a CycloneDX SBOM and
+# publish a GitHub release with all three. No PyPI upload.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+env:
+  UV_LOCKED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {persist-credentials: false}
+      - uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d # v10.4.0
+      - name: Tag matches the package version
+        run: |
+          version=$(uv version --short)
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != version $version"; exit 1; }
+      - run: uv build --out-dir dist
+      - run: uvx twine@7.0.0 check dist/*
+      - run: bash scripts/check-wheel.sh
+      - name: SBOM
+        run: |
+          uv export --no-dev --all-extras --no-emit-project --no-hashes --format requirements-txt > requirements.txt
+          uvx --from cyclonedx-bom==9.0.0 cyclonedx-py requirements requirements.txt --output-file "dist/maef-control-plane-${GITHUB_REF_NAME#v}.cdx.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with: {name: dist, path: dist/}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # create the GitHub release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: {name: dist, path: dist}
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "MAEF $GITHUB_REF_NAME" \
+            --notes "See CHANGELOG.md for what is in this release. Install: uv tool install <the .whl below>, then maef init in an empty folder."

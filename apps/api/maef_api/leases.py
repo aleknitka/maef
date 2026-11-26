@@ -4,6 +4,7 @@ A lease is the right to run one admitted run until `expires_at`. The fencing tok
 stale holder harmless: once a lease is superseded, expired or finished, every call carrying
 its token is refused.
 """
+
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, model_validator
@@ -27,6 +28,7 @@ class ChannelError(Exception):
 
 class DecisionTask(BaseModel):
     """A decision call pinned at admission: the request and the exact profile bytes it runs under."""
+
     model_config = ConfigDict(frozen=True, ser_json_bytes="base64", val_json_bytes="base64")
     request: DecisionRequest
     profile: ModelEndpointProfile
@@ -37,6 +39,7 @@ class DecisionTask(BaseModel):
 class TaskPayload(BaseModel):
     """Everything a worker needs, stored at admission. Never carries credentials.
     `kind` discriminates: agent runs carry `instruction` and `pinned`; decision runs carry `decision`."""
+
     kind: Literal["agent", "decision"] = "agent"
     instruction: str = ""
     budget: Budget

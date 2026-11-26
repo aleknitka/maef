@@ -4,8 +4,9 @@ import re
 import shutil
 
 import pytest
-from conftest import copy_research_analyst
 from fastapi.testclient import TestClient
+
+from conftest import copy_research_analyst
 from maef_api import main
 from maef_api.cli import main as cli_main
 from maef_api.client import AsgiTransport, MaefClient
@@ -78,9 +79,13 @@ def profiles(tmp_path):
 
 
 def definitions(repo, profiles):
-    return Definitions(AgentRegistry(repo / "agents"), ModelProfileRegistry(profiles),
-                       SandboxProfileRegistry(repo / "sandbox-profiles"), McpServerRegistry(repo / "mcp-servers"),
-                       repo_root=repo)
+    return Definitions(
+        AgentRegistry(repo / "agents"),
+        ModelProfileRegistry(profiles),
+        SandboxProfileRegistry(repo / "sandbox-profiles"),
+        McpServerRegistry(repo / "mcp-servers"),
+        repo_root=repo,
+    )
 
 
 @pytest.fixture
@@ -101,6 +106,7 @@ def branch_exists(repo, branch):
 
 
 # -- gitrepo --
+
 
 def test_resolve_revision_accepts_sha_head_branch_and_tag(repo):
     sha = head(repo)
@@ -143,6 +149,7 @@ def test_read_blob_refuses_symlinks_and_directories(repo):
 
 # -- definitions pinned to a revision --
 
+
 def test_resolve_revision_pins_commit_as_clean(repo, profiles):
     sha = head(repo)
     pinned = definitions(repo, profiles).resolve(AGENT, sha)
@@ -178,6 +185,7 @@ def test_unknown_revision_is_resolve_error(repo, profiles):
 
 # -- schemas --
 
+
 def test_schema_write_then_check_has_no_drift(tmp_path):
     write_schemas(tmp_path)
     assert check_schemas(tmp_path) == []
@@ -204,6 +212,7 @@ def test_committed_schemas_in_repo_have_no_drift():
 
 
 # -- lint --
+
 
 def test_lint_clean_repo_has_no_findings(repo):
     assert lint_repo(repo) == []
@@ -251,6 +260,7 @@ def test_cli_lint_exit_codes(repo, capsys):
 
 # -- drafts --
 
+
 def test_create_makes_branch_and_worktree(repo, store):
     draft = store.create(AGENT)
     assert re.fullmatch(r"maef/draft/research-analyst/[0-9a-f]{12}", draft.branch)
@@ -265,9 +275,17 @@ def test_write_accepts_agent_file(repo, store):
     assert (tree(repo, draft) / SYSTEM).read_text() == "New.\n"
 
 
-@pytest.mark.parametrize("path", [
-    "../x", "/etc/passwd", "agents/other/x", ".hidden", f"{AGENT_DIR}/.hidden", f"{AGENT_DIR}/../../x",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "../x",
+        "/etc/passwd",
+        "agents/other/x",
+        ".hidden",
+        f"{AGENT_DIR}/.hidden",
+        f"{AGENT_DIR}/../../x",
+    ],
+)
 def test_write_rejects_bad_paths(store, path):
     draft = store.create(AGENT)
     with pytest.raises(DraftRejected) as exc:
@@ -297,9 +315,12 @@ def test_write_size_limit(store):
 def test_review_reports_diff_and_permission_changes(repo, store):
     base = (repo / AGENT_FILE).read_text()
     draft = store.create(AGENT)
-    new = (base.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.3.0"]')
-           .replace("max_tokens: 200000", "max_tokens: 300000")
-           + "tools: [current_time]\npermissions:\n  network_open: true\n")
+    new = (
+        base.replace("mcp_servers: []", 'mcp_servers: ["fetch@0.3.0"]').replace(
+            "max_tokens: 200000", "max_tokens: 300000"
+        )
+        + "tools: [current_time]\npermissions:\n  network_open: true\n"
+    )
     store.write(draft.id, AGENT_FILE, new)
     review = store.review(draft.id)
     assert "+tools: [current_time]" in review.diff
@@ -362,6 +383,7 @@ def test_discard_published_keeps_branch(repo, store):
 
 # -- HTTP --
 
+
 @pytest.fixture
 def http(repo, monkeypatch):
     monkeypatch.setenv("MAEF_AUTHORING_ENABLED", "1")
@@ -405,6 +427,7 @@ def test_schema_route(http):
 
 # -- client and CLI --
 
+
 class Recording(AsgiTransport):
     """AsgiTransport that remembers the JSON body of every POST /api/v1/runs."""
 
@@ -439,8 +462,13 @@ def test_cli_run_revision_sends_agent_revision(repo, profiles, monkeypatch, tmp_
     ledger = Ledger(tmp_path / "runs.db")
     ledger.ensure_account("default", 5_000_000)
     monkeypatch.setattr(main, "ledger", ledger)
-    monkeypatch.setattr(main, "runs", Runs(definitions(repo, profiles), ledger,
-                                           execution_enabled=main.execution_enabled, allow_dirty=main.allow_dirty))
+    monkeypatch.setattr(
+        main,
+        "runs",
+        Runs(
+            definitions(repo, profiles), ledger, execution_enabled=main.execution_enabled, allow_dirty=main.allow_dirty
+        ),
+    )
     sha = head(repo)
     transport = Recording(main.app)
     client = MaefClient(transport)

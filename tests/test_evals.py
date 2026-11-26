@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api import main
 from maef_api.adapters.base import ModelResponse
 from maef_api.adapters.decision import FakeDecisionAdapter
@@ -21,7 +23,6 @@ from maef_api.evals import (
 )
 from maef_api.registry import ROOT, ModelProfileRegistry
 from maef_api.worker import Worker
-from pydantic import ValidationError
 from test_decisions import GOOD, JEV_YAML, QUESTIONS
 from test_run_execution import definition
 
@@ -46,7 +47,9 @@ def serving(worker):
 
 
 def agent_worker(live_api):
-    return Worker(LocalChannel(live_api.ledger, artifacts=main.artifacts), lambda p: live_api.adapter, worker_id="eval-w")
+    return Worker(
+        LocalChannel(live_api.ledger, artifacts=main.artifacts), lambda p: live_api.adapter, worker_id="eval-w"
+    )
 
 
 def write_suite(path, tasks, suite_id="checks"):
@@ -59,6 +62,7 @@ def agent_task(task_id, *checks, agent_id="research-analyst"):
 
 
 # --- suite format ---
+
 
 def test_smoke_suite_loads():
     suite = load_suite(ROOT / "evals" / "smoke.yaml")
@@ -85,8 +89,9 @@ def test_check_must_set_exactly_one_key(tmp_path):
 
 
 def test_task_ids_must_be_unique(tmp_path):
-    path = write_suite(tmp_path / "s.yaml", [agent_task("a", {"status": "succeeded"}),
-                                             agent_task("a", {"status": "succeeded"})])
+    path = write_suite(
+        tmp_path / "s.yaml", [agent_task("a", {"status": "succeeded"}), agent_task("a", {"status": "succeeded"})]
+    )
     with pytest.raises(ValidationError):
         load_suite(path)
 
@@ -143,18 +148,33 @@ def decision_worker(live_api, tmp_path, monkeypatch):
     monkeypatch.setattr(main.runs.definitions, "profiles", ModelProfileRegistry(profiles))
     fake = FakeDecisionAdapter()
     fake.answers = GOOD
-    return Worker(LocalChannel(live_api.ledger, artifacts=main.artifacts), lambda p: live_api.adapter,
-                  worker_id="eval-dec", decision_factory=lambda p: fake)
+    return Worker(
+        LocalChannel(live_api.ledger, artifacts=main.artifacts),
+        lambda p: live_api.adapter,
+        worker_id="eval-dec",
+        decision_factory=lambda p: fake,
+    )
 
 
 def test_json_path_checks_against_decision_answers(live_api, decision_worker, tmp_path):
     tasks = [
-        agent_task("d-omega", {"json_path_equals": {"path": "answers.lane.value", "value": "omega"}}, agent_id="jev-decisions"),
-        agent_task("d-alpha", {"json_path_equals": {"path": "answers.lane.value", "value": "alpha"}}, agent_id="jev-decisions"),
-        agent_task("d-score", {"json_path_equals": {"path": "answers.risk.value", "value": 1.25}}, agent_id="jev-decisions"),
-        agent_task("d-wrong-type", {"json_path_equals": {"path": "answers.risk.value", "value": "1.25"}},
-                   agent_id="jev-decisions"),
-        agent_task("d-missing", {"json_path_equals": {"path": "answers.nope.value", "value": "x"}}, agent_id="jev-decisions"),
+        agent_task(
+            "d-omega", {"json_path_equals": {"path": "answers.lane.value", "value": "omega"}}, agent_id="jev-decisions"
+        ),
+        agent_task(
+            "d-alpha", {"json_path_equals": {"path": "answers.lane.value", "value": "alpha"}}, agent_id="jev-decisions"
+        ),
+        agent_task(
+            "d-score", {"json_path_equals": {"path": "answers.risk.value", "value": 1.25}}, agent_id="jev-decisions"
+        ),
+        agent_task(
+            "d-wrong-type",
+            {"json_path_equals": {"path": "answers.risk.value", "value": "1.25"}},
+            agent_id="jev-decisions",
+        ),
+        agent_task(
+            "d-missing", {"json_path_equals": {"path": "answers.nope.value", "value": "x"}}, agent_id="jev-decisions"
+        ),
         agent_task("d-run", {"status": "succeeded"}, {"max_tokens": 200}, agent_id="jev-decisions"),
     ]
     suite = load_suite(write_suite(tmp_path / "decisions.yaml", tasks))
@@ -180,10 +200,14 @@ def test_unfinished_run_times_out_and_is_cancelled(live_api, tmp_path):
 
 # --- comparison and report (pure) ---
 
+
 def _result(revision, rows):
-    tasks = [TaskResult(task_id=tid, status=status, tokens_used=tokens,
-                        checks=[CheckResult(name="status:succeeded", passed=passed)])
-             for tid, status, tokens, passed in rows]
+    tasks = [
+        TaskResult(
+            task_id=tid, status=status, tokens_used=tokens, checks=[CheckResult(name="status:succeeded", passed=passed)]
+        )
+        for tid, status, tokens, passed in rows
+    ]
     return SuiteResult(suite_id="s", revision=revision, tasks=tasks)
 
 
@@ -201,8 +225,7 @@ def test_compare_gives_pass_rates_token_totals_and_deltas():
 
 
 def test_markdown_report_has_header_and_both_revisions():
-    comparison = compare([_result("A", [("t1", "succeeded", 100, True)]),
-                          _result("B", [("t1", "failed", 90, False)])])
+    comparison = compare([_result("A", [("t1", "succeeded", 100, True)]), _result("B", [("t1", "failed", 90, False)])])
     text = comparison.to_markdown()
     assert "| task | A | B |" in text
     assert "| revision | passed | pass rate |" in text
@@ -218,6 +241,7 @@ def test_compare_rejects_mixed_suites_and_nothing():
 
 
 # --- maef eval run ---
+
 
 @pytest.fixture
 def pinned_revisions(live_api, monkeypatch):
@@ -241,20 +265,28 @@ def pinned_revisions(live_api, monkeypatch):
 
 
 def revision_suite(tmp_path):
-    return write_suite(tmp_path / "rev.yaml", [agent_task("a", {"contains": "42"}, {"status": "succeeded"}),
-                                               agent_task("b", {"contains": "42"})], suite_id="rev")
+    return write_suite(
+        tmp_path / "rev.yaml",
+        [agent_task("a", {"contains": "42"}, {"status": "succeeded"}), agent_task("b", {"contains": "42"})],
+        suite_id="rev",
+    )
 
 
-@pytest.mark.parametrize("bad, exit_code, rates", [
-    ({"B"}, 1, [1.0, 0.0]),  # last revision fails: exit 1
-    ({"A"}, 0, [0.0, 1.0]),  # only an earlier revision fails: exit 0
-    (set(), 0, [1.0, 1.0]),
-])
+@pytest.mark.parametrize(
+    "bad, exit_code, rates",
+    [
+        ({"B"}, 1, [1.0, 0.0]),  # last revision fails: exit 1
+        ({"A"}, 0, [0.0, 1.0]),  # only an earlier revision fails: exit 0
+        (set(), 0, [1.0, 1.0]),
+    ],
+)
 def test_cli_exit_code_follows_the_last_revision(live_api, pinned_revisions, tmp_path, capsys, bad, exit_code, rates):
     pinned_revisions.update(bad)
     with serving(agent_worker(live_api)):
-        code = cli_main(["eval", "run", str(revision_suite(tmp_path)), "--revision", "A", "--revision", "B", "--json"],
-                        client=MaefClient(live_api.transport))
+        code = cli_main(
+            ["eval", "run", str(revision_suite(tmp_path)), "--revision", "A", "--revision", "B", "--json"],
+            client=MaefClient(live_api.transport),
+        )
     assert code == exit_code
     out = json.loads(capsys.readouterr().out)
     assert [r["revision"] for r in out["comparison"]["revisions"]] == ["A", "B"]
@@ -264,8 +296,10 @@ def test_cli_exit_code_follows_the_last_revision(live_api, pinned_revisions, tmp
 def test_cli_out_writes_markdown_report(live_api, pinned_revisions, tmp_path, capsys):
     report = tmp_path / "report.md"
     with serving(agent_worker(live_api)):
-        code = cli_main(["eval", "run", str(revision_suite(tmp_path)), "--revision", "A", "--revision", "B",
-                         "--out", str(report)], client=MaefClient(live_api.transport))
+        code = cli_main(
+            ["eval", "run", str(revision_suite(tmp_path)), "--revision", "A", "--revision", "B", "--out", str(report)],
+            client=MaefClient(live_api.transport),
+        )
     assert code == 0
     text = report.read_text(encoding="utf-8")
     assert text.startswith("# Eval `rev`")

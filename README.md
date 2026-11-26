@@ -26,15 +26,17 @@ optional extras you switch on when you want them.
 
 ## Quick start (no cloud account)
 
-You need Python 3.11+, [Podman](https://podman.io) (or Docker) and a local model server
+You need [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 for you), [Podman](https://podman.io) (or Docker) and a local model server
 ([Ollama](https://ollama.com) or [LM Studio](https://lmstudio.ai)).
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .                    # installs the `maef` command
+uv sync                             # creates .venv and installs the `maef` command
 ollama pull qwen3:8b                # any model that supports tool calling
-maef init                           # sets up the local model profile, results folder and database
+uv run maef init                    # sets up the local model profile, results folder and database
 ```
+
+Commands below are written as `maef ...`; inside the checkout run them as `uv run maef ...`. For a global `maef`
+command that works from any folder, run `uv tool install .` once.
 
 `maef init` creates three things, all on this machine:
 
@@ -67,6 +69,21 @@ maef run research-analyst "Summarise what HTTP caching headers do" --wait
 
 Prefer a screen? Run `make tui` for the terminal interface (needs [Bun](https://bun.sh); `cd apps/tui && bun install`
 once).
+
+## Install from a release
+
+Download the wheel from the release page, then install it as a tool and set up a project in an empty folder:
+
+```bash
+uv tool install maef_control_plane-0.1.0-py3-none-any.whl
+mkdir my-agents && cd my-agents
+maef init                           # starter agents, a git repository, model profile, results folder, database
+maef lint
+```
+
+`maef init` needs `git` (agent definitions are pinned by git revision). It writes `maef.toml`, which marks the folder
+as a project: run `maef` from it or any subfolder, or set `MAEF_HOME`. Then follow the access-key steps above, using
+`MAEF_EXECUTION_ENABLED=1 maef api` and `maef worker` in place of `make api` and `make worker`.
 
 ## The main ideas
 
@@ -112,6 +129,7 @@ Not done yet: workers on a *second* machine (planned next), and the web Studio s
 | [docs/BENCHMARKS.md](docs/BENCHMARKS.md) | Noisy benchmarks, hidden grading and the TDD trace |
 | [docs/DECISION_MODELS.md](docs/DECISION_MODELS.md) | Jev and Clef wire formats |
 | [packages/contracts/CONTRACTS.md](packages/contracts/CONTRACTS.md) | Exact file and API formats |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | What MAEF is for and what comes next: experiments, FAIR records, released specialists |
 | [docs/BACKEND_PLAN.md](docs/BACKEND_PLAN.md) | The build plan and what is finished |
 
 ## Repository layout
@@ -134,12 +152,14 @@ tests/               Python tests
 ## Development
 
 ```bash
-pip install -e '.[dev]'
+uv sync              # installs the project and the dev group (tests, ruff, ty); add --all-extras for cloud extras
+uv run pytest        # same as make test
+make check           # ruff, format check and tests
 make test            # unit and API tests
 make test-oci        # tests that start real containers (needs Podman or Docker)
 make test-pg         # ledger tests on Postgres (starts a container)
 make test-s3         # artifact tests on an S3-compatible server (starts a container)
-maef lint            # check every definition file
+uv run maef lint    # check every definition file
 cd apps/tui && bun test
 ```
 
@@ -152,3 +172,8 @@ cd apps/tui && bun test
 5. Budgets in tokens, reserved before running.
 6. Fail closed: missing policy, unpinned images or unavailable isolation stop the run.
 7. A human reviews privileged changes; nothing is merged automatically.
+
+## Licence
+
+Apache-2.0, see [LICENSE](LICENSE) and [NOTICE](NOTICE). The MAEF name and logo are covered separately in
+[TRADEMARKS.md](TRADEMARKS.md).

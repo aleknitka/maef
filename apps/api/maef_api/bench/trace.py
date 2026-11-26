@@ -1,9 +1,11 @@
 """Analyse a transcript.jsonl into TDD metrics. Heuristic: only `run_command` calls are classified, by regex over
 the joined argv. See docs/BENCHMARKS.md for the definitions."""
+
 import json
 import re
 from collections import Counter
 from itertools import pairwise
+from typing import Any
 
 _REDIRECT = re.compile(r"""(?<![0-9&<>-])>>?\s*['"]?([^\s'"<>|;&()]+)""")
 _TEE = re.compile(r"""\btee\s+(?:-a\s+)?['"]?([^\s'"<>|;&()]+)""")
@@ -101,7 +103,8 @@ def analyse(rows: list[dict]) -> dict:
     tools = [r for r in rows if r.get("type") == "tool"]
     by_name = Counter(r.get("name") for r in tools)
     kinds: Counter = Counter()
-    first_test = first_impl = None  # (turn, order) positions
+    first_test: tuple[Any, int] | None = None  # (turn, order) positions
+    first_impl: tuple[Any, int] | None = None
     test_runs: list[dict] = []
     writes: Counter = Counter()
     for order, r in enumerate(tools):
@@ -109,9 +112,12 @@ def analyse(rows: list[dict]) -> dict:
         if r.get("name") != "run_command":
             kinds["other_tool"] += 1
             continue
-        args = r.get("arguments") if isinstance(r.get("arguments"), dict) else {}
-        argv = args.get("argv") if isinstance(args.get("argv"), list) else []
-        info = classify([str(a) for a in argv], args.get("stdin") if isinstance(args.get("stdin"), str) else None)
+        raw_args = r.get("arguments")
+        args = raw_args if isinstance(raw_args, dict) else {}
+        raw_argv = args.get("argv")
+        argv = raw_argv if isinstance(raw_argv, list) else []
+        stdin = args.get("stdin")
+        info = classify([str(a) for a in argv], stdin if isinstance(stdin, str) else None)
         if info["writes"]:
             kinds["file_write"] += 1
         if info["test_run"]:
@@ -128,7 +134,7 @@ def analyse(rows: list[dict]) -> dict:
             test_runs.append({"turn": turn, **parse_test_result(r.get("content", ""))})
     green = [t for t in test_runs if t["passed"]]
     cycles = sum(1 for a, b in pairwise(test_runs) if not a["passed"] and b["passed"])
-    tests_first = first_test is not None and (first_impl is None or first_test < first_impl)
+    tests_first = first_test is not None and (first_impl is None or first_test[1] < first_impl[1])
     verdict = _verdict(first_test is not None, tests_first, test_runs, bool(green))
     return {
         "turns": len(assistants),
@@ -165,7 +171,14 @@ def _verdict(wrote_tests: bool, tests_first: bool, runs: list[dict], any_green: 
 
 def _timeline(a: dict) -> dict:
     u = a.get("usage") or {}
-    return {"turn": a.get("turn"), "t": a.get("t"), "latency_ms": a.get("latency_ms"),
-            "input_tokens": u.get("input_tokens"), "cache_read_tokens": u.get("cache_read_tokens"),
-            "output_tokens": u.get("output_tokens"), "reasoning_tokens": u.get("reasoning_tokens"),
-            "cost_usd": u.get("cost_usd"), "tool_calls": len(a.get("tool_calls") or [])}
+    return {
+        "turn": a.get("turn"),
+        "t": a.get("t"),
+        "latency_ms": a.get("latency_ms"),
+        "input_tokens": u.get("input_tokens"),
+        "cache_read_tokens": u.get("cache_read_tokens"),
+        "output_tokens": u.get("output_tokens"),
+        "reasoning_tokens": u.get("reasoning_tokens"),
+        "cost_usd": u.get("cost_usd"),
+        "tool_calls": len(a.get("tool_calls") or []),
+    }

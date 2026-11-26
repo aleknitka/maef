@@ -1,5 +1,6 @@
 """Tiny JSON-over-HTTP client with bounded retries. Error text never includes the response
 body or request, which can echo prompts or keys."""
+
 import json
 import time
 import urllib.error
@@ -22,15 +23,27 @@ class ModelHTTPError(Exception):
         self.status = status
 
 
-def post_json(url: str, headers: dict, body: dict, *, timeout: float, max_retries: int, policy: EgressPolicy,
-              allow_loopback: bool, allow_private: bool, sleep=time.sleep) -> dict:
+def post_json(
+    url: str,
+    headers: dict,
+    body: dict,
+    *,
+    timeout: float,
+    max_retries: int,
+    policy: EgressPolicy,
+    allow_loopback: bool,
+    allow_private: bool,
+    sleep=time.sleep,
+) -> dict:
     data = json.dumps(body).encode()
     for attempt in range(max_retries + 1):
         try:
             policy.check(url, allow_loopback=allow_loopback, allow_private=allow_private)
         except EgressDenied as exc:
             raise ModelHTTPError(None, str(exc)) from None
-        req = urllib.request.Request(url, data=data, method="POST", headers={"Content-Type": "application/json", **headers})
+        req = urllib.request.Request(  # noqa: S310  URL is operator-configured and passes the egress policy check
+            url, data=data, method="POST", headers={"Content-Type": "application/json", **headers}
+        )
         try:
             with opener.open(req, timeout=timeout) as resp:  # scheme validated by the profile
                 return json.loads(resp.read())
@@ -41,5 +54,5 @@ def post_json(url: str, headers: dict, body: dict, *, timeout: float, max_retrie
         except (urllib.error.URLError, TimeoutError, ConnectionError):
             if attempt == max_retries:
                 raise ModelHTTPError(None, "connection_error") from None
-        sleep(min(2 ** attempt, 8))
+        sleep(min(2**attempt, 8))
     raise AssertionError("unreachable")

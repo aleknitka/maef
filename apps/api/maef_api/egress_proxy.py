@@ -11,7 +11,9 @@ it then connects to the vetted IP (no second resolution, so DNS rebinding cannot
 One JSON line per decision goes to stdout: host, port, decision, reason, bytes. Never URLs paths,
 headers or bodies. Configuration: JSON in the MAEF_EGRESS_CONFIG environment variable.
 """
+
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -54,8 +56,15 @@ def classify_address(ip, *, allow_loopback: bool = False, allow_private: bool = 
         reason = classify_address(inner, allow_loopback=allow_loopback, allow_private=allow_private)
         if reason:
             return reason
-    if (ip.is_unspecified or ip.is_multicast or ip.is_reserved or ip.is_link_local or getattr(ip, "is_site_local", False)
-            or ip == _IMDS_V6 or (isinstance(ip, IPv4Address) and ip in _THIS_NETWORK)):
+    if (
+        ip.is_unspecified
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_link_local
+        or getattr(ip, "is_site_local", False)
+        or ip == _IMDS_V6
+        or (isinstance(ip, IPv4Address) and ip in _THIS_NETWORK)
+    ):
         return "forbidden_address"
     if any(ip in net for net in _PRIVATE if net.version == ip.version):
         return None if allow_private else "private_network"
@@ -159,6 +168,7 @@ def summarize_log(text: str) -> dict:
 
 # --- the server ---
 
+
 def _log(**fields) -> None:
     print(json.dumps({"event": "decision", "ts": round(time.time(), 3), **fields}, separators=(",", ":")), flush=True)
 
@@ -184,15 +194,19 @@ class _Proxy:
         except (TimeoutError, OSError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
             pass
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 writer.close()
-            except OSError:
-                pass
 
     @staticmethod
     async def _reply(writer, status: int, reason: str) -> None:
-        phrase = {200: "Connection Established", 400: "Bad Request", 403: "Forbidden", 405: "Method Not Allowed",
-                  502: "Bad Gateway", 503: "Service Unavailable"}[status]
+        phrase = {
+            200: "Connection Established",
+            400: "Bad Request",
+            403: "Forbidden",
+            405: "Method Not Allowed",
+            502: "Bad Gateway",
+            503: "Service Unavailable",
+        }[status]
         body = b"" if status == 200 else reason.encode()
         head = f"HTTP/1.1 {status} {phrase}\r\n"
         if status != 200:
@@ -244,8 +258,20 @@ class _Proxy:
                 _log(host=host[:253], port=port, decision="deny", reason="port_not_allowed", bytes=0)
                 await self._reply(writer, 403, "port_not_allowed")
                 return
-            kept = [h for h in headers if h.split(":", 1)[0].strip().lower() not in
-                    ("connection", "proxy-connection", "proxy-authorization", "keep-alive", "upgrade", "te", "trailer")]
+            kept = [
+                h
+                for h in headers
+                if h.split(":", 1)[0].strip().lower()
+                not in (
+                    "connection",
+                    "proxy-connection",
+                    "proxy-authorization",
+                    "keep-alive",
+                    "upgrade",
+                    "te",
+                    "trailer",
+                )
+            ]
             head = f"{method} /{path} HTTP/1.1\r\n" + "".join(h + "\r\n" for h in kept) + "Connection: close\r\n\r\n"
             await self._connect(reader, writer, host, port, head.encode("latin-1"))
             return
@@ -261,8 +287,9 @@ class _Proxy:
         if reason is None:
             try:
                 infos = await asyncio.wait_for(
-                    asyncio.get_running_loop().getaddrinfo(normalize_host(host), port, type=socket.SOCK_STREAM), 10)
-                addrs = list(dict.fromkeys(i[4][0] for i in infos))
+                    asyncio.get_running_loop().getaddrinfo(normalize_host(host), port, type=socket.SOCK_STREAM), 10
+                )
+                addrs = list(dict.fromkeys(str(i[4][0]) for i in infos))
             except (TimeoutError, OSError):
                 addrs = []
             reason = vet_addresses(addrs)
@@ -295,10 +322,8 @@ class _Proxy:
         finally:
             self.used += moved[0]
             _log(host=shown, port=port, decision="allow", reason="ok", bytes=moved[0])
-            try:
+            with contextlib.suppress(OSError):
                 up_writer.close()
-            except OSError:
-                pass
 
     async def _pipe(self, src, dst, moved: list[int]) -> None:
         try:
@@ -352,12 +377,14 @@ def _split_hostport(text: str, default_port: int | None):
 
 
 async def _main(config: dict) -> None:
-    proxy = _Proxy(Policy(config.get("hosts", []), config.get("ports", DEFAULT_PORTS)),
-                   max_connections=int(config.get("max_connections", DEFAULT_MAX_CONNECTIONS)),
-                   client_cidrs=config.get("client_cidrs", []),
-                   idle_seconds=float(config.get("idle_seconds", DEFAULT_IDLE_SECONDS)),
-                   max_bytes=int(config.get("max_bytes", DEFAULT_MAX_BYTES)))
-    bind = config.get("bind", "0.0.0.0")  # clients are filtered by source network
+    proxy = _Proxy(
+        Policy(config.get("hosts", []), config.get("ports", DEFAULT_PORTS)),
+        max_connections=int(config.get("max_connections", DEFAULT_MAX_CONNECTIONS)),
+        client_cidrs=config.get("client_cidrs", []),
+        idle_seconds=float(config.get("idle_seconds", DEFAULT_IDLE_SECONDS)),
+        max_bytes=int(config.get("max_bytes", DEFAULT_MAX_BYTES)),
+    )
+    bind = config.get("bind", "0.0.0.0")  # clients are filtered by source network  # noqa: S104  in-container proxy default; clients are filtered by source CIDR
     server = await asyncio.start_server(proxy.handle, bind, int(config.get("port", PROXY_PORT)), limit=MAX_HEADER_BYTES)
     print(json.dumps({"event": "ready", "bind": bind}), flush=True)
     async with server:
@@ -370,10 +397,8 @@ def main() -> int:
     except (KeyError, ValueError):
         print(json.dumps({"event": "fatal", "reason": "bad_config"}), flush=True)
         return 2
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_main(config))
-    except KeyboardInterrupt:
-        pass
     return 0
 
 

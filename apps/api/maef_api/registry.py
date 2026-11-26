@@ -8,17 +8,47 @@ from .models import (
     ModelEndpointProfile,
     SandboxProfile,
 )
+from .project import project_root
 
-ROOT = Path(__file__).resolve().parents[3]
-AGENTS_DIR = ROOT / "agents"
-MODEL_PROFILES_DIR = ROOT / "model-profiles"
-SANDBOX_PROFILES_DIR = ROOT / "sandbox-profiles"
-MCP_SERVERS_DIR = ROOT / "mcp-servers"
+
+def agents_dir() -> Path:
+    return project_root() / "agents"
+
+
+def model_profiles_dir() -> Path:
+    return project_root() / "model-profiles"
+
+
+def sandbox_profiles_dir() -> Path:
+    return project_root() / "sandbox-profiles"
+
+
+def mcp_servers_dir() -> Path:
+    return project_root() / "mcp-servers"
+
+
+_LAZY = {
+    "ROOT": project_root,
+    "AGENTS_DIR": agents_dir,
+    "MODEL_PROFILES_DIR": model_profiles_dir,
+    "SANDBOX_PROFILES_DIR": sandbox_profiles_dir,
+    "MCP_SERVERS_DIR": mcp_servers_dir,
+}
+
+
+def __getattr__(name: str) -> Path:
+    # Old module constants (ROOT, AGENTS_DIR, ...) resolve the project when read, never at import.
+    if name in _LAZY:
+        return _LAZY[name]()
+    raise AttributeError(name)
+
+
 _ID_CHARS = set("abcdefghijklmnopqrstuvwxyz0123456789-")
 
+
 class ModelProfileRegistry:
-    def __init__(self, root: Path = MODEL_PROFILES_DIR):
-        self.root = Path(root).resolve()
+    def __init__(self, root: Path | None = None):
+        self.root = Path(root if root is not None else model_profiles_dir()).resolve()
 
     def list_profiles(self) -> list[ModelEndpointProfile]:
         if not self.root.exists():
@@ -39,9 +69,10 @@ class ModelProfileRegistry:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
         return ModelEndpointProfile.model_validate(data)
 
+
 class SandboxProfileRegistry:
-    def __init__(self, root: Path = SANDBOX_PROFILES_DIR):
-        self.root = Path(root).resolve()
+    def __init__(self, root: Path | None = None):
+        self.root = Path(root if root is not None else sandbox_profiles_dir()).resolve()
 
     def list_profiles(self) -> list[SandboxProfile]:
         if not self.root.exists():
@@ -61,9 +92,10 @@ class SandboxProfileRegistry:
     def _parse(path: Path) -> SandboxProfile:
         return SandboxProfile.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
+
 class McpServerRegistry:
-    def __init__(self, root: Path = MCP_SERVERS_DIR):
-        self.root = Path(root).resolve()
+    def __init__(self, root: Path | None = None):
+        self.root = Path(root if root is not None else mcp_servers_dir()).resolve()
 
     def list_servers(self) -> list[McpServerManifest]:
         if not self.root.exists():
@@ -89,9 +121,10 @@ class McpServerRegistry:
     def _parse(data: bytes) -> McpServerManifest:
         return McpServerManifest.model_validate(yaml.safe_load(data.decode("utf-8")))
 
+
 class AgentRegistry:
-    def __init__(self, root: Path = AGENTS_DIR):
-        self.root = Path(root).resolve()
+    def __init__(self, root: Path | None = None):
+        self.root = Path(root if root is not None else agents_dir()).resolve()
 
     def list_agents(self) -> list[AgentDefinition]:
         agents: list[AgentDefinition] = []

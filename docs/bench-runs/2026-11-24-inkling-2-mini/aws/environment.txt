@@ -1,0 +1,5 @@
+host: ip-172-31-9-152 Linux 7.0.0-1018-aws 2 cpu 1905 MB
+revision: 05ca86dec970573b9b7816fc48ccb56b301370a7
+podman version 4.9.3
+Python 3.12.3
+2026-11-24T15:56:03Z

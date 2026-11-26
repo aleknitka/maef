@@ -1,8 +1,10 @@
 """Bowling task family: reference rules, variant sampling, hidden cases, task text, grader source and the
 `maef bench variant` CLI."""
+
 import json
 
 import pytest
+
 from maef_api.bench.families import FAMILIES
 from maef_api.bench.families.base import Variant
 from maef_api.bench.families.bowling import (
@@ -21,11 +23,13 @@ def score(rolls, pins=10, frames=10, sb=2, pb=1):
 
 
 def variant(params=None, names=None, seed=1, noise=1):
-    return Variant(family="bowling", seed=seed, noise=noise,
-                   params=params or dict(CANONICAL), names=names or dict(CANONICAL_NAMES))
+    return Variant(
+        family="bowling", seed=seed, noise=noise, params=params or dict(CANONICAL), names=names or dict(CANONICAL_NAMES)
+    )
 
 
 # --- canonical scoring -------------------------------------------------------------------------
+
 
 def test_canonical_known_totals():
     assert score([0] * 20) == 0  # gutter game
@@ -51,26 +55,30 @@ def test_non_canonical_rules_hand_checked():
     assert score([5] * 7, pins=5, frames=4, sb=3, pb=2) == 80  # 3 strikes x (5 + 15 bonus) + last frame 4 balls x 5
 
 
-@pytest.mark.parametrize("bad", [
-    [],  # empty game
-    None,
-    "0000",
-    [-1] + [0] * 19,  # negative roll
-    [11] + [0] * 19,  # above pins
-    [1.5] + [0] * 19,  # not an int
-    [True] + [0] * 19,  # bool is not an int here
-    [5, 6] + [0] * 18,  # open frame over pins standing
-    [0] * 19,  # too few rolls
-    [0] * 21,  # too many rolls
-    [10] * 11,  # perfect game without its fill balls
-    [10] * 13,  # extra rolls after the game is over
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [],  # empty game
+        None,
+        "0000",
+        [-1] + [0] * 19,  # negative roll
+        [11] + [0] * 19,  # above pins
+        [1.5] + [0] * 19,  # not an int
+        [True] + [0] * 19,  # bool is not an int here
+        [5, 6] + [0] * 18,  # open frame over pins standing
+        [0] * 19,  # too few rolls
+        [0] * 21,  # too many rolls
+        [10] * 11,  # perfect game without its fill balls
+        [10] * 13,  # extra rolls after the game is over
+    ],
+)
 def test_invalid_inputs_raise_value_error(bad):
     with pytest.raises(ValueError):
         score(bad)
 
 
 # --- variant sampling ----------------------------------------------------------------------------
+
 
 @pytest.mark.parametrize("seed", [0, 1, 7, 12345])
 def test_noise_zero_is_canonical(seed):
@@ -122,6 +130,7 @@ def test_noise_two_also_changes_bonus_lengths():
 
 # --- hidden cases ----------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("noise", [0, 1, 2])
 def test_every_hidden_case_is_valid_for_the_reference(noise):
     for seed in range(40):
@@ -133,12 +142,13 @@ def test_every_hidden_case_is_valid_for_the_reference(noise):
         for c in cases:
             if c["expected"] == "ValueError":
                 with pytest.raises(ValueError):
-                    reference_score(c["rolls"], p["pins"], p["frames"], p["strike_bonus_rolls"],
-                                    p["spare_bonus_rolls"])
+                    reference_score(c["rolls"], p["pins"], p["frames"], p["strike_bonus_rolls"], p["spare_bonus_rolls"])
             else:
                 assert type(c["expected"]) is int
-                assert reference_score(c["rolls"], p["pins"], p["frames"], p["strike_bonus_rolls"],
-                                       p["spare_bonus_rolls"]) == c["expected"]
+                assert (
+                    reference_score(c["rolls"], p["pins"], p["frames"], p["strike_bonus_rolls"], p["spare_bonus_rolls"])
+                    == c["expected"]
+                )
                 assert all(type(r) is int and 0 <= r <= p["pins"] for r in c["rolls"])
 
 
@@ -148,6 +158,7 @@ def test_hidden_case_names_are_unique():
 
 
 # --- task text -------------------------------------------------------------------------------------
+
 
 def test_render_task_numbers_requirements_and_deliverables():
     text = FAM.render_task(variant())
@@ -159,8 +170,10 @@ def test_render_task_numbers_requirements_and_deliverables():
 
 
 def test_render_task_contains_variant_names_and_params():
-    v = variant(params={"pins": 7, "frames": 5, "strike_bonus_rolls": 3, "spare_bonus_rolls": 2},
-                names={"module": "lanes", "function": "tally"})
+    v = variant(
+        params={"pins": 7, "frames": 5, "strike_bonus_rolls": 3, "spare_bonus_rolls": 2},
+        names={"module": "lanes", "function": "tally"},
+    )
     text = FAM.render_task(v)
     assert "`tally(rolls: list[int]) -> int`" in text
     assert "module named `lanes`" in text
@@ -179,6 +192,7 @@ def test_render_task_names_come_from_the_variant_not_the_canonical_defaults():
 
 # --- grader source ---------------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize("noise", [0, 2])
 def test_grader_source_is_valid_python_and_names_the_module(noise):
     v = FAM.sample(6, noise)
@@ -195,6 +209,7 @@ def test_family_is_registered():
 
 
 # --- maef bench variant (CLI) ----------------------------------------------------------------------
+
 
 def test_cli_variant_prints_task_markdown(capsys):
     assert main(["bench", "variant", "--family", "bowling", "--seed", "7", "--noise", "2"]) == 0

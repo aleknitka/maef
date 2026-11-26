@@ -9,7 +9,8 @@ fi
 export OPENROUTER_API_KEY
 D="$BASE/data"; rm -rf "$D"; mkdir -p "$D"
 export MAEF_DB="$D/maef.db" MAEF_ARTIFACTS_DIR="$D/artifacts"
-M=.venv/bin/maef; PY=.venv/bin/python; PORT=${PORT:-8767}
+export PATH="$HOME/.local/bin:$PATH"
+M="uv run --locked maef"; PY="uv run --locked python"; PORT=${PORT:-8767}
 export MAEF_API_TOKEN=$($M admin token create --name bench --scopes read,runs:write 2>/dev/null)
 export MAEF_WORKER_CREDENTIAL=$($M admin worker create --id "bench-$(hostname)" 2>/dev/null)
 MAEF_EXECUTION_ENABLED=1 $PY -m uvicorn maef_api.main:app --app-dir apps/api --host 127.0.0.1 --port $PORT > "$D/api.log" 2>&1 &

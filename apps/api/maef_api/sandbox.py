@@ -8,6 +8,8 @@ nothing into the container. `FakeSandbox` is the in-memory adapter for tests.
 Image requirements: POSIX `sh`, `cat`, `mkdir` (used by put/get), and a `sleep` that accepts
 `infinity` (GNU or busybox). Container output and file contents are never logged.
 """
+
+import contextlib
 import json
 import os
 import posixpath
@@ -21,7 +23,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import IO, Literal, Protocol
 
 from . import egress_proxy
 from .models import SandboxProfile, is_pinned_image
@@ -79,6 +81,7 @@ Network = Literal["none", "allowlist", "open"]
 @dataclass(frozen=True)
 class EgressSpec:
     """What the egress proxy lets through for `network="allowlist"` (see egress_proxy.Policy)."""
+
     hosts: tuple[str, ...]
     ports: tuple[int, ...] = (443, 80)
     max_connections: int = 32
@@ -87,8 +90,9 @@ class EgressSpec:
 
 
 class Session(Protocol):
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
-             cancel: threading.Event | None = None) -> ExecResult:
+    def exec(
+        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+    ) -> ExecResult:
         """Best effort: once `cancel` is set the exec is killed like a timeout and `cancelled` is True."""
         ...
 
@@ -111,8 +115,9 @@ class Session(Protocol):
 
 
 class Sandbox(Protocol):
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
-                  egress: EgressSpec | None = None) -> Session:
+    def provision(
+        self, profile: SandboxProfile, run_id: str, *, network: Network = "none", egress: EgressSpec | None = None
+    ) -> Session:
         """`network="open"` uses the runtime's default network, unfiltered; callers must have been
         granted it. `network="allowlist"` (needs `egress`) joins the container to a per-run internal
         network whose only way out is an enforced allowlist proxy."""
@@ -146,10 +151,17 @@ class OciCliSandbox:
         self._info: dict | None = None
 
     # -- helpers --
-    def _run(self, args: list[str], *, timeout: float = _CLI_TIMEOUT, stdin: bytes | None = None
-             ) -> subprocess.CompletedProcess:
-        return subprocess.run([self._bin, *args], input=stdin, capture_output=True, timeout=timeout,
-                              stdin=None if stdin is not None else subprocess.DEVNULL, check=False)
+    def _run(
+        self, args: list[str], *, timeout: float = _CLI_TIMEOUT, stdin: bytes | None = None
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+            [self._bin, *args],
+            input=stdin,
+            capture_output=True,
+            timeout=timeout,
+            stdin=None if stdin is not None else subprocess.DEVNULL,
+            check=False,
+        )
 
     def _out(self, args: list[str]) -> str | None:
         try:
@@ -174,8 +186,9 @@ class OciCliSandbox:
         return dict(self._info)
 
     # -- Sandbox --
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
-                  egress: EgressSpec | None = None) -> Session:
+    def provision(
+        self, profile: SandboxProfile, run_id: str, *, network: Network = "none", egress: EgressSpec | None = None
+    ) -> Session:
         if profile.require_rootless and not self.info()["rootless"]:
             raise SandboxUnavailable("runtime_not_rootless")  # fail closed, never downgrade
         if not is_pinned_image(profile.image) and self._env.get(ALLOW_UNPINNED_ENV) != "1":
@@ -190,6 +203,8 @@ class OciCliSandbox:
         if network == "none":
             net_args = ["--network=none"]
         elif network == "allowlist":
+            if egress is None:  # unreachable: rejected above
+                raise SandboxUnavailable("egress_not_configured")
             net, proxy = f"maef-egress-{safe}-{suffix}", f"maef-proxy-{safe}-{suffix}"
             try:
                 proxy_ip = self._start_egress(net, proxy, run_id, egress)
@@ -197,16 +212,46 @@ class OciCliSandbox:
                 self._remove_egress(net, proxy)
                 raise
             url = f"http://{proxy_ip}:{egress_proxy.PROXY_PORT}"
-            net_args = [f"--network={net}", "--env", "NO_PROXY=", "--env", "no_proxy=",
-                        *(x for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy") for x in ("--env", f"{k}={url}"))]
+            net_args = [
+                f"--network={net}",
+                "--env",
+                "NO_PROXY=",
+                "--env",
+                "no_proxy=",
+                *(
+                    x
+                    for k in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+                    for x in ("--env", f"{k}={url}")
+                ),
+            ]
         args = [
-            "run", "-d", "--rm", "--name", name, "--label", f"maef.run={run_id}",
-            "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", *net_args,
-            "--pids-limit", str(profile.pids_limit), "--memory", f"{profile.memory_mb}m",
-            "--cpus", str(profile.cpus), "--user", profile.user,
-            "--tmpfs", f"{WORKSPACE}:rw,size={profile.workspace_mb}m,mode=1777",
-            "--tmpfs", "/tmp:rw,size=16m,mode=1777",
-            "--entrypoint", "sleep", profile.image, "infinity",
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            name,
+            "--label",
+            f"maef.run={run_id}",
+            "--read-only",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
+            *net_args,
+            "--pids-limit",
+            str(profile.pids_limit),
+            "--memory",
+            f"{profile.memory_mb}m",
+            "--cpus",
+            str(profile.cpus),
+            "--user",
+            profile.user,
+            "--tmpfs",
+            f"{WORKSPACE}:rw,size={profile.workspace_mb}m,mode=1777",
+            "--tmpfs",
+            "/tmp:rw,size=16m,mode=1777",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
+            "--entrypoint",
+            "sleep",
+            profile.image,
+            "infinity",
         ]
         try:
             done = self._run(args, timeout=_PROVISION_TIMEOUT)
@@ -221,7 +266,9 @@ class OciCliSandbox:
         return _OciSession(self, name, proxy=proxy, network=net)
 
     def _start_egress(self, net: str, proxy: str, run_id: str, spec: EgressSpec) -> str:
-        """Returns the proxy's IP on the internal network. Internal network (no route out) plus a proxy that is on the runtime's default network
+        """Returns the proxy's IP on the internal network.
+
+        Internal network (no route out) plus a proxy that is on the runtime's default network
         (for DNS and the way out) and on the internal network. The proxy starts on the default network
         because an internal network's DNS does not forward (podman: the network has DNS disabled so the
         proxy keeps the host's resolvers; clients reach the proxy by IP); it accepts clients only from the internal
@@ -229,24 +276,75 @@ class OciCliSandbox:
         label = f"maef.run={run_id}"
         default = "podman" if self.runtime == "podman" else "bridge"
         try:
-            if self._run(["network", "create", "--internal", "--label", label,
-                              *(["--disable-dns"] if self.runtime == "podman" else []), net]).returncode != 0:
+            if (
+                self._run(
+                    [
+                        "network",
+                        "create",
+                        "--internal",
+                        "--label",
+                        label,
+                        *(["--disable-dns"] if self.runtime == "podman" else []),
+                        net,
+                    ]
+                ).returncode
+                != 0
+            ):
                 raise SandboxUnavailable("egress_network_failed")
-            fmt = ("{{range .Subnets}}{{.Subnet}} {{end}}" if self.runtime == "podman"
-                   else "{{range .IPAM.Config}}{{.Subnet}} {{end}}")
+            fmt = (
+                "{{range .Subnets}}{{.Subnet}} {{end}}"
+                if self.runtime == "podman"
+                else "{{range .IPAM.Config}}{{.Subnet}} {{end}}"
+            )
             subnets = (self._out(["network", "inspect", "--format", fmt, net]) or "").split()
             if not subnets:
                 raise SandboxUnavailable("egress_network_failed")
-            config = json.dumps({"hosts": list(spec.hosts), "ports": list(spec.ports),
-                                 "max_connections": spec.max_connections, "idle_seconds": spec.idle_seconds,
-                                 "max_bytes": spec.max_bytes, "client_cidrs": subnets})
+            config = json.dumps(
+                {
+                    "hosts": list(spec.hosts),
+                    "ports": list(spec.ports),
+                    "max_connections": spec.max_connections,
+                    "idle_seconds": spec.idle_seconds,
+                    "max_bytes": spec.max_bytes,
+                    "client_cidrs": subnets,
+                }
+            )
             source = Path(egress_proxy.__file__).read_text(encoding="utf-8")
-            done = self._run([
-                "run", "-d", "--rm", "--name", proxy, "--label", label, "--network", default,
-                "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
-                "--pids-limit", "128", "--memory", "128m", "--cpus", "0.5", "--user", "65534:65534",
-                "--tmpfs", "/tmp:rw,size=8m,mode=1777", "--env", f"MAEF_EGRESS_CONFIG={config}",
-                "--entrypoint", "python", EGRESS_PROXY_IMAGE, "-u", "-c", source], timeout=_PROVISION_TIMEOUT)
+            done = self._run(
+                [
+                    "run",
+                    "-d",
+                    "--rm",
+                    "--name",
+                    proxy,
+                    "--label",
+                    label,
+                    "--network",
+                    default,
+                    "--read-only",
+                    "--cap-drop=ALL",
+                    "--security-opt=no-new-privileges",
+                    "--pids-limit",
+                    "128",
+                    "--memory",
+                    "128m",
+                    "--cpus",
+                    "0.5",
+                    "--user",
+                    "65534:65534",
+                    "--tmpfs",
+                    "/tmp:rw,size=8m,mode=1777",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
+                    "--env",
+                    f"MAEF_EGRESS_CONFIG={config}",
+                    "--entrypoint",
+                    "python",
+                    EGRESS_PROXY_IMAGE,
+                    "-u",
+                    "-c",
+                    source,
+                ],
+                timeout=_PROVISION_TIMEOUT,
+            )
             if done.returncode != 0:
                 raise SandboxUnavailable("egress_proxy_failed")
             if self._run(["network", "connect", net, proxy]).returncode != 0:
@@ -256,7 +354,9 @@ class OciCliSandbox:
                 if time.monotonic() > deadline or self._out(["ps", "-q", "--filter", f"name=^{proxy}$"]) == "":
                     raise SandboxUnavailable("egress_proxy_failed")
                 time.sleep(0.2)
-            ip = self._out(["inspect", "--format", f'{{{{(index .NetworkSettings.Networks "{net}").IPAddress}}}}', proxy])
+            ip = self._out(
+                ["inspect", "--format", f'{{{{(index .NetworkSettings.Networks "{net}").IPAddress}}}}', proxy]
+            )
             if not ip or not re.fullmatch(r"[0-9a-fA-F:.]+", ip):
                 raise SandboxUnavailable("egress_proxy_failed")
             return ip
@@ -274,19 +374,15 @@ class OciCliSandbox:
         if proxy:
             self._rm(proxy)
         if net:
-            try:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
                 self._run(["network", "rm", "-f", net])
-            except (OSError, subprocess.SubprocessError):
-                pass
 
     def _rm(self, name: str) -> None:
         """Remove without a stop grace period. Every MAEF container's PID 1 (`sleep infinity`, the proxy) ignores
         SIGTERM and holds no state worth flushing, so podman's default 10 s wait would only delay teardown.
         `docker rm -f` already kills immediately."""
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             self._run(["rm", "-f", "-t", "0", name] if self.runtime == "podman" else ["rm", "-f", name])
-        except (OSError, subprocess.SubprocessError):
-            pass
 
     def cleanup_orphans(self) -> int:
         """Remove every container labelled maef.run. Call at worker start; assumes this host's
@@ -316,15 +412,17 @@ class _OciSession:
             self._summary = egress_proxy.summarize_log(text)
         return self._summary
 
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
-             cancel: threading.Event | None = None) -> ExecResult:
+    def exec(
+        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+    ) -> ExecResult:
         if not argv or not all(isinstance(a, str) for a in argv):
             raise ValueError("invalid_argv")
         if cancel is not None:
             return self._exec_cancellable(argv, stdin, timeout, cancel)
         try:
-            done = self._sb._run(["exec", "-i", "-w", WORKSPACE, self.name, *argv],
-                                 timeout=max(timeout, 0.1), stdin=stdin or b"")
+            done = self._sb._run(
+                ["exec", "-i", "-w", WORKSPACE, self.name, *argv], timeout=max(timeout, 0.1), stdin=stdin or b""
+            )
         except subprocess.TimeoutExpired as exc:
             self._kill_all()
             out = exc.stdout if isinstance(exc.stdout, bytes) else None
@@ -334,14 +432,15 @@ class _OciSession:
             raise SandboxError("exec_failed") from None
         return ExecResult(done.returncode, _cap(done.stdout), _cap(done.stderr))
 
-    def _exec_cancellable(self, argv: list[str], stdin: bytes | None, timeout: float,
-                          cancel: threading.Event) -> ExecResult:
+    def _exec_cancellable(
+        self, argv: list[str], stdin: bytes | None, timeout: float, cancel: threading.Event
+    ) -> ExecResult:
         """Like exec, but waits in short slices so `cancel` can interrupt it."""
         if cancel.is_set():
             return ExecResult(-1, b"", b"", cancelled=True)
         cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, self.name, *argv]
         try:
-            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
         except OSError:
             raise SandboxError("exec_failed") from None
         deadline = time.monotonic() + max(timeout, 0.1)
@@ -361,9 +460,13 @@ class _OciSession:
                     out, err = popen.communicate(timeout=5)
                 except (subprocess.SubprocessError, OSError):
                     out, err = exc.stdout, exc.stderr
-                return ExecResult(-1, _cap(out if isinstance(out, bytes) else None),
-                                  _cap(err if isinstance(err, bytes) else None),
-                                  timed_out=timed_out and not cancelled, cancelled=cancelled)
+                return ExecResult(
+                    -1,
+                    _cap(out if isinstance(out, bytes) else None),
+                    _cap(err if isinstance(err, bytes) else None),
+                    timed_out=timed_out and not cancelled,
+                    cancelled=cancelled,
+                )
             except OSError:
                 popen.kill()
                 raise SandboxError("exec_failed") from None
@@ -375,8 +478,9 @@ class _OciSession:
         # never appear in argv or `ps` output.
         cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, *(x for k in env for x in ("-e", k)), self.name, *argv]
         try:
-            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                     stderr=subprocess.DEVNULL, env={**os.environ, **env})
+            popen = subprocess.Popen(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+                cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={**os.environ, **env}
+            )
         except OSError:
             raise SandboxError("spawn_failed") from None
         return _OciProcess(popen)
@@ -384,16 +488,15 @@ class _OciSession:
     def _kill_all(self) -> None:
         # Best effort: killing the CLI client leaves the exec'd process running in the container.
         # `kill -9 -1` reaches every process the user may signal except PID 1 (sleep), which is immune.
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             self._sb._run(["exec", self.name, "sh", "-c", "kill -9 -1"], timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            pass
 
     def put(self, path: str, data: bytes) -> None:
         path = workspace_path(path)
         try:
             done = self._sb._run(
-                ["exec", "-i", self.name, "sh", "-c", 'mkdir -p "${1%/*}" && cat > "$1"', "_", path], stdin=data)
+                ["exec", "-i", self.name, "sh", "-c", 'mkdir -p "${1%/*}" && cat > "$1"', "_", path], stdin=data
+            )
         except (OSError, subprocess.SubprocessError):
             raise SandboxError("put_failed") from None
         if done.returncode != 0:
@@ -424,7 +527,12 @@ class _OciProcess:
     and a chatty process is held back by the pipe instead of growing memory."""
 
     def __init__(self, popen: subprocess.Popen):
+        # spawn() opens both pipes; a Popen without them cannot be driven
+        if popen.stdin is None or popen.stdout is None:
+            raise ValueError("process needs stdin and stdout pipes")
         self._p = popen
+        self._stdin: IO[bytes] = popen.stdin
+        self._stdout: IO[bytes] = popen.stdout
         self._lines: queue.Queue[bytes] = queue.Queue(maxsize=64)
         self._closed = threading.Event()
         threading.Thread(target=self._pump, name="maef-oci-reader", daemon=True).start()
@@ -440,7 +548,7 @@ class _OciProcess:
     def _pump(self) -> None:
         try:
             while not self._closed.is_set():
-                line = self._p.stdout.readline(MAX_LINE_BYTES + 1)
+                line = self._stdout.readline(MAX_LINE_BYTES + 1)
                 self._put(line)
                 if not line:
                     return
@@ -449,8 +557,8 @@ class _OciProcess:
 
     def write(self, data: bytes) -> None:
         try:
-            self._p.stdin.write(data)
-            self._p.stdin.flush()
+            self._stdin.write(data)
+            self._stdin.flush()
         except (OSError, ValueError):
             raise SandboxError("process_write_failed") from None
 
@@ -462,23 +570,20 @@ class _OciProcess:
 
     def close(self) -> None:
         self._closed.set()
-        for stream in (self._p.stdin, self._p.stdout):
-            try:
+        for stream in (self._stdin, self._stdout):
+            with contextlib.suppress(OSError, ValueError):
                 stream.close()
-            except (OSError, ValueError):
-                pass
         try:
             self._p.terminate()
             self._p.wait(timeout=2)
         except (OSError, subprocess.SubprocessError):
-            try:
+            with contextlib.suppress(OSError):
                 self._p.kill()
-            except OSError:
-                pass
 
 
-def detect_sandbox(preference: tuple[str, ...] = ("podman", "docker"),
-                   env: Mapping[str, str] = os.environ) -> OciCliSandbox | None:
+def detect_sandbox(
+    preference: tuple[str, ...] = ("podman", "docker"), env: Mapping[str, str] = os.environ
+) -> OciCliSandbox | None:
     """First available runtime in `preference`; MAEF_OCI_RUNTIME (podman|docker) forces one."""
     forced = env.get(RUNTIME_ENV)
     if forced:
@@ -495,6 +600,7 @@ def detect_sandbox(preference: tuple[str, ...] = ("podman", "docker"),
 
 
 # --- test adapter ---
+
 
 @dataclass
 class FakeSession:
@@ -518,15 +624,17 @@ class FakeSession:
             raise SandboxError("spawn_failed")
         return self.spawn_factory(list(argv), dict(env))
 
-    def exec(self, argv: list[str], *, stdin: bytes | None = None, timeout: float,
-             cancel: threading.Event | None = None) -> ExecResult:
+    def exec(
+        self, argv: list[str], *, stdin: bytes | None = None, timeout: float, cancel: threading.Event | None = None
+    ) -> ExecResult:
         self.execs.append(list(argv))
         self.timeouts.append(timeout)
         if cancel is not None and cancel.is_set():
             return ExecResult(-1, b"", b"", cancelled=True)
         result = self.handler(argv, stdin)
-        return ExecResult(result.exit_code, _cap(result.stdout), _cap(result.stderr), result.timed_out,
-                          result.cancelled)
+        return ExecResult(
+            result.exit_code, _cap(result.stdout), _cap(result.stderr), result.timed_out, result.cancelled
+        )
 
     def put(self, path: str, data: bytes) -> None:
         self.files[workspace_path(path)] = data
@@ -542,9 +650,15 @@ class FakeSession:
 
 
 class FakeSandbox:
-    def __init__(self, handler: Callable[[list[str], bytes | None], ExecResult] | None = None,
-                 *, rootless: bool = True, fail: str | None = None, allow_unpinned: bool = True,
-                 spawn_factory: Callable[[list[str], dict[str, str]], Process] | None = None):
+    def __init__(
+        self,
+        handler: Callable[[list[str], bytes | None], ExecResult] | None = None,
+        *,
+        rootless: bool = True,
+        fail: str | None = None,
+        allow_unpinned: bool = True,
+        spawn_factory: Callable[[list[str], dict[str, str]], Process] | None = None,
+    ):
         self._handler = handler or (lambda argv, stdin: ExecResult(0, b"", b""))
         self._rootless, self._fail = rootless, fail
         self._spawn_factory, self._allow_unpinned = spawn_factory, allow_unpinned
@@ -553,8 +667,9 @@ class FakeSandbox:
         self.provisioned: list[tuple[SandboxProfile, str, str]] = []
         self.egress_specs: list[EgressSpec | None] = []
 
-    def provision(self, profile: SandboxProfile, run_id: str, *, network: Network = "none",
-                  egress: EgressSpec | None = None) -> FakeSession:
+    def provision(
+        self, profile: SandboxProfile, run_id: str, *, network: Network = "none", egress: EgressSpec | None = None
+    ) -> FakeSession:
         if self._fail:
             raise SandboxUnavailable(self._fail)
         if profile.require_rootless and not self._rootless:

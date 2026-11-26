@@ -1,0 +1,15 @@
+{
+  "family": "bowling",
+  "seed": 9,
+  "noise": 2,
+  "params": {
+    "pins": 5,
+    "frames": 4,
+    "strike_bonus_rolls": 3,
+    "spare_bonus_rolls": 2
+  },
+  "names": {
+    "module": "alley",
+    "function": "total"
+  }
+}

@@ -1,0 +1,151 @@
+   1 task.created {"agent_id":"tdd-engineer","dirty_allowed":false}
+   2 task.admitted {"reserved_tokens":600000,"worst_case_tokens":13316480}
+   3 lease.granted {"fencing_token":1,"worker_id":"bench-ip-172-31-9-152"}
+   4 sandbox.provisioned {"network":"none","network_open":false,"profile":"python-sandbox","rootless":true,"runtime":"podm...
+   5 run.started
+   6 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":4912,"tools":2,"turn":1}
+   7 model.response {"latency_ms":655,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","response...
+   8 usage.recorded {"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.0002544,"input_tokens":1484,"output_to...
+   9 tool.call {"argument_bytes":45,"name":"read_agent_file","turn":1}
+  10 tool.result {"duration_ms":0,"is_error":false,"name":"read_agent_file","result_bytes":1334,"turn":1}
+  11 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":6306,"tools":2,"turn":2}
+  12 model.response {"latency_ms":587,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","response...
+  13 usage.recorded {"cache_read_tokens":0,"cache_write_tokens":0,"cost_usd":0.000152325,"input_tokens":1863,"output_...
+  14 tool.call {"argument_bytes":36,"name":"read_agent_file","turn":2}
+  15 tool.result {"duration_ms":0,"is_error":false,"name":"read_agent_file","result_bytes":982,"turn":2}
+  16 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":7339,"tools":2,"turn":3}
+  17 model.response {"latency_ms":19000,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respon...
+  18 usage.recorded {"cache_read_tokens":640,"cache_write_tokens":0,"cost_usd":0.002167425,"input_tokens":2215,"outpu...
+  19 tool.call {"argument_bytes":3751,"name":"run_command","turn":3}
+  20 tool.result {"duration_ms":187,"is_error":false,"name":"run_command","result_bytes":64,"turn":3}
+  21 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":11165,"tools":2,"turn":4}
+  22 model.response {"latency_ms":4885,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  23 usage.recorded {"cache_read_tokens":2176,"cache_write_tokens":0,"cost_usd":0.000750765,"input_tokens":4191,"outp...
+  24 tool.call {"argument_bytes":998,"name":"run_command","turn":4}
+  25 tool.result {"duration_ms":254,"is_error":false,"name":"run_command","result_bytes":70,"turn":4}
+  26 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":12244,"tools":2,"turn":5}
+  27 model.response {"latency_ms":1749,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  28 usage.recorded {"cache_read_tokens":4096,"cache_write_tokens":0,"cost_usd":0.00027714,"input_tokens":4816,"outpu...
+  29 tool.call {"argument_bytes":463,"name":"run_command","turn":5}
+  30 tool.result {"duration_ms":663,"is_error":false,"name":"run_command","result_bytes":925,"turn":5}
+  31 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":13643,"tools":2,"turn":6}
+  32 model.response {"latency_ms":4480,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  33 usage.recorded {"cache_read_tokens":4736,"cache_write_tokens":0,"cost_usd":0.00054369,"input_tokens":5394,"outpu...
+  34 tool.call {"argument_bytes":2718,"name":"run_command","turn":6}
+  35 tool.result {"duration_ms":159,"is_error":false,"name":"run_command","result_bytes":64,"turn":6}
+  36 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":16436,"tools":2,"turn":7}
+  37 model.response {"latency_ms":1429,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  38 usage.recorded {"cache_read_tokens":5376,"cache_write_tokens":0,"cost_usd":0.00022284,"input_tokens":6436,"outpu...
+  39 tool.call {"argument_bytes":85,"name":"run_command","turn":7}
+  40 tool.result {"duration_ms":595,"is_error":false,"name":"run_command","result_bytes":1496,"turn":7}
+  41 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":18028,"tools":2,"turn":8}
+  42 model.response {"latency_ms":4367,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  43 usage.recorded {"cache_read_tokens":6400,"cache_write_tokens":0,"cost_usd":0.00066105,"input_tokens":7034,"outpu...
+  44 tool.call {"argument_bytes":1526,"name":"run_command","turn":8}
+  45 tool.result {"duration_ms":641,"is_error":false,"name":"run_command","result_bytes":1270,"turn":8}
+  46 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":20835,"tools":2,"turn":9}
+  47 model.response {"latency_ms":4216,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  48 usage.recorded {"cache_read_tokens":6912,"cache_write_tokens":0,"cost_usd":0.000726705,"input_tokens":8391,"outp...
+  49 tool.call {"argument_bytes":1212,"name":"run_command","turn":9}
+  50 tool.result {"duration_ms":661,"is_error":false,"name":"run_command","result_bytes":1525,"turn":9}
+  51 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":23583,"tools":2,"turn":10}
+  52 model.response {"latency_ms":2695,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  53 usage.recorded {"cache_read_tokens":8320,"cache_write_tokens":0,"cost_usd":0.00046965,"input_tokens":9722,"outpu...
+  54 tool.call {"argument_bytes":76,"name":"run_command","turn":10}
+  55 tool.result {"duration_ms":141,"is_error":false,"name":"run_command","result_bytes":853,"turn":10}
+  56 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":24523,"tools":2,"turn":11}
+  57 model.response {"latency_ms":1912,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  58 usage.recorded {"cache_read_tokens":9600,"cache_write_tokens":0,"cost_usd":0.0004317,"input_tokens":10196,"outpu...
+  59 tool.call {"argument_bytes":834,"name":"run_command","turn":11}
+  60 tool.result {"duration_ms":647,"is_error":false,"name":"run_command","result_bytes":1670,"turn":11}
+  61 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":27038,"tools":2,"turn":12}
+  62 model.response {"latency_ms":3826,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  63 usage.recorded {"cache_read_tokens":10112,"cache_write_tokens":0,"cost_usd":0.000435405,"input_tokens":11375,"ou...
+  64 tool.call {"argument_bytes":1302,"name":"run_command","turn":12}
+  65 tool.result {"duration_ms":127,"is_error":false,"name":"run_command","result_bytes":64,"turn":12}
+  66 model.request {"max_output_tokens":16000,"profile":"local-default","prompt_bytes":28415,"tools":2,"turn":13}
+  67 model.response {"latency_ms":1353,"model":"thinkingmachines/inkling-2-mini","provider":"PrimeIntellect","respons...
+  68 usage.recorded {"cache_read_tokens":11264,"cache_write_tokens":0,"cost_usd":0.00037281,"input_tokens":11838,"out...
+  69 artifact.stored {"digest":"sha256:c4093d955c9daf2a738d96e4612f77cb2af7851375da8605f350ebd00e27f9c5","mime":"text/...
+  70 run.output {"digest":"sha256:c4093d955c9daf2a738d96e4612f77cb2af7851375da8605f350ebd00e27f9c5","mime":"text/...
+  71 artifact.stored {"digest":"sha256:618efd21bf452a04e9b901f15b1409ea724d6314f996b5109051c5474f46e007","mime":"text/...
+  72 artifact.stored {"digest":"sha256:659f3a175517d20fe7468e0db29b765372f1e7e68e603714be4e22a67d141b4c","mime":"appli...
+  73 artifact.stored {"digest":"sha256:ae9891b318c2487c220a21d252cc84c2aa8030a66159e36fb2af12e961cb7c9a","mime":"appli...
+  74 outputs.collected {"count":3,"skipped":[]}
+  75 artifact.stored {"digest":"sha256:05af1dec1f009a59007117078184a8308ab151a91584c20605cf2d02520f4be6","mime":"text/...
+  76 transcript.recorded {"bytes":77697,"records":28,"truncated":false}
+  77 run.manifest {"agent_id":"tdd-engineer","agent_revision":"05ca86dec970573b9b7816fc48ccb56b301370a7","artifacts...
+  78 sandbox.torn_down {"profile":"python-sandbox"}
+  79 task.succeeded {"released_tokens":497895,"terminal_reason":"completed","tokens_used":102105}
+# Benchmark report: bowling seed 7 noise 2
+
+> Intelligence is not what you do when you know what to do, but what you do when you don't know what to do.
+
+- Run: `56abf50449424140860b11a4cfccd233`
+- Agent: `tdd-engineer` (repo revision `05ca86d`, definition `13e52fac41046cddca5218136b2ad55f5c2b4e078414b9af05ffdc84534c53c5`)
+- Model: thinkingmachines/inkling-2-mini; provider: PrimeIntellect
+- Status: succeeded (completed)
+- Wall time: 57.65 s
+- Turns: 13; tool calls: 12 {'other_tool': 2, 'file_write': 8, 'test_run': 5, 'other_command': 1}
+- Tokens: input 84955, cached 69632, output 17150, reasoning 10091, total 102105
+- Cost: $0.0075
+
+## Per-turn
+
+| turn | t (s) | latency ms | in | cached | out | reasoning | cost | tool calls |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 0.7 | 655 | 1484 | 0 | 53 | 9 | 0.0002544 | 1 |
+| 2 | 1.4 | 587 | 1863 | 0 | 42 | 0 | 0.000152325 | 1 |
+| 3 | 20.4 | 19000 | 2215 | 640 | 6799 | 4860 | 0.002167425 | 1 |
+| 4 | 25.6 | 4885 | 4191 | 2176 | 1890 | 1306 | 0.000750765 | 1 |
+| 5 | 27.6 | 1749 | 4816 | 4096 | 539 | 272 | 0.00027714 | 1 |
+| 6 | 32.8 | 4480 | 5394 | 4736 | 1411 | 406 | 0.00054369 | 1 |
+| 7 | 34.5 | 1429 | 6436 | 5376 | 209 | 144 | 0.00022284 | 1 |
+| 8 | 39.5 | 4367 | 7034 | 6400 | 1725 | 837 | 0.00066105 | 1 |
+| 9 | 44.4 | 4216 | 8391 | 6912 | 1707 | 939 | 0.000726705 | 1 |
+| 10 | 47.9 | 2695 | 9722 | 8320 | 799 | 737 | 0.00046965 | 1 |
+| 11 | 50.0 | 1912 | 10196 | 9600 | 810 | 310 | 0.0004317 | 1 |
+| 12 | 54.5 | 3826 | 11375 | 10112 | 630 | 204 | 0.000435405 | 1 |
+| 13 | 56.1 | 1353 | 11838 | 11264 | 536 | 67 | 0.00037281 | 0 |
+
+## TDD analysis
+
+- **Verdict: test-first (red→green)**
+- First test file written: turn 3; first implementation written: turn 6; tests written first: True
+- First test run: turn 5, failed first (red): True
+- Red to green cycles: 1; turns to first green: 11; final tests green: True
+- Rewrites per file: /workspace/out/test_alley.py x0, /workspace/test_alley.py x4, /workspace/out/alley.py x0, /workspace/out/NOTES.md x0
+
+| test run turn | passed | ran | failures | errors |
+|---|---|---|---|---|
+| 5 | False | 1 | 0 | 1 |
+| 7 | False | 15 | 0 | 2 |
+| 8 | False | 15 | 0 | 2 |
+| 9 | False | 15 | 0 | 1 |
+| 11 | True | 15 | 0 | 0 |
+
+## Hidden acceptance
+
+**44 / 45 passed** (1 failed)
+- `random game 20`: expected 59, got ValueError: roll exceeds pins standing
+
+## The agent's own tests
+
+Last run at turn 11: passed (ran 15, failures 0, errors 0)
+
+## Deliverables
+
+- Present: alley.py, test_alley.py, NOTES.md
+- Missing: none
+
+## Variant versus canonical
+
+| parameter | this variant | canonical |
+|---|---|---|
+| frames | 6 | 10 |
+| pins | 6 | 10 |
+| spare_bonus_rolls | 2 | 1 |
+| strike_bonus_rolls | 3 | 2 |
+| name: function | final_score | score |
+| name: module | alley | bowling |
+

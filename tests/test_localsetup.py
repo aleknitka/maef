@@ -1,4 +1,5 @@
 """`maef init` (maef_api.localsetup) and its CLI wrapper. Everything writes under tmp_path only."""
+
 import functools
 import json
 import os
@@ -10,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from maef_api import localsetup
 from maef_api.cli import main
 from maef_api.ledger import Ledger
@@ -276,8 +278,13 @@ def test_local_first_import_works_without_boto3(tmp_path):
 
 def test_openrouter_backend_writes_https_profile_with_env_key(tmp_path, monkeypatch):
     monkeypatch.delenv("MAEF_ARTIFACTS_URL", raising=False)
-    report = init_local("openrouter", "qwen/qwen3.7-flash", profiles_dir=tmp_path / "mp",
-                        artifacts_dir=tmp_path / "a", db=tmp_path / "m.db")
+    report = init_local(
+        "openrouter",
+        "qwen/qwen3.7-flash",
+        profiles_dir=tmp_path / "mp",
+        artifacts_dir=tmp_path / "a",
+        db=tmp_path / "m.db",
+    )
     profile = ModelProfileRegistry(tmp_path / "mp").get_profile("local-default")
     assert profile.endpoint.base_url == "https://openrouter.ai/api/v1"
     assert profile.endpoint.model_id == "qwen/qwen3.7-flash"

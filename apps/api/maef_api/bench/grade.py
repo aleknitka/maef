@@ -1,4 +1,6 @@
 """Run a family's hidden-case grader against the collected deliverables in a locked-down, network-less container."""
+
+import contextlib
 import json
 import os
 import shutil
@@ -9,11 +11,10 @@ from pathlib import Path
 
 import yaml
 
-from ..registry import ROOT
+from ..registry import sandbox_profiles_dir
 from ..sandbox import detect_sandbox
 
 TIMEOUT_SECONDS = 120
-PROFILE = ROOT / "sandbox-profiles" / "python-sandbox.yaml"
 NOT_DELIVERABLES = {"output.md", "transcript.jsonl"}
 
 
@@ -22,7 +23,7 @@ def _error(msg: str) -> dict:
 
 
 def _image() -> str:
-    return yaml.safe_load(PROFILE.read_text(encoding="utf-8"))["image"]
+    return yaml.safe_load((sandbox_profiles_dir() / "python-sandbox.yaml").read_text(encoding="utf-8"))["image"]
 
 
 def _mount_opts() -> str:
@@ -53,7 +54,7 @@ def run_grader(grader_source: str, cases: list[dict], artifacts_dir: Path) -> di
             work, grader = Path(tmp) / "work", Path(tmp) / "grader"
             for d in (Path(tmp), work, grader):
                 d.mkdir(exist_ok=True)
-                os.chmod(d, 0o755)
+                os.chmod(d, 0o755)  # noqa: S103  work/grader dirs must be traversable by the grader container's non-root user; no secrets inside
             stage_deliverables(artifacts_dir, work)
             (grader / "grade.py").write_text(grader_source, encoding="utf-8")
             (grader / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
@@ -61,20 +62,51 @@ def run_grader(grader_source: str, cases: list[dict], artifacts_dir: Path) -> di
                 os.chmod(f, 0o644)
             name = f"maef-grade-{uuid.uuid4().hex[:12]}"
             opts = _mount_opts()
-            args = [binary, "run", "--rm", "--name", name, "--network", "none", "--read-only", "--cap-drop", "all",
-                    "--security-opt", "no-new-privileges", "--user", "65534:65534", "--memory", "256m",
-                    "--pids-limit", "64", "--tmpfs", "/tmp", "-v", f"{work}:/work:{opts}",
-                    "-v", f"{grader}:/grader:{opts}", image, "python3", "-I", "/grader/grade.py"]
+            args = [
+                binary,
+                "run",
+                "--rm",
+                "--name",
+                name,
+                "--network",
+                "none",
+                "--read-only",
+                "--cap-drop",
+                "all",
+                "--security-opt",
+                "no-new-privileges",
+                "--user",
+                "65534:65534",
+                "--memory",
+                "256m",
+                "--pids-limit",
+                "64",
+                "--tmpfs",
+                "/tmp",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
+                "-v",
+                f"{work}:/work:{opts}",
+                "-v",
+                f"{grader}:/grader:{opts}",
+                image,
+                "python3",
+                "-I",
+                "/grader/grade.py",
+            ]
             try:
-                done = subprocess.run(args, capture_output=True, timeout=TIMEOUT_SECONDS, check=False,
-                                      stdin=subprocess.DEVNULL)
+                done = subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+                    args, capture_output=True, timeout=TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL
+                )
             except subprocess.TimeoutExpired:
                 _rm(binary, runtime, name)
                 return _error(f"grader timed out after {TIMEOUT_SECONDS}s")
     except Exception as exc:  # noqa: BLE001  # the contract is to report, not raise
         return _error(f"grading failed: {type(exc).__name__}: {exc}"[:300])
-    return parse_output(done.stdout.decode("utf-8", errors="replace"), done.stderr.decode("utf-8", errors="replace"),
-                        done.returncode, len(cases))
+    return parse_output(
+        done.stdout.decode("utf-8", errors="replace"),
+        done.stderr.decode("utf-8", errors="replace"),
+        done.returncode,
+        len(cases),
+    )
 
 
 def parse_output(stdout: str, stderr: str, returncode: int, total: int) -> dict:
@@ -84,14 +116,21 @@ def parse_output(stdout: str, stderr: str, returncode: int, total: int) -> dict:
         except ValueError:
             continue
         if isinstance(data, dict) and "passed" in data and "failed" in data:
-            return {"passed": data["passed"], "failed": data["failed"], "total": total,
-                    "errors": list(data.get("errors") or [])[:20]}
+            return {
+                "passed": data["passed"],
+                "failed": data["failed"],
+                "total": total,
+                "errors": list(data.get("errors") or [])[:20],
+            }
     return _error(f"no result line from the grader (exit {returncode}): {stderr.strip()[-300:]}")
 
 
 def _rm(binary: str, runtime: str, name: str) -> None:
-    try:
-        subprocess.run([binary, "rm", "-f", "-t", "0", name] if runtime == "podman" else [binary, "rm", "-f", name],
-                       capture_output=True, timeout=30, check=False, stdin=subprocess.DEVNULL)
-    except (OSError, subprocess.SubprocessError):
-        pass
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+            [binary, "rm", "-f", "-t", "0", name] if runtime == "podman" else [binary, "rm", "-f", name],
+            capture_output=True,
+            timeout=30,
+            check=False,
+            stdin=subprocess.DEVNULL,
+        )

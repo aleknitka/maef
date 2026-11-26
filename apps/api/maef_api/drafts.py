@@ -7,6 +7,8 @@ branch and returns the sha, it never merges or pushes (a human merges after revi
 published sha can be run at once with `RunRequest.agent_revision`. Discarding a published draft removes the
 worktree but keeps the branch, so the published commit stays reachable.
 """
+
+import contextlib
 import os
 import re
 import secrets
@@ -76,9 +78,19 @@ class PermissionDiff(BaseModel):
 
     @property
     def empty(self) -> bool:
-        return not any((self.tools_added, self.tools_removed, self.mcp_servers_added, self.mcp_servers_removed,
-                        self.network_open, self.budget_increases, self.runtime_changes, self.mcp_new_secrets,
-                        self.mcp_network_open_added))
+        return not any(
+            (
+                self.tools_added,
+                self.tools_removed,
+                self.mcp_servers_added,
+                self.mcp_servers_removed,
+                self.network_open,
+                self.budget_increases,
+                self.runtime_changes,
+                self.mcp_new_secrets,
+                self.mcp_network_open_added,
+            )
+        )
 
 
 class Review(BaseModel):
@@ -113,9 +125,12 @@ def _mcp_id(ref: str) -> str:
     return ref.partition("@")[0]
 
 
-def permission_diff(old: AgentDefinition | None, new: AgentDefinition | None,
-                    old_manifests: dict[str, McpServerManifest], new_manifests: dict[str, McpServerManifest]
-                    ) -> PermissionDiff:
+def permission_diff(
+    old: AgentDefinition | None,
+    new: AgentDefinition | None,
+    old_manifests: dict[str, McpServerManifest],
+    new_manifests: dict[str, McpServerManifest],
+) -> PermissionDiff:
     """What a reviewer must approve: capability the new definition gains or changes versus the old one."""
     if new is None:
         return PermissionDiff(new_agent=old is None)
@@ -127,8 +142,9 @@ def permission_diff(old: AgentDefinition | None, new: AgentDefinition | None,
     diff.mcp_servers_removed = sorted(old_mcp - set(new.mcp_servers))
     before_open = old.permissions.network_open if old else False
     if new.permissions.network_open != before_open:
-        diff.network_open = Change(field="permissions.network_open", before=before_open,
-                                   after=new.permissions.network_open)
+        diff.network_open = Change(
+            field="permissions.network_open", before=before_open, after=new.permissions.network_open
+        )
     old_budget = old.budget if old else None
     for name in ("max_tokens", "max_duration_seconds", "max_turns"):
         after, before = getattr(new.budget, name), getattr(old_budget, name) if old_budget else None
@@ -192,7 +208,7 @@ class Drafts:
         if bool(agent_id) == bool(new_agent_id):
             raise DraftRejected("invalid_request", "Give exactly one of agent_id or new_agent_id.")
         target = agent_id or new_agent_id
-        if not _AGENT_ID.fullmatch(target or ""):
+        if not target or not _AGENT_ID.fullmatch(target):
             raise DraftRejected("invalid_request", "Agent id must match ^[a-z][a-z0-9-]{1,62}$.")
         with self._lock:
             try:
@@ -208,8 +224,14 @@ class Drafts:
             branch = f"maef/draft/{target}/{draft_id}"
             self.dir.mkdir(parents=True, exist_ok=True)
             self._git("worktree", "add", "-q", "-b", branch, str(self._tree(draft_id)), base)
-            draft = Draft(id=draft_id, agent_id=target, branch=branch, base=base, new_agent=not exists,
-                          created_at=datetime.now(UTC).isoformat(timespec="seconds"))
+            draft = Draft(
+                id=draft_id,
+                agent_id=target,
+                branch=branch,
+                base=base,
+                new_agent=not exists,
+                created_at=datetime.now(UTC).isoformat(timespec="seconds"),
+            )
             self._save(draft)
             return draft
 
@@ -268,15 +290,23 @@ class Drafts:
                 raise DraftNotFound(draft_id)
             self._stage(draft)
             scope = f"agents/{draft.agent_id}"
-            diff = self._git("diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", draft.base, "--",
-                             scope, cwd=tree).decode("utf-8", errors="replace")
-            names = self._git("diff", "--cached", "--name-only", "-z", draft.base, "--", scope,
-                              cwd=tree).decode("utf-8", errors="replace")
+            diff = self._git(
+                "diff", "--cached", "--no-color", "--no-ext-diff", "--no-textconv", draft.base, "--", scope, cwd=tree
+            ).decode("utf-8", errors="replace")
+            names = self._git("diff", "--cached", "--name-only", "-z", draft.base, "--", scope, cwd=tree).decode(
+                "utf-8", errors="replace"
+            )
             findings = lint_repo(tree, only_agent=draft.agent_id)
             permissions = self._permissions(draft, tree)
-        return Review(draft_id=draft.id, base=draft.base, diff=diff, files=[n for n in names.split("\0") if n],
-                      permissions=permissions, findings=findings,
-                      publishable=not any(f.severity == "error" for f in findings))
+        return Review(
+            draft_id=draft.id,
+            base=draft.base,
+            diff=diff,
+            files=[n for n in names.split("\0") if n],
+            permissions=permissions,
+            findings=findings,
+            publishable=not any(f.severity == "error" for f in findings),
+        )
 
     def _permissions(self, draft: Draft, tree: Path) -> PermissionDiff:
         base_agent = _agent(self._blob(draft.base, f"agents/{draft.agent_id}/agent.yaml"))
@@ -286,8 +316,10 @@ class Drafts:
             new_agent = None
         old_m: dict[str, McpServerManifest] = {}
         new_m: dict[str, McpServerManifest] = {}
-        for agent, found, read in ((base_agent, old_m, lambda i: self._blob(draft.base, f"mcp-servers/{i}.yaml")),
-                                   (new_agent, new_m, lambda i: _read_file(tree / "mcp-servers" / f"{i}.yaml"))):
+        for agent, found, read in (
+            (base_agent, old_m, lambda i: self._blob(draft.base, f"mcp-servers/{i}.yaml")),
+            (new_agent, new_m, lambda i: _read_file(tree / "mcp-servers" / f"{i}.yaml")),
+        ):
             for ref in agent.mcp_servers if agent else ():
                 server = _mcp_id(ref)
                 if _SEGMENT.fullmatch(server) and (m := _manifest(read(server))):
@@ -313,17 +345,35 @@ class Drafts:
                 raise DraftNotFound(draft_id)
             errors = [f for f in lint_repo(tree, only_agent=draft.agent_id) if f.severity == "error"]
             if errors:
-                shown = "; ".join(str(f) for f in errors[:5]) + (f" (+{len(errors) - 5} more)" if len(errors) > 5 else "")
+                shown = "; ".join(str(f) for f in errors[:5]) + (
+                    f" (+{len(errors) - 5} more)" if len(errors) > 5 else ""
+                )
                 raise DraftRejected("lint_failed", f"Lint errors: {shown}")
             self._stage(draft)
             if not self._git("diff", "--cached", "--name-only", "HEAD", "--", f"agents/{draft.agent_id}", cwd=tree):
                 raise DraftRejected("no_changes", "The draft has no changes to publish.")
             name = os.environ.get("MAEF_AUTHORING_NAME", "MAEF Authoring")
             email = os.environ.get("MAEF_AUTHORING_EMAIL", "maef@localhost")
-            ident = {"GIT_AUTHOR_NAME": name, "GIT_AUTHOR_EMAIL": email,
-                     "GIT_COMMITTER_NAME": name, "GIT_COMMITTER_EMAIL": email}
-            self._git("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-q", "--no-verify",
-                      "-F", "-", cwd=tree, input=message.encode("utf-8"), env=ident)
+            ident = {
+                "GIT_AUTHOR_NAME": name,
+                "GIT_AUTHOR_EMAIL": email,
+                "GIT_COMMITTER_NAME": name,
+                "GIT_COMMITTER_EMAIL": email,
+            }
+            self._git(
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-q",
+                "--no-verify",
+                "-F",
+                "-",
+                cwd=tree,
+                input=message.encode("utf-8"),
+                env=ident,
+            )
             sha = self._git("rev-parse", "HEAD", cwd=tree).decode().strip()
             draft.published = sha
             self._save(draft)
@@ -341,10 +391,8 @@ class Drafts:
                     shutil.rmtree(tree, ignore_errors=True)
                     self._git("worktree", "prune")
             if draft.published is None:
-                try:
+                with contextlib.suppress(DraftRejected):  # branch may already be gone
                     self._git("branch", "-D", draft.branch)
-                except DraftRejected:
-                    pass  # already gone
             self._meta(draft_id).unlink(missing_ok=True)
 
 
@@ -353,5 +401,3 @@ def _read_file(path: Path) -> bytes | None:
         return None if path.is_symlink() else path.read_bytes()
     except OSError:
         return None
-
-

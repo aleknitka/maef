@@ -22,9 +22,14 @@ def _wire_message(m: Message) -> dict:
     if m.role == "tool":
         return {"role": "tool", "tool_call_id": m.tool_call_id, "content": m.text}
     if m.role == "assistant" and m.tool_calls:
-        return {"role": "assistant", "content": m.text or None, "tool_calls": [
-            {"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
-            for c in m.tool_calls]}
+        return {
+            "role": "assistant",
+            "content": m.text or None,
+            "tool_calls": [
+                {"id": c.id, "type": "function", "function": {"name": c.name, "arguments": json.dumps(c.arguments)}}
+                for c in m.tool_calls
+            ],
+        }
     return {"role": m.role, "content": m.text}
 
 
@@ -45,31 +50,54 @@ def _parse_call(index: int, raw: dict) -> ToolCall:
 
 
 class OpenAICompatibleAdapter:
-    def __init__(self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None, policy: EgressPolicy | None = None):
-        if not isinstance(profile.endpoint, OpenAICompatibleEndpoint):
+    def __init__(
+        self, profile: ModelEndpointProfile, credentials: Credentials, sleep=None, policy: EgressPolicy | None = None
+    ):
+        endpoint = profile.endpoint
+        if not isinstance(endpoint, OpenAICompatibleEndpoint):
             raise TypeError(f"Profile {profile.id} is not an openai-compatible profile")
         self.profile = profile
+        self._endpoint = endpoint
         self._credentials = credentials
         self._policy = policy or EgressPolicy()
         self._extra = {"sleep": sleep} if sleep else {}
 
-    def converse(self, *, system: str, messages: list[Message], tools: list[ToolSpec],
-                 max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
-        ep = self.profile.endpoint
+    def converse(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        max_output_tokens: int,
+        timeout_seconds: float,
+    ) -> ModelResponse:
+        ep = self._endpoint
         key = self._credentials.resolve(self.profile.credential_ref)
-        body = {"model": ep.model_id, ep.token_param: max_output_tokens,
-                "messages": [{"role": "system", "content": system}, *map(_wire_message, messages)]}
+        body = {
+            "model": ep.model_id,
+            ep.token_param: max_output_tokens,
+            "messages": [{"role": "system", "content": system}, *map(_wire_message, messages)],
+        }
         if ep.reasoning_effort:
             body["reasoning_effort"] = ep.reasoning_effort
         if tools:  # some local servers reject an empty list
-            body["tools"] = [{"type": "function", "function": {"name": t.name, "description": t.description,
-                                                               "parameters": t.input_schema}} for t in tools]
+            body["tools"] = [
+                {
+                    "type": "function",
+                    "function": {"name": t.name, "description": t.description, "parameters": t.input_schema},
+                }
+                for t in tools
+            ]
         reply = post_json(
             f"{ep.base_url}/chat/completions",
             {"Authorization": f"Bearer {key.reveal()}"} if key else {},
             body,
-            timeout=timeout_seconds, policy=self._policy, allow_loopback=ep.is_loopback,
-            allow_private=ep.allow_private_network, max_retries=self.profile.max_retries, **self._extra,
+            timeout=timeout_seconds,
+            policy=self._policy,
+            allow_loopback=ep.is_loopback,
+            allow_private=ep.allow_private_network,
+            max_retries=self.profile.max_retries,
+            **self._extra,
         )
         usage = reply.get("usage") or {}
         if "prompt_tokens" not in usage or "completion_tokens" not in usage:
@@ -96,11 +124,17 @@ class OpenAICompatibleAdapter:
         out_details = out_details if isinstance(out_details, dict) else {}
         reasoning = message.get("reasoning")
         return ModelResponse(
-            text=message.get("content") or "", tool_calls=calls, stop_reason=stop,
-            input_tokens=prompt, output_tokens=usage["completion_tokens"],
-            cache_read_tokens=cache_read, cache_write_tokens=cache_write,
+            text=message.get("content") or "",
+            tool_calls=calls,
+            stop_reason=stop,
+            input_tokens=prompt,
+            output_tokens=usage["completion_tokens"],
+            cache_read_tokens=cache_read,
+            cache_write_tokens=cache_write,
             reasoning_tokens=min(token_count(out_details.get("reasoning_tokens")), token_count(completion)),
-            cost_usd=cost_value(usage.get("cost")), provider=short_str(reply.get("provider")),
-            response_id=short_str(reply.get("id")), model=short_str(reply.get("model")),
+            cost_usd=cost_value(usage.get("cost")),
+            provider=short_str(reply.get("provider")),
+            response_id=short_str(reply.get("id")),
+            model=short_str(reply.get("model")),
             reasoning=reasoning if isinstance(reasoning, str) else "",
         )

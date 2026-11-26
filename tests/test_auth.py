@@ -3,10 +3,12 @@
 conftest seeds an admin token and every TestClient sends it, so these tests remove the header
 (`anon`) or replace it (`bearer`, `with_auth`) explicitly.
 """
+
 import hashlib
 
 import pytest
 from fastapi.testclient import TestClient
+
 from maef_api import cli, main
 from maef_api.auth import (
     SCOPE_ADMIN,
@@ -50,10 +52,20 @@ ROUTES = [
     ("GET", "/api/v1/drafts", "/api/v1/drafts", SCOPE_AUTHORING, {}),
     ("POST", "/api/v1/drafts", "/api/v1/drafts", SCOPE_AUTHORING, {"json": {"agent_id": "research-analyst"}}),
     ("GET", "/api/v1/drafts/{draft_id}/review", "/api/v1/drafts/d1/review", SCOPE_AUTHORING, {}),
-    ("PUT", "/api/v1/drafts/{draft_id}/files/{path:path}",
-     "/api/v1/drafts/d1/files/agents/research-analyst/SYSTEM.md", SCOPE_AUTHORING, {"content": b"x"}),
-    ("POST", "/api/v1/drafts/{draft_id}/publish", "/api/v1/drafts/d1/publish", SCOPE_AUTHORING,
-     {"json": {"message": "m"}}),
+    (
+        "PUT",
+        "/api/v1/drafts/{draft_id}/files/{path:path}",
+        "/api/v1/drafts/d1/files/agents/research-analyst/SYSTEM.md",
+        SCOPE_AUTHORING,
+        {"content": b"x"},
+    ),
+    (
+        "POST",
+        "/api/v1/drafts/{draft_id}/publish",
+        "/api/v1/drafts/d1/publish",
+        SCOPE_AUTHORING,
+        {"json": {"message": "m"}},
+    ),
     ("DELETE", "/api/v1/drafts/{draft_id}", "/api/v1/drafts/d1", SCOPE_AUTHORING, {}),
 ]
 
@@ -88,8 +100,9 @@ def store(ledger_target, monkeypatch):
 
 @pytest.fixture
 def worker_api(store, monkeypatch):
-    monkeypatch.setattr(main, "runs", Runs(main.runs.definitions, store,
-                                           execution_enabled=lambda: True, allow_dirty=lambda: True))
+    monkeypatch.setattr(
+        main, "runs", Runs(main.runs.definitions, store, execution_enabled=lambda: True, allow_dirty=lambda: True)
+    )
     return store
 
 
@@ -100,6 +113,7 @@ def admit(store) -> str:
 
 
 # --- Tokens ----------------------------------------------------------------------------------------
+
 
 def test_token_prefixes_and_only_hashes_stored(tmp_path, store):
     _, token = issue_api_token(store, "ci", (SCOPE_READ,))
@@ -142,8 +156,8 @@ def test_health_is_open_and_reports_auth_required(monkeypatch):
 
 # --- Scope matrix ----------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("method,template,path,scope,kwargs", ROUTES,
-                         ids=[f"{m} {t}" for m, t, _, _, _ in ROUTES])
+
+@pytest.mark.parametrize("method,template,path,scope,kwargs", ROUTES, ids=[f"{m} {t}" for m, t, _, _, _ in ROUTES])
 def test_scope_matrix(store, method, template, path, scope, kwargs):
     other = SCOPE_RUNS if scope == SCOPE_READ else SCOPE_READ
     _, under_scoped = issue_api_token(store, "under", (other,))
@@ -178,10 +192,17 @@ FINISH = {"fencing_token": 1, "tokens_used": 0, "status": "failed", "terminal_re
 
 
 def upload(client: TestClient, run_id: str, data: bytes = b"x", token: int = 1):
-    headers = {"X-Fencing-Token": str(token), "X-Content-Digest": "sha256:" + hashlib.sha256(data).hexdigest(),
-               "Content-Type": "application/octet-stream"}
-    return client.post(f"/api/v1/worker/runs/{run_id}/artifacts", params={"name": "out.txt", "mime": "text/plain"},
-                       content=data, headers=headers)
+    headers = {
+        "X-Fencing-Token": str(token),
+        "X-Content-Digest": "sha256:" + hashlib.sha256(data).hexdigest(),
+        "Content-Type": "application/octet-stream",
+    }
+    return client.post(
+        f"/api/v1/worker/runs/{run_id}/artifacts",
+        params={"name": "out.txt", "mime": "text/plain"},
+        content=data,
+        headers=headers,
+    )
 
 
 def worker_calls(client: TestClient, run_id: str):
@@ -217,10 +238,8 @@ def test_other_worker_gets_409_on_lease_and_claim_ignores_body(worker_api, store
     other = bearer(b_token)
     responses = {
         "heartbeat": other.post(f"/api/v1/worker/runs/{run_id}/heartbeat", json={"fencing_token": fencing}),
-        "events": other.post(f"/api/v1/worker/runs/{run_id}/events",
-                             json={**EVENT, "fencing_token": fencing}),
-        "finish": other.post(f"/api/v1/worker/runs/{run_id}/finish",
-                             json={**FINISH, "fencing_token": fencing}),
+        "events": other.post(f"/api/v1/worker/runs/{run_id}/events", json={**EVENT, "fencing_token": fencing}),
+        "finish": other.post(f"/api/v1/worker/runs/{run_id}/finish", json={**FINISH, "fencing_token": fencing}),
         "artifact": upload(other, run_id, token=fencing),
     }
     for name, response in responses.items():
@@ -242,6 +261,7 @@ def test_revoked_worker_is_401(worker_api, store):
 
 
 # --- MAEF_AUTH_DISABLED ----------------------------------------------------------------------------
+
 
 def test_auth_disabled_trusts_only_loopback_clients(store, monkeypatch):
     monkeypatch.setenv("MAEF_AUTH_DISABLED", "1")
@@ -270,6 +290,7 @@ def test_auth_disabled_never_grants_admin_or_accepts_bad_tokens(store, monkeypat
 
 # --- Audit -----------------------------------------------------------------------------------------
 
+
 def test_successful_submit_is_audited_with_token_principal(live_api):
     store = live_api.ledger
     token_id, token = issue_api_token(store, "submitter", (SCOPE_RUNS, SCOPE_READ))
@@ -278,7 +299,10 @@ def test_successful_submit_is_audited_with_token_principal(live_api):
     rows = [r for r in audit_rows(store) if r["action"] == "POST /api/v1/runs"]
     assert len(rows) == 1
     assert (rows[0]["principal"], rows[0]["target"], rows[0]["outcome"]) == (
-        f"token:{token_id}", "/api/v1/runs", "authorized")
+        f"token:{token_id}",
+        "/api/v1/runs",
+        "authorized",
+    )
     created = [r for r in audit_rows(store) if r["action"] == "run.created"]
     assert [(r["principal"], r["target"]) for r in created] == [(f"token:{token_id}", response.json()["run_id"])]
 
@@ -288,10 +312,14 @@ def test_denials_are_audited(store):
     token_id, token = issue_api_token(store, "reader", (SCOPE_READ,))
     bearer(token).get("/api/v1/audit")
     rows = audit_rows(store)
-    assert any(r["principal"] == "anonymous" and r["action"] == "GET /api/v1/agents"
-               and r["outcome"] == "denied:401" for r in rows)
-    assert any(r["principal"] == f"token:{token_id}" and r["action"] == "GET /api/v1/audit"
-               and r["outcome"] == "denied:403" for r in rows)
+    assert any(
+        r["principal"] == "anonymous" and r["action"] == "GET /api/v1/agents" and r["outcome"] == "denied:401"
+        for r in rows
+    )
+    assert any(
+        r["principal"] == f"token:{token_id}" and r["action"] == "GET /api/v1/audit" and r["outcome"] == "denied:403"
+        for r in rows
+    )
 
 
 def test_audit_rows_never_contain_tokens_or_bodies(live_api):
@@ -332,6 +360,7 @@ def test_get_audit_requires_admin_and_pages(store):
 
 
 # --- Admin CLI -------------------------------------------------------------------------------------
+
 
 def test_cli_token_create_list_revoke(store, monkeypatch, capsys):
     monkeypatch.setenv("MAEF_DB", store.url)
@@ -377,6 +406,7 @@ def test_cli_worker_create_list_revoke(worker_api, monkeypatch, capsys):
 
 
 # --- Client ----------------------------------------------------------------------------------------
+
 
 def test_client_without_token_gets_hint(store, monkeypatch):
     monkeypatch.delenv("MAEF_API_TOKEN", raising=False)

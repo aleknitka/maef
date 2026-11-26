@@ -1,9 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
 [project]
 name = "maef-control-plane"
 version = "0.1.0"
 description = "Modular Agent Execution Framework — local-first control plane"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{name = "The MAEF Authors"}]
 requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "pydantic>=2.9,<3", "pyyaml>=6,<7"]
+
+[project.urls]
+Homepage = "https://github.com/aleknitka/maef"
+Repository = "https://github.com/aleknitka/maef"
 
 [project.scripts]
 maef = "maef_api.cli:main"
@@ -12,16 +34,81 @@ maef = "maef_api.cli:main"
 bedrock = ["boto3>=1.35,<2", "botocore[crt]>=1.35,<2"]
 s3 = ["boto3>=1.35,<2", "botocore[crt]>=1.35,<2"]
 postgres = ["psycopg[binary]>=3.2,<4"]
-dev = ["pytest>=8,<10", "httpx>=0.27,<1", "ruff>=0.8,<1", "boto3>=1.35,<2", "botocore[crt]>=1.35,<2", "psycopg[binary]>=3.2,<4"]
 
-[tool.setuptools.packages.find]
-where = ["apps/api"]
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "httpx>=0.27,<1",
+    "hypothesis>=6,<7",
+    "pip-audit>=2.7,<3",
+    "ruff==0.17.6",
+    "ty==0.0.111",
+    "boto3>=1.35,<2",
+    "botocore[crt]>=1.35,<2",
+    "psycopg[binary]>=3.2,<4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["apps/api/maef_api"]
+
+# Starter files ship inside the wheel but live only once in git: the repository folders are mapped into the package.
+[tool.hatch.build.targets.wheel.force-include]
+"agents" = "maef_api/_bundled/agents"
+"sandbox-profiles" = "maef_api/_bundled/sandbox-profiles"
+"mcp-servers" = "maef_api/_bundled/mcp-servers"
+"schemas" = "maef_api/_bundled/schemas"
+"evals" = "maef_api/_bundled/evals"
+"examples/model-profiles" = "maef_api/_bundled/examples/model-profiles"
+
+# The wheel is built from the sdist, so the sdist carries the package and the folders mapped above.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/apps/api/maef_api",
+    "/agents",
+    "/sandbox-profiles",
+    "/mcp-servers",
+    "/schemas",
+    "/evals",
+    "/examples/model-profiles",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/NOTICE",
+    "/TRADEMARKS.md",
+    "/CHANGELOG.md",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["apps/api"]
 testpaths = ["tests"]
+# Unit tests only by default; container suites run with `make test-oci`, `test-pg`, `test-s3` (a later -m wins).
+addopts = "-m 'not oci and not pg and not s3'"
 markers = [
     "oci: needs a real podman or docker runtime (make test-oci); skipped when none is installed",
     "s3: runs against an S3-compatible server (podman SeaweedFS, or MAEF_TEST_S3_ENDPOINT); skipped when neither is available (make test-s3)",
     "pg: runs against PostgreSQL (podman, or MAEF_TEST_POSTGRES_URL); skipped when neither is available (make test-pg)",
 ]
+
+[tool.ty.environment]
+python-version = "3.11"
+root = ["apps/api"]
+
+[tool.ty.src]
+include = ["apps/api"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+src = ["apps/api", "tests"]
+extend-exclude = [".claude", "apps/studio", "apps/tui", "docs/bench-runs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "BLE", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# tests assert on bind-all/denied addresses (S104) and group imports by section (E402)
+"tests/**" = ["E402", "S101", "S104", "S105", "S106", "S108", "S603", "S607"]
+# _self_check() is a manual assert-based check shipped beside the generator
+"apps/api/maef_api/bench/families/bowling.py" = ["S101"]
+# SQL text is joined only with constant dialect fragments (row_lock, jsonp, ...); every value is a bound parameter
+"apps/api/maef_api/ledger.py" = ["S608"]

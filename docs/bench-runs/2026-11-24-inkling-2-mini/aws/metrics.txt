@@ -1,0 +1,44 @@
+# HELP maef_runs_total Runs by status and kind.
+# TYPE maef_runs_total gauge
+maef_runs_total{status="admitted",kind="agent"} 0
+maef_runs_total{status="cancelled",kind="agent"} 0
+maef_runs_total{status="failed",kind="agent"} 0
+maef_runs_total{status="leased",kind="agent"} 0
+maef_runs_total{status="running",kind="agent"} 0
+maef_runs_total{status="succeeded",kind="agent"} 9
+# HELP maef_tokens_used_total Model tokens reported by providers.
+# TYPE maef_tokens_used_total counter
+maef_tokens_used_total{kind="input"} 489128
+maef_tokens_used_total{kind="output"} 132688
+# HELP maef_cached_input_tokens_total Input tokens served from (read) or written to (write) the prompt cache. A subset of maef_tokens_used_total{kind="input"}; do not add them together.
+# TYPE maef_cached_input_tokens_total counter
+maef_cached_input_tokens_total{kind="read"} 392576
+maef_cached_input_tokens_total{kind="write"} 0
+# HELP maef_reasoning_tokens_total Output tokens spent on reasoning. A subset of maef_tokens_used_total{kind="output"}; do not add them together.
+# TYPE maef_reasoning_tokens_total counter
+maef_reasoning_tokens_total 83806
+# HELP maef_cost_usd_total Provider-reported cost in USD. Information only; budgets are token-only.
+# TYPE maef_cost_usd_total counter
+maef_cost_usd_total 0.08354591
+# HELP maef_tokens_reserved_open Tokens reserved by runs that have not settled.
+# TYPE maef_tokens_reserved_open gauge
+maef_tokens_reserved_open 0
+# HELP maef_run_duration_seconds Wall time of finished runs, created to finished.
+# TYPE maef_run_duration_seconds summary
+maef_run_duration_seconds_count 9
+maef_run_duration_seconds_sum 436.863
+# HELP maef_budget_exhaustions_total Runs stopped by an exhausted budget.
+# TYPE maef_budget_exhaustions_total counter
+maef_budget_exhaustions_total{reason="tokens"} 0
+maef_budget_exhaustions_total{reason="turns"} 0
+maef_budget_exhaustions_total{reason="duration"} 0
+# HELP maef_worker_lost_total Runs failed because their worker lease lapsed.
+# TYPE maef_worker_lost_total counter
+maef_worker_lost_total 0
+# HELP maef_tool_calls_total Completed tool calls.
+# TYPE maef_tool_calls_total counter
+maef_tool_calls_total{is_error="false"} 88
+maef_tool_calls_total{is_error="true"} 0
+# HELP maef_artifact_bytes_total Bytes of artifacts recorded for runs.
+# TYPE maef_artifact_bytes_total counter
+maef_artifact_bytes_total 733290

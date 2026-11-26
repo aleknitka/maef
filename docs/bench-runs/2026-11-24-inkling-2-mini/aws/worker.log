@@ -1,0 +1,3 @@
+2026-11-24 15:56:05,092 maef.worker sandbox runtime {'runtime': 'podman', 'version': '4.9.3', 'rootless': True}; removed 0 orphaned containers
+2026-11-24 15:56:05,092 maef.worker worker ip-172-31-9-152-8071 serving
+2026-11-24 16:03:34,454 maef.worker worker ip-172-31-9-152-8071 stopped

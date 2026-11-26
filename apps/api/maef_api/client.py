@@ -5,6 +5,7 @@ error-body parsing. The seam is `Transport` (two methods); `HttpTransport` is th
 `AsgiTransport` drives an in-process FastAPI app for tests. Error text never includes more than the API's own
 `detail` message (truncated), so prompts or keys echoed in other bodies cannot leak.
 """
+
 import json
 import os
 import time
@@ -52,13 +53,20 @@ def error_from_response(status: int, body: bytes) -> MaefClientError:
     elif isinstance(detail, list):
         code, message = "invalid_request", "The request was rejected as invalid."
     if status in (401, 403):
-        message = f"{message[:_MAX_MESSAGE - len(AUTH_HINT) - 1]} {AUTH_HINT}"
+        message = f"{message[: _MAX_MESSAGE - len(AUTH_HINT) - 1]} {AUTH_HINT}"
     return MaefClientError(status, code, message[:_MAX_MESSAGE])
 
 
 class Transport(Protocol):
-    def request(self, method: str, path: str, *, json: dict | None = None,
-                headers: dict | None = None, data: bytes | None = None) -> tuple[int, dict, bytes]:
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict | None = None,
+        headers: dict | None = None,
+        data: bytes | None = None,
+    ) -> tuple[int, dict, bytes]:
         """`data` is a raw text body (used only by draft_write); `json` and `data` are exclusive."""
         ...
 
@@ -83,8 +91,15 @@ def _is_loopback(host: str) -> bool:
 
 
 class HttpTransport:
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0, *, allow_private: bool = False,
-                 policy: EgressPolicy | None = None, token: str | None = None):
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+        *,
+        allow_private: bool = False,
+        policy: EgressPolicy | None = None,
+        token: str | None = None,
+    ):
         self._auth = _bearer(token)
         self.base_url = (base_url or os.environ.get("MAEF_API_URL") or DEFAULT_URL).rstrip("/")
         parsed = urlparse(self.base_url)
@@ -108,7 +123,7 @@ class HttpTransport:
         elif json is not None:
             data = _dumps(json)
             hdrs["Content-Type"] = "application/json"
-        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=hdrs)
+        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=hdrs)  # noqa: S310  base_url is operator-configured, not user input
         try:
             with self._open(req, self.timeout) as resp:
                 return resp.status, dict(resp.headers), resp.read()
@@ -122,7 +137,7 @@ class HttpTransport:
 
     def stream(self, path, headers=None):
         hdrs = {"Accept": "text/event-stream", **self._auth, **(headers or {})}
-        req = urllib.request.Request(self.base_url + path, method="GET", headers=hdrs)
+        req = urllib.request.Request(self.base_url + path, method="GET", headers=hdrs)  # noqa: S310  base_url is operator-configured, not user input
         try:
             resp = self._open(req, min(self.timeout, 5.0))  # short reads keep wait() deadlines honest
         except urllib.error.HTTPError as exc:
@@ -148,6 +163,7 @@ class AsgiTransport:
 
     def __init__(self, app, token: str | None = None):
         from fastapi.testclient import TestClient
+
         self._client = TestClient(app)
         self._auth = _bearer(token)
 
@@ -194,8 +210,9 @@ class MaefClient:
     def preview(self, agent_id: str, instruction: str, budget: dict | None = None) -> dict:
         return self._call("POST", "/api/v1/runs/preview", self._run_body(agent_id, instruction, budget))
 
-    def submit(self, agent_id: str, instruction: str, budget: dict | None = None,
-               agent_revision: str | None = None) -> dict:
+    def submit(
+        self, agent_id: str, instruction: str, budget: dict | None = None, agent_revision: str | None = None
+    ) -> dict:
         """-> {"run_id", "status"}. `agent_revision` (commit sha, branch or tag) runs the committed definition."""
         body = self._run_body(agent_id, instruction, budget)
         if agent_revision:

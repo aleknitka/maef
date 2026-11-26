@@ -2,6 +2,7 @@
 
 Usage is stored as integer tokens, never REAL. run_events and audit_log are append-only via triggers.
 """
+
 import json
 import sqlite3
 from contextlib import contextmanager
@@ -135,14 +136,13 @@ MIGRATIONS = [
 ]
 
 
-
 class SqliteDialect:
     name = "sqlite"
     database_error = sqlite3.DatabaseError
-    order_col = "rowid"      # insertion order of a table
-    row_lock = ""            # BEGIN IMMEDIATE already serialises writers
+    order_col = "rowid"  # insertion order of a table
+    row_lock = ""  # BEGIN IMMEDIATE already serialises writers
     skip_locked = ""
-    jsonp = "?"              # placeholder for a JSON text parameter
+    jsonp = "?"  # placeholder for a JSON text parameter
 
     def __init__(self, path: Path | str):
         self.path = Path(path)

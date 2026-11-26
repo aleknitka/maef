@@ -1,0 +1,285 @@
+{
+  "run_id": "72c014a59ee1462293d0bfd0294b7433",
+  "agent_id": "tdd-engineer",
+  "git_revision": "8ba7890",
+  "agent_revision": "d0b3113f00e745455975444bb4bf7c51cae7f3abd285acf35f99c4e70bdb363c",
+  "family": "bowling",
+  "seed": 7,
+  "noise": 2,
+  "variant": {
+    "family": "bowling",
+    "seed": 7,
+    "noise": 2,
+    "params": {
+      "pins": 6,
+      "frames": 6,
+      "strike_bonus_rolls": 3,
+      "spare_bonus_rolls": 2
+    },
+    "names": {
+      "module": "alley",
+      "function": "final_score"
+    }
+  },
+  "canonical": {
+    "family": "bowling",
+    "seed": 0,
+    "noise": 0,
+    "params": {
+      "pins": 10,
+      "frames": 10,
+      "strike_bonus_rolls": 2,
+      "spare_bonus_rolls": 1
+    },
+    "names": {
+      "module": "bowling",
+      "function": "score"
+    }
+  },
+  "status": "failed",
+  "terminal_reason": "output_truncated",
+  "models": [
+    "thinkingmachines/inkling-2-mini"
+  ],
+  "providers": [
+    "PrimeIntellect"
+  ],
+  "wall_seconds": 50.89,
+  "turns": 3,
+  "tool_calls": 2,
+  "tool_calls_by_kind": {
+    "other_tool": 2
+  },
+  "tokens": {
+    "input": 5346,
+    "cached": 3200,
+    "output": 16096,
+    "reasoning": 16010,
+    "total": 21442
+  },
+  "cost_usd": 0.0050377500000000006,
+  "per_turn": [
+    {
+      "turn": 1,
+      "t": 1.11,
+      "latency_ms": 1098,
+      "input_tokens": 1412,
+      "cache_read_tokens": 0,
+      "output_tokens": 54,
+      "reasoning_tokens": 10,
+      "cost_usd": 0.0001221,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795529153-KKitJwROBYq2PsPmjS8s",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 2,
+      "t": 1.796,
+      "latency_ms": 674,
+      "input_tokens": 1791,
+      "cache_read_tokens": 1408,
+      "output_tokens": 42,
+      "reasoning_tokens": 0,
+      "cost_usd": 6.2445e-05,
+      "tool_calls": 1,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795529154-330L2rn9GgjQeVMWwEXM",
+      "cache_write_tokens": 0
+    },
+    {
+      "turn": 3,
+      "t": 45.717,
+      "latency_ms": 43911,
+      "input_tokens": 2143,
+      "cache_read_tokens": 1792,
+      "output_tokens": 16000,
+      "reasoning_tokens": 16000,
+      "cost_usd": 0.004853205,
+      "tool_calls": 0,
+      "provider": "PrimeIntellect",
+      "model": "thinkingmachines/inkling-2-mini",
+      "response_id": "gen-1795529154-yfKe13RdffEBaEbUQyLz",
+      "cache_write_tokens": 0
+    }
+  ],
+  "tdd": {
+    "turns": 3,
+    "tool_calls": 2,
+    "tool_calls_by_name": {
+      "read_agent_file": 2
+    },
+    "tool_calls_by_kind": {
+      "other_tool": 2
+    },
+    "first_test_file_write": null,
+    "first_impl_write": null,
+    "tests_written_first": false,
+    "first_test_run_turn": null,
+    "first_test_run_failed": null,
+    "test_runs": [],
+    "red_to_green_cycles": 0,
+    "turns_to_first_green": null,
+    "final_tests_green": null,
+    "final_test_result": null,
+    "rewrites": {},
+    "verdict": "no tests",
+    "timeline": [
+      {
+        "turn": 1,
+        "t": 1.11,
+        "latency_ms": 1098,
+        "input_tokens": 1412,
+        "cache_read_tokens": 0,
+        "output_tokens": 54,
+        "reasoning_tokens": 10,
+        "cost_usd": 0.0001221,
+        "tool_calls": 1
+      },
+      {
+        "turn": 2,
+        "t": 1.796,
+        "latency_ms": 674,
+        "input_tokens": 1791,
+        "cache_read_tokens": 1408,
+        "output_tokens": 42,
+        "reasoning_tokens": 0,
+        "cost_usd": 6.2445e-05,
+        "tool_calls": 1
+      },
+      {
+        "turn": 3,
+        "t": 45.717,
+        "latency_ms": 43911,
+        "input_tokens": 2143,
+        "cache_read_tokens": 1792,
+        "output_tokens": 16000,
+        "reasoning_tokens": 16000,
+        "cost_usd": 0.004853205,
+        "tool_calls": 0
+      }
+    ]
+  },
+  "hidden": {
+    "passed": 0,
+    "failed": 45,
+    "total": 45,
+    "errors": [
+      {
+        "case": "gutter game",
+        "expected": 0,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "all ones",
+        "expected": 12,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "single spare",
+        "expected": 12,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "single spare then strike",
+        "expected": 18,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "single strike",
+        "expected": 14,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "perfect game",
+        "expected": 144,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "all spares",
+        "expected": 72,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "all spares, fill 1",
+        "expected": 68,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "strike then spares",
+        "expected": 75,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "last frame open",
+        "expected": 91,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "last frame strike, gutter fills",
+        "expected": 6,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "last frame spare, max fill",
+        "expected": 12,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "strike then open",
+        "expected": 12,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 0",
+        "expected": 75,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 1",
+        "expected": 10,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 2",
+        "expected": 10,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 3",
+        "expected": 74,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 4",
+        "expected": 77,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 5",
+        "expected": 68,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      },
+      {
+        "case": "random game 6",
+        "expected": 9,
+        "got": "import failed: ModuleNotFoundError: No module named 'alley'"
+      }
+    ]
+  },
+  "deliverables": {
+    "expected": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ],
+    "present": [],
+    "missing": [
+      "alley.py",
+      "test_alley.py",
+      "NOTES.md"
+    ]
+  }
+}

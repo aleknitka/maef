@@ -2,6 +2,8 @@
 
 Every file is read once; the same bytes are digested and used, so what ran is what was pinned.
 """
+
+import contextlib
 import hashlib
 import subprocess
 from collections.abc import Mapping
@@ -33,6 +35,7 @@ class ResolveError(Exception):
 
 class PinnedDefinition(BaseModel):
     """An agent and its model profile pinned to exact content, ready for admission."""
+
     # Bytes cross the worker boundary as base64 JSON.
     model_config = ConfigDict(frozen=True, ser_json_bytes="base64", val_json_bytes="base64")
     agent: AgentDefinition
@@ -59,7 +62,7 @@ class PinnedDefinition(BaseModel):
 
 def _git(root: Path, *args: str) -> str | None:
     try:
-        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10, check=True)
+        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10, check=True)  # noqa: S603, S607  argv list, no shell; fixed 'git' executable and non-user-controlled arguments
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip()
@@ -74,8 +77,9 @@ def _digest(parts: list[tuple[str, bytes]]) -> str:
     return h.hexdigest()
 
 
-def compute_definition_digest(agent_yaml: bytes, files: Mapping[str, bytes],
-                              mcp_bytes: Mapping[str, bytes] | None = None) -> str:
+def compute_definition_digest(
+    agent_yaml: bytes, files: Mapping[str, bytes], mcp_bytes: Mapping[str, bytes] | None = None
+) -> str:
     """The digest recorded at admission: agent.yaml first, then `files` in pinned order, then each
     MCP manifest (as `mcp-servers/<id>.yaml`, sorted by id; none adds nothing, so definitions
     without MCP servers keep their earlier digests). Workers recompute it over the bytes they were handed."""
@@ -84,7 +88,7 @@ def compute_definition_digest(agent_yaml: bytes, files: Mapping[str, bytes],
 
 
 def parse_mcp_ref(ref: str) -> tuple[str, str]:
-    """"<id>@<version>" -> (id, version); ValueError otherwise."""
+    """ "<id>@<version>" -> (id, version); ValueError otherwise."""
     server_id, sep, version = ref.partition("@")
     if not sep or not server_id or not version or "@" in version:
         raise ValueError(f"MCP server reference must be <id>@<version>: {ref}")
@@ -136,10 +140,8 @@ class _GitSource:
         parts = [("agent.yaml", raw)]
         for name in names_for(agent)[1:]:
             data = None
-            try:
+            with contextlib.suppress(ResolveError):
                 data = self._read("agents", f"{agent_id}/{name}")
-            except ResolveError:
-                pass
             if data is None:
                 raise ResolveError(f"Agent file missing or outside the agent directory: {name}")
             parts.append((name, data))
@@ -161,9 +163,14 @@ class _GitSource:
 
 
 class Definitions:
-    def __init__(self, agents: AgentRegistry, profiles: ModelProfileRegistry,
-                 sandboxes: SandboxProfileRegistry | None = None, mcps: McpServerRegistry | None = None,
-                 repo_root: Path | None = None):
+    def __init__(
+        self,
+        agents: AgentRegistry,
+        profiles: ModelProfileRegistry,
+        sandboxes: SandboxProfileRegistry | None = None,
+        mcps: McpServerRegistry | None = None,
+        repo_root: Path | None = None,
+    ):
         self.agents = agents
         self.profiles = profiles
         self.sandboxes = sandboxes
@@ -177,15 +184,23 @@ class Definitions:
             repo = GitRepo(self.repo_root)
             top = repo.toplevel()
             sha = repo.resolve_revision(revision)
+
             def prefix(root: Path | None) -> str | None:
                 return None if root is None else (root.relative_to(top).as_posix() if root != top else "")
-            return _GitSource(repo, sha, prefix(self.agents.root) or "",
-                              prefix(self.sandboxes.root) if self.sandboxes else None,
-                              prefix(self.mcps.root) if self.mcps else None)
+
+            return _GitSource(
+                repo,
+                sha,
+                prefix(self.agents.root) or "",
+                prefix(self.sandboxes.root) if self.sandboxes else None,
+                prefix(self.mcps.root) if self.mcps else None,
+            )
         except (GitError, ValueError) as exc:
             raise ResolveError(f"Unknown revision: {revision[:80]} ({exc})") from None
 
-    def _pin_mcp(self, agent: AgentDefinition, src: _GitSource | None = None) -> tuple[list[McpServerManifest], dict[str, bytes]]:
+    def _pin_mcp(
+        self, agent: AgentDefinition, src: _GitSource | None = None
+    ) -> tuple[list[McpServerManifest], dict[str, bytes]]:
         manifests: list[McpServerManifest] = []
         raw: dict[str, bytes] = {}
         for ref in agent.mcp_servers:
@@ -200,7 +215,11 @@ class Definitions:
                     loaded = src.mcp(server_id)
                 else:
                     loaded = self.mcps.load(server_id) if self.mcps is not None else None
-            except (OSError, ValueError, yaml.YAMLError):  # unreadable, bad YAML or invalid manifest (pydantic errors are ValueErrors)
+            except (
+                OSError,
+                ValueError,
+                yaml.YAMLError,
+            ):  # unreadable, bad YAML or invalid manifest (pydantic errors are ValueErrors)
                 raise ResolveError(f"MCP server manifest unreadable or invalid: {server_id}") from None
             if loaded is None:
                 raise ResolveError(f"MCP server not found: {server_id}")
@@ -211,10 +230,15 @@ class Definitions:
             raw[server_id] = data
         problem = mcp_ref_problem(agent, manifests)
         if problem == "network_not_permitted":
-            raise ResolveError("MCP server needs network access (allowlist or open) but the agent does not set permissions.network_open")
+            raise ResolveError(
+                "MCP server needs network access (allowlist or open) "
+                "but the agent does not set permissions.network_open"
+            )
         return manifests, raw
 
-    def _pin_sandbox(self, profile_id: str, required: bool, src: _GitSource | None = None) -> tuple[SandboxProfile | None, str | None]:
+    def _pin_sandbox(
+        self, profile_id: str, required: bool, src: _GitSource | None = None
+    ) -> tuple[SandboxProfile | None, str | None]:
         try:
             if src is not None:
                 data = src.sandbox(profile_id)
@@ -289,7 +313,8 @@ class Definitions:
             raise ResolveError(f"Model profile unreadable or invalid: {profile_id}") from None
 
         sandbox, sandbox_digest = self._pin_sandbox(
-            agent.runtime.sandbox_profile, required=any(t in SANDBOXED_TOOLS for t in agent.tools), src=src)
+            agent.runtime.sandbox_profile, required=any(t in SANDBOXED_TOOLS for t in agent.tools), src=src
+        )
 
         mcp_manifests, mcp_raw = self._pin_mcp(agent, src)
 
@@ -302,7 +327,10 @@ class Definitions:
             if sandbox is not None and self.sandboxes is not None:
                 specs.append(str(self.sandboxes.root / f"{agent.runtime.sandbox_profile}.yaml"))
             status = _git(base, "status", "--porcelain", "--", *specs)
-            git_rev, dirty = _git(base, "rev-parse", "HEAD"), status is None or status != ""  # unknown git state counts as dirty
+            git_rev, dirty = (
+                _git(base, "rev-parse", "HEAD"),
+                status is None or status != "",
+            )  # unknown git state counts as dirty
         else:
             git_rev, dirty = src.sha, False
         files = {n: d for n, d in parts if n != "agent.yaml"}

@@ -1,6 +1,7 @@
 """The run interface used by HTTP (and later the CLI): preview, submit, inspect, recover.
 
 Runs admits and queues; it never executes. A worker claims the queued run (see worker.py)."""
+
 import time
 from collections.abc import Callable
 
@@ -74,11 +75,16 @@ def effective_budget(ceiling: Budget, requested: BudgetOverride | Budget | None)
     """A request may only tighten the agent's budget, never raise it; omitted fields keep the ceiling."""
     if requested is None:
         return ceiling
+
     def tighten(name: str) -> int:
         value = getattr(requested, name)
         return getattr(ceiling, name) if value is None else min(getattr(ceiling, name), value)
-    return Budget(max_tokens=tighten("max_tokens"), max_duration_seconds=tighten("max_duration_seconds"),
-                  max_turns=tighten("max_turns"))
+
+    return Budget(
+        max_tokens=tighten("max_tokens"),
+        max_duration_seconds=tighten("max_duration_seconds"),
+        max_turns=tighten("max_turns"),
+    )
 
 
 class Runs:
@@ -124,8 +130,11 @@ class Runs:
         if req.agent_revision is None:
             self._agent(req.agent_id)  # unknown agent: 404 before pinning
         try:
-            pinned = (self.definitions.resolve(req.agent_id) if req.agent_revision is None
-                      else self.definitions.resolve(req.agent_id, req.agent_revision))
+            pinned = (
+                self.definitions.resolve(req.agent_id)
+                if req.agent_revision is None
+                else self.definitions.resolve(req.agent_id, req.agent_revision)
+            )
         except ResolveError as exc:
             raise DefinitionConflict(str(exc)) from exc
         agent = pinned.agent
@@ -138,16 +147,23 @@ class Runs:
         budget = effective_budget(agent.budget, req.budget)
         try:
             run_id = self.ledger.admit(
-                pinned, budget,
+                pinned,
+                budget,
                 # MCP tool specs are unknown until the servers run: a fixed allowance per server stands in.
-                prompt_bytes=(len(pinned.instructions.encode()) + len(req.instruction.encode()) + spec_bytes(specs)
-                              + ADMISSION_ALLOWANCE_BYTES * len(pinned.mcp_servers)),
+                prompt_bytes=(
+                    len(pinned.instructions.encode())
+                    + len(req.instruction.encode())
+                    + spec_bytes(specs)
+                    + ADMISSION_ALLOWANCE_BYTES * len(pinned.mcp_servers)
+                ),
                 instruction=req.instruction,
                 allow_dirty=self._allow_dirty(),
             )
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
+        if record is None:  # the run was admitted just above
+            raise RunNotFound(run_id)
         return RunRecord.model_validate(record.model_dump(exclude={"events"}))
 
     def submit_decision(self, req: DecisionRunRequest) -> RunRecord:
@@ -168,10 +184,13 @@ class Runs:
         task = DecisionTask(request=request, profile=profile, profile_bytes=data, profile_digest=digest)
         try:
             run_id = self.ledger.admit_decision(
-                task, reserve=reserve, max_duration_seconds=profile.timeout_seconds * (profile.max_retries + 1))
+                task, reserve=reserve, max_duration_seconds=profile.timeout_seconds * (profile.max_retries + 1)
+            )
         except AdmissionError as exc:
             raise AdmissionRejected(exc.code, str(exc)) from exc
         record = self.ledger.get(run_id)
+        if record is None:  # the run was admitted just above
+            raise RunNotFound(run_id)
         return RunRecord.model_validate(record.model_dump(exclude={"events"}))
 
     def get(self, run_id: str) -> RunDetail | None:
@@ -184,7 +203,7 @@ class Runs:
         return self.ledger.events_after(run_id, after_seq, limit)
 
     def cancel(self, run_id: str) -> str:
-        """"cancelled" (queued run settled now) or "requested" (a worker will stop it)."""
+        """ "cancelled" (queued run settled now) or "requested" (a worker will stop it)."""
         try:
             return self.ledger.request_cancel(run_id)
         except UnknownRun:

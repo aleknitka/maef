@@ -3,15 +3,17 @@
 A seed plus a noise level picks one Variant. The task text and the hidden acceptance cases are both derived from
 that exact variant, so memorising the public version of the task does not help.
 """
+
 from typing import Protocol
 
 from pydantic import BaseModel, Field
 
-STRAPLINE = ("Intelligence is not what you do when you know what to do, "
-             "but what you do when you don't know what to do.")
+STRAPLINE = "Intelligence is not what you do when you know what to do, but what you do when you don't know what to do."
 
-JUDGED_BY = ("Your work is judged by hidden acceptance tests that call your public API exactly as named above. "
-             "Your own tests also count: they should be real, runnable and cover the rules.")
+JUDGED_BY = (
+    "Your work is judged by hidden acceptance tests that call your public API exactly as named above. "
+    "Your own tests also count: they should be real, runnable and cover the rules."
+)
 
 
 class Variant(BaseModel):

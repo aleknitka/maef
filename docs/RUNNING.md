@@ -19,16 +19,17 @@ For how the parts fit together, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ## 1. Install
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .              # base install: everything local, no cloud libraries
-pip install -e '.[dev]'       # + test tools (needed for `make test`)
-pip install -e '.[bedrock]'   # + AWS Bedrock models
-pip install -e '.[s3]'        # + S3 artifact storage
-pip install -e '.[postgres]'  # + Postgres database
-maef init                     # local model profile, results folder, SQLite database
+uv sync                       # base install plus the dev group: everything local, no cloud libraries
+uv sync --extra bedrock       # + AWS Bedrock models
+uv sync --extra s3            # + S3 artifact storage
+uv sync --extra postgres      # + Postgres database
+uv sync --all-extras          # all of the above
+uv run maef init              # local model profile, results folder, SQLite database
+uv tool install .             # optional: a global `maef` command (then drop `uv run`)
 ```
 
-Works on Linux, WSL2 and macOS. Python 3.11 or newer.
+Works on Linux, WSL2 and macOS. Needs [uv](https://docs.astral.sh/uv/); Python 3.11 or newer (uv fetches 3.12). The
+examples below write `maef ...`; inside the checkout use `uv run maef ...`, or install it globally with `uv tool install .`.
 
 ## 2. Choose a model
 
@@ -84,7 +85,7 @@ credential_ref: env:OPENAI_API_KEY
 and `credential_ref: env:ANTHROPIC_API_KEY`.
 
 **AWS Bedrock:** `api_dialect: bedrock-converse`, `endpoint: {kind: amazon-bedrock, region: <your Region>, model_id: ...}`,
-`credential_ref: aws:default-chain`. Needs `pip install -e '.[bedrock]'`.
+`credential_ref: aws:default-chain`. Needs `uv sync --extra bedrock`.
 
 Optional profile fields: `timeout_seconds` (default 300), `max_retries` (2), `max_output_tokens` (4096, caps each
 model reply and therefore the worst-case budget).
@@ -208,7 +209,7 @@ By default everything stays on this machine.
 Artifacts are stored under their sha256 fingerprint, written once, and checked on every read. Downloads are always
 served as attachments, never rendered in the browser.
 
-**Postgres (optional).** `pip install -e '.[postgres]'` and point the API, workers and `maef admin` at the same
+**Postgres (optional).** `uv sync --extra postgres` and point the API, workers and `maef admin` at the same
 database with `MAEF_DB=postgresql://user:pass@host/db`; tables are created on first start. A throwaway local server:
 
 ```bash
@@ -216,7 +217,7 @@ podman run -d --rm -p 127.0.0.1:5432:5432 -e POSTGRES_PASSWORD=maef docker.io/li
 export MAEF_DB=postgresql://postgres:maef@127.0.0.1/postgres
 ```
 
-**S3-compatible storage (optional).** `pip install -e '.[s3]'` and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the
+**S3-compatible storage (optional).** `uv sync --extra s3` and set `MAEF_ARTIFACTS_URL=s3://bucket/prefix` on the
 API and every worker. Optional: `MAEF_S3_ENDPOINT_URL` (non-AWS servers), `MAEF_S3_REGION`,
 `MAEF_S3_ADDRESSING_STYLE=path` (most non-AWS servers), `MAEF_S3_SSE=0` (servers without encryption support),
 `MAEF_S3_ALLOW_PRIVATE=1` (server on your LAN), `MAEF_S3_ACCESS_KEY_REF=env:NAME` and `MAEF_S3_SECRET_KEY_REF=env:NAME`

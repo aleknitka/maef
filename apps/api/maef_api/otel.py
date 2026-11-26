@@ -9,12 +9,14 @@ content, and spans only copy those fields; keep it that way when adding attribut
 OTel GenAI semantic conventions (gen_ai.*) where they fit and `maef.*` elsewhere; the conventions are still
 evolving, so the version this was written against is recorded as `maef.semconv`.
 """
+
 import hashlib
 import logging
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlparse
 
 from .adapters.http import ModelHTTPError, post_json
@@ -83,29 +85,60 @@ def run_to_spans(run: RunDetail) -> list[Span]:
     end_ns = _ns(terminal.ts) if terminal else last_ns
     profile = next((e.payload.get("profile") for e in events if e.type == "model.request"), None)
     status, message = {"succeeded": (STATUS_OK, ""), "failed": (STATUS_ERROR, run.terminal_reason or "failed")}.get(
-        run.status, (STATUS_UNSET, ""))
-    spans = [Span(
-        trace, root_id, None, "maef.run", start_ns, max(end_ns, start_ns), KIND_INTERNAL,
-        _attrs(**{
-            "gen_ai.operation.name": "invoke_agent", "gen_ai.agent.name": run.agent_id,
-            "gen_ai.request.model": profile,
-            "gen_ai.usage.input_tokens": _sum(events, "usage.recorded", "input_tokens"),
-            "gen_ai.usage.output_tokens": _sum(events, "usage.recorded", "output_tokens"),
-            "gen_ai.usage.cache_read.input_tokens": _sum(events, "usage.recorded", "cache_read_tokens"),
-            "gen_ai.usage.cache_creation.input_tokens": _sum(events, "usage.recorded", "cache_write_tokens"),
-            "maef.usage.reasoning_tokens": _sum(events, "usage.recorded", "reasoning_tokens"),
-            "maef.usage.cost_usd": _sum(events, "usage.recorded", "cost_usd", (int, float)),
-            "maef.run_id": run.id, "maef.run.kind": run.kind, "maef.run.status": run.status,
-            "maef.agent_revision": run.git_rev, "maef.dirty": run.dirty,
-            "maef.terminal_reason": run.terminal_reason, "maef.tokens_used": run.tokens_used,
-            "maef.tokens_reserved": run.reserved_tokens, "maef.semconv": SEMCONV}),
-        status, message)]
+        run.status, (STATUS_UNSET, "")
+    )
+    spans = [
+        Span(
+            trace,
+            root_id,
+            None,
+            "maef.run",
+            start_ns,
+            max(end_ns, start_ns),
+            KIND_INTERNAL,
+            _attrs(
+                **{
+                    "gen_ai.operation.name": "invoke_agent",
+                    "gen_ai.agent.name": run.agent_id,
+                    "gen_ai.request.model": profile,
+                    "gen_ai.usage.input_tokens": _sum(events, "usage.recorded", "input_tokens"),
+                    "gen_ai.usage.output_tokens": _sum(events, "usage.recorded", "output_tokens"),
+                    "gen_ai.usage.cache_read.input_tokens": _sum(events, "usage.recorded", "cache_read_tokens"),
+                    "gen_ai.usage.cache_creation.input_tokens": _sum(events, "usage.recorded", "cache_write_tokens"),
+                    "maef.usage.reasoning_tokens": _sum(events, "usage.recorded", "reasoning_tokens"),
+                    "maef.usage.cost_usd": _sum(events, "usage.recorded", "cost_usd", (int, float)),
+                    "maef.run_id": run.id,
+                    "maef.run.kind": run.kind,
+                    "maef.run.status": run.status,
+                    "maef.agent_revision": run.git_rev,
+                    "maef.dirty": run.dirty,
+                    "maef.terminal_reason": run.terminal_reason,
+                    "maef.tokens_used": run.tokens_used,
+                    "maef.tokens_reserved": run.reserved_tokens,
+                    "maef.semconv": SEMCONV,
+                }
+            ),
+            status,
+            message,
+        )
+    ]
 
-    def child(event, name, end_ts_ns, *, kind=KIND_INTERNAL, parent=root_id, attributes=None, status=STATUS_UNSET,
-              message="") -> Span:
+    def child(
+        event, name, end_ts_ns, *, kind=KIND_INTERNAL, parent=root_id, attributes=None, status=STATUS_UNSET, message=""
+    ) -> Span:
         start = _ns(event.ts)
-        return Span(trace, span_id_for(run.id, str(event.seq)), parent, name, start, max(end_ts_ns, start), kind,
-                    _attrs(**(attributes or {})), status, message)
+        return Span(
+            trace,
+            span_id_for(run.id, str(event.seq)),
+            parent,
+            name,
+            start,
+            max(end_ts_ns, start),
+            kind,
+            _attrs(**(attributes or {})),
+            status,
+            message,
+        )
 
     turns: dict[int, Span] = {}
     pending_requests: dict[int, tuple] = {}  # turn -> (request event, response payload, usage payload, end_ns)
@@ -115,24 +148,42 @@ def run_to_spans(run: RunDetail) -> list[Span]:
             pending_requests[turn] = (e, {}, {}, _ns(e.ts))
         elif e.type in ("model.response", "usage.recorded") and turn in pending_requests:
             req, resp, usage, _ = pending_requests[turn]
-            pending_requests[turn] = (req, e.payload if e.type == "model.response" else resp,
-                                      e.payload if e.type == "usage.recorded" else usage, _ns(e.ts))
+            pending_requests[turn] = (
+                req,
+                e.payload if e.type == "model.response" else resp,
+                e.payload if e.type == "usage.recorded" else usage,
+                _ns(e.ts),
+            )
     for turn, (req, resp, usage, end) in pending_requests.items():
         p = req.payload
-        span = child(req, f"chat {p.get('profile', 'model')}", end, kind=KIND_CLIENT, attributes={
-            "gen_ai.operation.name": "chat", "gen_ai.request.model": p.get("profile"),
-            "gen_ai.request.max_tokens": p.get("max_output_tokens"),
-            "gen_ai.response.finish_reasons": [resp["stop_reason"]] if "stop_reason" in resp else None,
-            "gen_ai.usage.input_tokens": usage.get("input_tokens"),
-            "gen_ai.usage.output_tokens": usage.get("output_tokens"),
-            "gen_ai.usage.cache_read.input_tokens": usage.get("cache_read_tokens"),
-            "gen_ai.usage.cache_creation.input_tokens": usage.get("cache_write_tokens"),
-            "maef.usage.reasoning_tokens": usage.get("reasoning_tokens"), "maef.usage.cost_usd": usage.get("cost_usd"),
-            "gen_ai.response.id": resp.get("response_id"), "gen_ai.response.model": resp.get("model"),
-            "maef.provider": resp.get("provider"), "maef.latency_ms": resp.get("latency_ms"),
-            "maef.turn": turn, "maef.model_profile": p.get("profile"), "maef.stop_reason": resp.get("stop_reason"),
-            "maef.prompt_bytes": p.get("prompt_bytes"), "maef.tools_offered": p.get("tools"),
-            "maef.tool_calls": resp.get("tool_calls")})
+        span = child(
+            req,
+            f"chat {p.get('profile', 'model')}",
+            end,
+            kind=KIND_CLIENT,
+            attributes={
+                "gen_ai.operation.name": "chat",
+                "gen_ai.request.model": p.get("profile"),
+                "gen_ai.request.max_tokens": p.get("max_output_tokens"),
+                "gen_ai.response.finish_reasons": [resp["stop_reason"]] if "stop_reason" in resp else None,
+                "gen_ai.usage.input_tokens": usage.get("input_tokens"),
+                "gen_ai.usage.output_tokens": usage.get("output_tokens"),
+                "gen_ai.usage.cache_read.input_tokens": usage.get("cache_read_tokens"),
+                "gen_ai.usage.cache_creation.input_tokens": usage.get("cache_write_tokens"),
+                "maef.usage.reasoning_tokens": usage.get("reasoning_tokens"),
+                "maef.usage.cost_usd": usage.get("cost_usd"),
+                "gen_ai.response.id": resp.get("response_id"),
+                "gen_ai.response.model": resp.get("model"),
+                "maef.provider": resp.get("provider"),
+                "maef.latency_ms": resp.get("latency_ms"),
+                "maef.turn": turn,
+                "maef.model_profile": p.get("profile"),
+                "maef.stop_reason": resp.get("stop_reason"),
+                "maef.prompt_bytes": p.get("prompt_bytes"),
+                "maef.tools_offered": p.get("tools"),
+                "maef.tool_calls": resp.get("tool_calls"),
+            },
+        )
         turns[turn] = span
         spans.append(span)
 
@@ -174,8 +225,11 @@ def run_to_spans(run: RunDetail) -> list[Span]:
 
 
 def _sum(events, type_, field_, kind=int) -> int | float | None:
-    values = [e.payload[field_] for e in events if e.type == type_ and isinstance(e.payload.get(field_), kind)
-              and not isinstance(e.payload.get(field_), bool)]
+    values = [
+        e.payload[field_]
+        for e in events
+        if e.type == type_ and isinstance(e.payload.get(field_), kind) and not isinstance(e.payload.get(field_), bool)
+    ]
     return sum(values) if values else None
 
 
@@ -185,30 +239,47 @@ def _tool_span(child, call, result, turns, fallback_end: int | None = None) -> S
     is_error = bool(r.get("is_error"))
     parent = turns[p["turn"]].span_id if p.get("turn") in turns else None
     return child(
-        call, f"execute_tool {p.get('name')}", _ns(result.ts) if result is not None else fallback_end,
+        call,
+        f"execute_tool {p.get('name')}",
+        _ns(result.ts) if result is not None else fallback_end,
         **({"parent": parent} if parent else {}),
-        attributes={"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": p.get("name"),
-                    "maef.turn": p.get("turn"), "maef.tool.server": p.get("server"),
-                    "maef.tool.is_error": is_error if result is not None else None,
-                    "maef.tool.argument_bytes": p.get("argument_bytes"), "maef.tool.result_bytes": r.get("result_bytes"),
-                    "maef.tool.duration_ms": r.get("duration_ms")},
-        status=STATUS_ERROR if is_error else STATUS_UNSET, message="tool_error" if is_error else "")
+        attributes={
+            "gen_ai.operation.name": "execute_tool",
+            "gen_ai.tool.name": p.get("name"),
+            "maef.turn": p.get("turn"),
+            "maef.tool.server": p.get("server"),
+            "maef.tool.is_error": is_error if result is not None else None,
+            "maef.tool.argument_bytes": p.get("argument_bytes"),
+            "maef.tool.result_bytes": r.get("result_bytes"),
+            "maef.tool.duration_ms": r.get("duration_ms"),
+        },
+        status=STATUS_ERROR if is_error else STATUS_UNSET,
+        message="tool_error" if is_error else "",
+    )
 
 
 def _sandbox_attrs(p: dict) -> dict:
-    return {"maef.sandbox.profile": p.get("profile"), "maef.sandbox.network": p.get("network"),
-            "maef.sandbox.network_open": p.get("network_open")}
+    return {
+        "maef.sandbox.profile": p.get("profile"),
+        "maef.sandbox.network": p.get("network"),
+        "maef.sandbox.network_open": p.get("network_open"),
+    }
 
 
 def _mcp_span(child, server, provisioned, started, end_ns) -> Span:
     s = started.payload
-    attributes = {"maef.mcp.server": server, "maef.mcp.version": s.get("version"),
-                  "maef.mcp.tool_count": s.get("tool_count"), "maef.mcp.network": s.get("network"),
-                  "maef.sandbox.network_open": provisioned.payload.get("network_open") if provisioned else None}
+    attributes = {
+        "maef.mcp.server": server,
+        "maef.mcp.version": s.get("version"),
+        "maef.mcp.tool_count": s.get("tool_count"),
+        "maef.mcp.network": s.get("network"),
+        "maef.sandbox.network_open": provisioned.payload.get("network_open") if provisioned else None,
+    }
     return child(provisioned or started, f"maef.mcp {server}", end_ns, attributes=attributes)
 
 
 # --- OTLP/HTTP JSON ---
+
 
 def _value(v) -> dict:
     if isinstance(v, bool):
@@ -230,17 +301,30 @@ def to_otlp(spans: list[Span]) -> dict:
     """The `ExportTraceServiceRequest` JSON body for these spans."""
     wire = []
     for s in spans:
-        item = {"traceId": s.trace_id, "spanId": s.span_id, "name": s.name, "kind": s.kind,
-                "startTimeUnixNano": str(s.start_ns), "endTimeUnixNano": str(s.end_ns),
-                "attributes": _kv(s.attributes), "status": {"code": s.status}}
+        status: dict[str, Any] = {"code": s.status}
+        item: dict[str, Any] = {
+            "traceId": s.trace_id,
+            "spanId": s.span_id,
+            "name": s.name,
+            "kind": s.kind,
+            "startTimeUnixNano": str(s.start_ns),
+            "endTimeUnixNano": str(s.end_ns),
+            "attributes": _kv(s.attributes),
+            "status": status,
+        }
         if s.parent_id:
             item["parentSpanId"] = s.parent_id
         if s.status_message:
-            item["status"]["message"] = s.status_message
+            status["message"] = s.status_message
         wire.append(item)
-    return {"resourceSpans": [{
-        "resource": {"attributes": _kv({"service.name": "maef"})},
-        "scopeSpans": [{"scope": {"name": SCOPE_NAME}, "spans": wire}]}]}
+    return {
+        "resourceSpans": [
+            {
+                "resource": {"attributes": _kv({"service.name": "maef"})},
+                "scopeSpans": [{"scope": {"name": SCOPE_NAME}, "spans": wire}],
+            }
+        ]
+    }
 
 
 class OtlpExportError(Exception):
@@ -252,9 +336,18 @@ class OtlpHttpExporter:
     endpoint itself is loopback, private networks only with `allow_private`. `headers_ref` is a credential ref
     (`env:NAME`) whose value is `Name=value,Name2=value2` (the OTEL_EXPORTER_OTLP_HEADERS format)."""
 
-    def __init__(self, endpoint: str, headers_ref: str | None = None, *, credentials: Credentials | None = None,
-                 allow_private: bool = False, policy: EgressPolicy | None = None, timeout: float = 10.0,
-                 max_retries: int = 2, post: Callable = post_json):
+    def __init__(
+        self,
+        endpoint: str,
+        headers_ref: str | None = None,
+        *,
+        credentials: Credentials | None = None,
+        allow_private: bool = False,
+        policy: EgressPolicy | None = None,
+        timeout: float = 10.0,
+        max_retries: int = 2,
+        post: Callable = post_json,
+    ):
         parsed = urlparse(endpoint)
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             raise OtlpExportError("bad_endpoint")
@@ -272,7 +365,7 @@ class OtlpHttpExporter:
         except CredentialError as exc:
             raise OtlpExportError(str(exc)) from None
         headers = {}
-        for pair in (secret.reveal().split(",") if secret else []):
+        for pair in secret.reveal().split(",") if secret else []:
             name, sep, value = pair.partition("=")
             if sep and name.strip():
                 headers[name.strip()] = value.strip()
@@ -282,8 +375,16 @@ class OtlpHttpExporter:
         if not spans:
             return
         try:
-            self._post(self._url, self._headers(), to_otlp(spans), timeout=self._timeout, max_retries=self._retries,
-                       policy=self._policy, allow_loopback=self._loopback, allow_private=self._allow_private)
+            self._post(
+                self._url,
+                self._headers(),
+                to_otlp(spans),
+                timeout=self._timeout,
+                max_retries=self._retries,
+                policy=self._policy,
+                allow_loopback=self._loopback,
+                allow_private=self._allow_private,
+            )
         except ModelHTTPError as exc:
             raise OtlpExportError(str(exc)) from None
         except ValueError:
@@ -313,5 +414,8 @@ def exporter_from_env(environ=os.environ) -> OtlpHttpExporter | None:
     endpoint = environ.get("MAEF_OTLP_ENDPOINT")
     if not endpoint:
         return None
-    return OtlpHttpExporter(endpoint, environ.get("MAEF_OTLP_HEADERS_REF") or None,
-                            allow_private=environ.get("MAEF_OTLP_ALLOW_PRIVATE") == "1")
+    return OtlpHttpExporter(
+        endpoint,
+        environ.get("MAEF_OTLP_HEADERS_REF") or None,
+        allow_private=environ.get("MAEF_OTLP_ALLOW_PRIVATE") == "1",
+    )

@@ -14,6 +14,7 @@ def test_no_status_keeps_class_name_only():
 def test_botocore_style_response_status():
     class AccessDeniedException(Exception):
         pass
+
     exc = AccessDeniedException("leaky text")
     exc.response = {"ResponseMetadata": {"HTTPStatusCode": 403}, "Error": {"Message": "leaky text"}}
     assert model_error_reason(exc) == "model_error:AccessDeniedException:http_403"

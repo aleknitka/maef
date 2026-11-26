@@ -4,6 +4,7 @@ Pure and in-process. Prompt bytes bound prompt tokens (a token is at least one b
 worst case for a call is tokens_used + prompt_bytes + max_output_tokens, which must fit in the
 reservation made at admission.
 """
+
 import time
 from collections.abc import Callable
 
@@ -11,8 +12,14 @@ from .models import Budget
 
 
 class BudgetGuard:
-    def __init__(self, budget: Budget, reserved_tokens: int, max_output_tokens: int, clock=time.monotonic,
-                 cancelled: Callable[[], bool] | None = None):
+    def __init__(
+        self,
+        budget: Budget,
+        reserved_tokens: int,
+        max_output_tokens: int,
+        clock=time.monotonic,
+        cancelled: Callable[[], bool] | None = None,
+    ):
         self._budget = budget
         self._reserved = reserved_tokens
         self._max_output = max_output_tokens

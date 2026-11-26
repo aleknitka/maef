@@ -4,6 +4,7 @@ API tokens are `maef_<32 random bytes, urlsafe>` and worker credentials `maefw_<
 once at creation; the ledger stores only their sha256. Verification looks the hash up, then compares
 it in constant time. `admin` implies every scope. Nothing here logs or returns a token after issue.
 """
+
 import hashlib
 import hmac
 import os
@@ -11,7 +12,7 @@ import secrets
 from dataclasses import dataclass
 
 from .ledger import Ledger
-from .registry import ROOT
+from .project import project_root
 
 API_PREFIX = "maef_"
 WORKER_PREFIX = "maefw_"
@@ -26,7 +27,7 @@ SCOPES = (SCOPE_READ, SCOPE_RUNS, SCOPE_DECISIONS, SCOPE_AUTHORING, SCOPE_ADMIN)
 DEV_PRINCIPAL = "dev-unauthenticated"
 ANONYMOUS = "anonymous"
 
-MISSING_TOKEN_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."
+MISSING_TOKEN_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."  # noqa: S105  user-facing hint text, not a secret
 
 
 class AuthError(ValueError):
@@ -46,7 +47,10 @@ def parse_scopes(text: str) -> tuple[str, ...]:
     scopes = tuple(dict.fromkeys(s.strip() for s in text.split(",") if s.strip()))
     unknown = [s for s in scopes if s not in SCOPES]
     if not scopes or unknown:
-        raise AuthError(f"scopes must be a comma list of: {', '.join(SCOPES)}" + (f" (unknown: {', '.join(unknown)})" if unknown else ""))
+        raise AuthError(
+            f"scopes must be a comma list of: {', '.join(SCOPES)}"
+            + (f" (unknown: {', '.join(unknown)})" if unknown else "")
+        )
     return scopes
 
 
@@ -103,4 +107,4 @@ def verify_worker_token(ledger: Ledger, token: str | None) -> str | None:
 
 def local_ledger() -> Ledger:
     """The ledger the API uses (MAEF_DB), opened directly: the bootstrap CLI is the root of trust."""
-    return Ledger.open(os.environ.get("MAEF_DB", ROOT / "runs" / "maef.db"))
+    return Ledger.open(os.environ.get("MAEF_DB") or project_root() / "runs" / "maef.db")

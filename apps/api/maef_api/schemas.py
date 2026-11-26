@@ -3,6 +3,7 @@
 `schemas/<name>.schema.json` is committed; `check_schemas` reports drift so CI can fail a model change
 that was not re-exported.
 """
+
 import json
 from pathlib import Path
 
@@ -14,9 +15,19 @@ from .models import (
     ModelEndpointProfile,
     SandboxProfile,
 )
-from .registry import ROOT
+from .project import bundled_dir, project_root
 
-SCHEMAS_DIR = ROOT / "schemas"
+
+def schemas_dir() -> Path:
+    return project_root() / "schemas"
+
+
+def default_check_dir() -> Path:
+    """The project's schemas/ when it has one, else the read-only copy shipped with the package."""
+    own = schemas_dir()
+    return own if own.is_dir() else bundled_dir() / "schemas"
+
+
 SCHEMA_MODELS: dict[str, type[BaseModel]] = {
     "agent-definition": AgentDefinition,
     "model-endpoint-profile": ModelEndpointProfile,
@@ -39,7 +50,8 @@ def _path(directory: Path, name: str) -> Path:
     return Path(directory) / f"{name}.schema.json"
 
 
-def write_schemas(directory: Path = SCHEMAS_DIR) -> list[Path]:
+def write_schemas(directory: Path | None = None) -> list[Path]:
+    directory = Path(directory) if directory is not None else schemas_dir()
     Path(directory).mkdir(parents=True, exist_ok=True)
     written = []
     for name in SCHEMA_MODELS:
@@ -49,8 +61,9 @@ def write_schemas(directory: Path = SCHEMAS_DIR) -> list[Path]:
     return written
 
 
-def check_schemas(directory: Path = SCHEMAS_DIR) -> list[str]:
+def check_schemas(directory: Path | None = None) -> list[str]:
     """Names whose committed file is missing or differs from the models."""
+    directory = Path(directory) if directory is not None else default_check_dir()
     drift = []
     for name in SCHEMA_MODELS:
         path = _path(directory, name)

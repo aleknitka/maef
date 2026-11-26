@@ -1,5 +1,6 @@
 """Neutral conversation types and the model seam. Each adapter translates these to and from
 one wire format; nothing above the adapters knows a provider's JSON."""
+
 import math
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -93,8 +94,15 @@ def grouped(messages: list[Message]) -> Iterator[tuple[str, list[Message]]]:
 
 
 class ModelAdapter(Protocol):
-    def converse(self, *, system: str, messages: list[Message], tools: list[ToolSpec],
-                 max_output_tokens: int, timeout_seconds: float) -> ModelResponse:
+    def converse(
+        self,
+        *,
+        system: str,
+        messages: list[Message],
+        tools: list[ToolSpec],
+        max_output_tokens: int,
+        timeout_seconds: float,
+    ) -> ModelResponse:
         """One model call. Raises on transport or service errors."""
         ...
 
