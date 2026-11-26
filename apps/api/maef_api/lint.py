@@ -174,6 +174,18 @@ def lint_repo(root: Path | str, only_agent: str | None = None) -> list[Finding]:
         sandboxes = _lint_files(root, "sandbox-profiles", SandboxProfile, out)
         mcps = _lint_files(root, "mcp-servers", McpServerManifest, out)
         models = _lint_files(root, "model-profiles", ModelEndpointProfile, out)
+        for server_id, m in mcps.items():
+            if m.network == "allowlist" and any(h.strip() == "*" for h in m.allowed_hosts):
+                out.append(
+                    Finding(
+                        path=f"mcp-servers/{server_id}.yaml",
+                        severity="warning",
+                        message=(
+                            'allowed_hosts contains "*": the server can reach any public host, which is also a way '
+                            "to send data out; list the hosts it needs"
+                        ),
+                    )
+                )
     else:
         quiet: list[Finding] = []
         sandboxes = _lint_files(root, "sandbox-profiles", SandboxProfile, quiet)

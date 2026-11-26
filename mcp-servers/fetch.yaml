@@ -9,10 +9,24 @@ command: ["mcp-server-fetch"]
 env: {}
 secrets: {}
 # Fetching web pages needs the network. `allowlist` runs the server on an internal-only network whose
-# single way out is the enforced egress proxy: any PUBLIC host on 443/80 (private, loopback and
-# metadata addresses are always refused). The agent must set permissions.network_open.
+# single way out is the enforced egress proxy: only the hosts below, on 443/80, and only public addresses
+# (private, loopback and metadata addresses are always refused). The agent must set permissions.network_open.
+#
+# This is a short EXAMPLE list for documentation research, not a list for every task. Anything the model can
+# fetch is also somewhere it can send data (a URL can carry text from the conversation), so keep the list as
+# small as the job allows. To widen it, add exact hosts ("docs.example.com") or a subdomain pattern
+# ("*.example.com", which does not match example.com itself). Do not use "*": `maef lint` warns about it and it
+# lets a prompt-injected run reach any public site. Changing this file changes the manifest digest, so bump
+# `version` and the `mcp_servers` reference in each agent that uses it.
 network: allowlist
-allowed_hosts: ["*"]
+allowed_hosts:
+  - docs.python.org
+  - developer.mozilla.org
+  - en.wikipedia.org
+  - arxiv.org
+  - github.com
+  - raw.githubusercontent.com
+  - pypi.org
 allowed_ports: [443, 80]
 permission: read-only
 max_tools: 8

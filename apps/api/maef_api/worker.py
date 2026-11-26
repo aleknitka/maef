@@ -31,7 +31,7 @@ from .adapters.decision import (
 from .adapters.openai_compatible import OpenAICompatibleAdapter
 from .artifacts import ArtifactRef
 from .channel import HttpChannel, WorkerChannel
-from .credentials import CredentialError, Credentials, Secret
+from .credentials import CredentialError, CredentialNotAllowed, Credentials, Secret, worker_allowed_credentials
 from .decisions import execute_decision
 from .definitions import compute_definition_digest, mcp_ref_problem
 from .harness import PreparedRun, SinkFailure, execute
@@ -57,6 +57,7 @@ class NoAdapterForDialect(Exception):
 
 def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
     def factory(profile: ModelEndpointProfile) -> ModelAdapter:
+        credentials.check(profile.credential_ref)  # refuse before any call; names the variable in the log only
         if profile.api_dialect == "bedrock-converse":
             return BedrockAdapter(profile)
         if profile.api_dialect == "openai-compatible":
@@ -70,6 +71,7 @@ def default_adapter_factory(credentials: Credentials) -> AdapterFactory:
 
 def default_decision_factory(credentials: Credentials) -> DecisionFactory:
     def factory(profile: ModelEndpointProfile) -> DecisionAdapter:
+        credentials.check(profile.credential_ref)
         if profile.api_dialect == "decisions-api":
             return DecisionsApiAdapter(profile, credentials)
         if profile.api_dialect == "workers-ai-decision":
@@ -505,6 +507,8 @@ class Worker:
             for name, ref in manifest.secrets.items():
                 try:
                     secret = self._credentials.resolve(ref)
+                except CredentialNotAllowed:
+                    raise _StartupFailure(f"credential_not_allowed:{name}") from None
                 except CredentialError:
                     raise _StartupFailure(f"credential_missing:{name}") from None
                 if secret is None:
@@ -551,6 +555,15 @@ class Worker:
                 stop.wait(poll_seconds)
 
 
+def _project_or_none():
+    from .project import ProjectNotFoundError, project_root
+
+    try:
+        return project_root()
+    except ProjectNotFoundError:
+        return None
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     token = os.environ.get("MAEF_WORKER_CREDENTIAL")
@@ -569,7 +582,8 @@ def main() -> int:
     else:
         removed = sandbox.cleanup_orphans()
         log.info("sandbox runtime %s; removed %d orphaned containers", sandbox.info(), removed)
-    worker = Worker(channel, default_adapter_factory(Credentials()), worker_id=worker_id, sandbox=sandbox)
+    creds = Credentials(allowed=lambda: worker_allowed_credentials(_project_or_none()))
+    worker = Worker(channel, default_adapter_factory(creds), worker_id=worker_id, sandbox=sandbox, credentials=creds)
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())

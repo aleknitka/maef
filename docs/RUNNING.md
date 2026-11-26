@@ -193,7 +193,16 @@ in the file. Network modes:
 | `open` | unfiltered (discouraged) |
 
 `allowlist` and `open` also need `permissions: {network_open: true}` on the agent. The shipped `research-analyst` uses
-the `fetch` server in `allowlist` mode with `allowed_hosts: ["*"]` (any public site).
+the `fetch` server in `allowlist` mode with a short example host list (documentation sites, arXiv, GitHub, PyPI;
+see the comment in `mcp-servers/fetch.yaml`). Edit that list to the sites your task needs. `allowed_hosts: ["*"]`
+(any public site) still works but `maef lint` warns about it: whatever a run can fetch, a prompt-injected run can
+also send data to.
+
+**Worker credentials.** The worker only resolves `env:NAME` references that your own `model-profiles/` and
+`mcp-servers/` files mention, plus names listed in `MAEF_WORKER_ALLOWED_CREDENTIALS` (comma-separated, `*` globs
+allowed, for example `OPENROUTER_API_KEY,MYCO_*`). A lease naming any other variable is refused (`setup_error` or
+`credential_not_allowed:NAME`) and the worker log names the variable, never its value. A worker on another machine
+with no project folder needs the variable set explicitly.
 
 ## 7. Where data is stored
 
