@@ -4,6 +4,7 @@ import subprocess
 from datetime import datetime
 from importlib import metadata
 
+from ..endings import ending_of
 from ..project import ProjectNotFoundError, project_root
 from .families.base import STRAPLINE
 
@@ -134,6 +135,7 @@ def build(
         "canonical": canonical.model_dump(),
         "status": run.get("status"),
         "terminal_reason": run.get("terminal_reason"),
+        "ending": run.get("ending") or ending_of(run.get("terminal_reason")),
         "models": models,
         "providers": providers,
         "wall_seconds": wall_seconds(events),
@@ -159,6 +161,31 @@ def _f(x, nd=None):
     return f"{x:.{nd}f}" if nd is not None and isinstance(x, float) else str(x)
 
 
+def _is_loss(r: dict) -> bool:
+    return r.get("ending") == "infrastructure"
+
+
+def losses(reports: list[dict]) -> list[dict]:
+    """Reports of runs the platform lost; kept apart from the scored ones."""
+    return [r for r in reports if _is_loss(r)]
+
+
+def scored(reports: list[dict]) -> list[dict]:
+    """Reports that count towards a hidden-score summary: infrastructure losses are excluded."""
+    return [r for r in reports if not _is_loss(r)]
+
+
+def hidden_summary(reports: list[dict]) -> dict:
+    """Hidden-case totals over the scored runs, with the infrastructure losses listed separately."""
+    counted = [r for r in scored(reports) if not r["hidden"].get("error")]
+    return {
+        "runs": len(counted),
+        "passed": sum(r["hidden"]["passed"] for r in counted),
+        "total": sum(r["hidden"]["total"] for r in counted),
+        "losses": [{"run_id": r["run_id"], "terminal_reason": r.get("terminal_reason")} for r in losses(reports)],
+    }
+
+
 def render(r: dict) -> str:
     t, h, tok, d = r.get("tdd"), r["hidden"], r["tokens"], r["deliverables"]
     cost = f"${r['cost_usd']:.4f}" if r["cost_usd"] is not None else _NA
@@ -174,6 +201,8 @@ def render(r: dict) -> str:
         + ")",
         f"- Model: {', '.join(r['models']) or _NA}; provider: {', '.join(r['providers']) or _NA}",
         f"- Status: {r['status']}" + (f" ({r['terminal_reason']})" if r.get("terminal_reason") else ""),
+        f"- Ending: {r.get('ending') or _NA}"
+        + (" (an infrastructure loss: listed below, excluded from the score)" if _is_loss(r) else ""),
         f"- Wall time: {_f(r['wall_seconds'])} s",
         (f"- Turns: {r['turns']}; tool calls: {_f(r['tool_calls'])} {r['tool_calls_by_kind'] or ''}").rstrip(),
         (
@@ -232,7 +261,12 @@ def render(r: dict) -> str:
             f"| {x['turn']} | {x['passed']} | {x['ran']} | {x['failures']} | {x['errors']} |" for x in t["test_runs"]
         ]
     lines += ["", "## Hidden acceptance", ""]
-    if h.get("error"):
+    if _is_loss(r):
+        lines.append(
+            f"Excluded: the run ended as an infrastructure loss ({r.get('terminal_reason')}), "
+            "which says nothing about the agent."
+        )
+    elif h.get("error"):
         lines.append(f"Grading problem: {h['error']}")
     else:
         lines.append(f"**{h['passed']} / {h['total']} passed** ({h['failed']} failed)")

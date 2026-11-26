@@ -115,7 +115,7 @@ def test_adapter_error_records_class_only_and_releases(store):
     run = prepared(store)
     execute(LedgerSink(store, run.run_id), run, FakeAdapter(error=TimeoutError("secret prompt echo")))
     detail = store.get(run.run_id)
-    assert detail.terminal_reason == "model_error:TimeoutError" and detail.tokens_used == 0
+    assert detail.terminal_reason == "provider_error" and detail.tokens_used == 0
     assert "secret prompt echo" not in json.dumps([e.model_dump() for e in detail.events])
     assert store.account("default")["reserved_tokens"] == 0
 

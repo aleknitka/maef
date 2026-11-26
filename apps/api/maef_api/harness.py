@@ -19,6 +19,7 @@ from .artifacts import (
     ArtifactRef,
     ArtifactRejected,
     ArtifactStore,
+    ArtifactStoreError,
     InMemoryArtifactStore,
 )
 from .definitions import PinnedDefinition
@@ -96,14 +97,15 @@ def _invoke(tools: ToolSet, call: ToolCall) -> ToolResult:
     return tools.invoke(call.name, call.arguments)
 
 
-def _collect_outputs(sink: RunSink, collect: Callable[[], Collected], artifacts: list[ArtifactRef]) -> None:
-    """Best effort: a collection problem is an event, never a failed run. Only SinkFailure escapes."""
+def _collect_outputs(sink: RunSink, collect: Callable[[], Collected], artifacts: list[ArtifactRef]) -> bool:
+    """Best effort: a collection problem is an event, never a failed run. Only SinkFailure escapes.
+    Returns True when the artifact store itself failed (the run is then an infrastructure loss)."""
     try:
         collected = collect()
     except Exception as exc:  # noqa: BLE001  # code or class name only
         code = str(exc) if isinstance(exc, SandboxError) else type(exc).__name__
         sink.append("outputs.collection_failed", {"code": code})
-        return
+        return False
     skipped, stored = list(collected.skipped), 0
     for file in collected.files:
         try:
@@ -111,8 +113,12 @@ def _collect_outputs(sink: RunSink, collect: Callable[[], Collected], artifacts:
             stored += 1
         except ArtifactRejected as exc:
             skipped.append({"name": file.name, "reason": exc.code})
+        except ArtifactStoreError as exc:
+            sink.append("outputs.collection_failed", {"code": exc.code, "stored": stored})
+            return True
     if stored or skipped:
         sink.append("outputs.collected", {"count": stored, "skipped": skipped})
+    return False
 
 
 _TRANSCRIPT_NAME = "transcript.jsonl"
@@ -212,13 +218,21 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                 },
             )
             call_start = clock()
-            response = adapter.converse(
-                system=pinned.instructions,
-                messages=list(messages),
-                tools=specs,
-                max_output_tokens=profile.max_output_tokens,
-                timeout_seconds=min(float(profile.timeout_seconds), guard.remaining_seconds()),
-            )
+            try:
+                response = adapter.converse(
+                    system=pinned.instructions,
+                    messages=list(messages),
+                    tools=specs,
+                    max_output_tokens=profile.max_output_tokens,
+                    timeout_seconds=min(float(profile.timeout_seconds), guard.remaining_seconds()),
+                )
+            except SinkFailure:
+                raise
+            except Exception as exc:  # noqa: BLE001  # the endpoint failed after the adapter's own retries
+                # An infrastructure loss, not the agent's doing. The detail is the class and HTTP status only.
+                sink.append("model.error", {"turn": turn, "code": model_error_reason(exc)})
+                status, reason = "failed", "provider_error"
+                break
             latency_ms = int((clock() - call_start) * 1000)
             guard.record(response.input_tokens, response.output_tokens)
             in_tokens += response.input_tokens
@@ -332,6 +346,10 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
                 sink.append("run.output", ref.model_dump())
             except ArtifactRejected as exc:
                 sink.append("run.output", {"error": exc.code, "bytes": len(response.text.encode())})
+            except ArtifactStoreError as exc:
+                sink.append("run.output", {"error": exc.code, "bytes": len(response.text.encode())})
+                status, reason = "failed", "artifact_error"
+                break
             if response.stop_reason == "end_turn":
                 status, reason = "succeeded", "completed"
             elif response.stop_reason == "max_tokens":
@@ -341,11 +359,16 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
             break
     except SinkFailure:
         raise
-    except Exception as exc:  # noqa: BLE001  # recorded by class name only; messages may echo prompts
-        status, reason = "failed", model_error_reason(exc)
+    except ArtifactStoreError:
+        status, reason = "failed", "artifact_error"
+    except SandboxError:
+        status, reason = "failed", "sandbox_error"
+    except Exception as exc:  # noqa: BLE001  # class name only; messages may echo prompts
+        sink.append("run.internal_error", {"code": type(exc).__name__})
+        status, reason = "failed", "internal_error"
 
-    if run.outputs is not None:
-        _collect_outputs(sink, run.outputs, artifacts)
+    if run.outputs is not None and _collect_outputs(sink, run.outputs, artifacts) and status == "succeeded":
+        status, reason = "failed", "artifact_error"
     if run.record_transcript:
         records.append({"type": "end", "t": elapsed(), "status": status, "terminal_reason": reason})
         _store_transcript(sink, records, artifacts)

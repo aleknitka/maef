@@ -48,7 +48,7 @@ def test_failed_run_exits_1_without_leaking_error_text(live_api, capsys):
     live_api.finish_later(0.1)
     assert cli(live_api, "run", "research-analyst", "Hello", "--wait", "--timeout", "5") == 1
     err = capsys.readouterr().err
-    assert "model_error:RuntimeError" in err and "model down" not in err
+    assert "provider_error" in err and "model down" not in err
 
 
 def test_wait_timeout_exits_3(live_api, capsys):

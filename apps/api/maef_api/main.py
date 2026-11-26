@@ -24,6 +24,7 @@ from .artifacts import (
     ArtifactNotFound,
     ArtifactRef,
     ArtifactRejected,
+    ArtifactStoreError,
     default_artifact_store,
 )
 from .auth import (
@@ -721,6 +722,8 @@ async def worker_artifact(
         )
     except FencingError as exc:
         raise _conflict("fencing", exc) from exc
+    except ArtifactStoreError as exc:
+        raise HTTPException(status_code=507, detail={"code": exc.code}) from exc
     except ArtifactRejected as exc:
         raise HTTPException(
             status_code=400 if exc.code == "digest_mismatch" else 413, detail={"code": exc.code}

@@ -23,7 +23,18 @@ class SequenceGap(Exception):
 
 
 class ChannelError(Exception):
-    """The control plane could not be reached or answered unexpectedly. Never carries a body."""
+    """The control plane could not be reached or answered unexpectedly. Never carries a body.
+    `status` is the HTTP status when there was an answer; None for a connection-level failure."""
+
+    def __init__(self, message: str = "", *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
+
+    @property
+    def run_not_ours(self) -> bool:
+        """A 4xx other than 408 and 429 says the request is wrong or the run is no longer ours:
+        retrying the same call cannot help."""
+        return self.status is not None and 400 <= self.status < 500 and self.status not in (408, 429)
 
 
 class DecisionTask(BaseModel):

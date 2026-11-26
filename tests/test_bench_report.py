@@ -296,3 +296,15 @@ def test_download_artifacts_keeps_files_inside_the_destination(tmp_path):
 def test_runner_uses_the_family_registry():
     assert runner.FAMILIES is FAMILIES
     assert runner._safe_name("a/./b/../c").as_posix() == "a/b/c"
+
+
+def test_infrastructure_losses_are_listed_apart_and_not_scored():
+    ok = build()
+    lost = build()
+    lost["run_id"], lost["terminal_reason"], lost["ending"] = "lost-run", "provider_error", "infrastructure"
+    assert ok["ending"] in ("agent", None)
+    text = report.render(lost)
+    assert "infrastructure loss" in text and "Excluded: the run ended as an infrastructure loss" in text
+    summary = report.hidden_summary([ok, lost])
+    assert summary["runs"] == 1 and summary["losses"] == [{"run_id": "lost-run", "terminal_reason": "provider_error"}]
+    assert report.losses([ok, lost]) == [lost] and report.scored([ok, lost]) == [ok]
