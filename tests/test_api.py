@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+
 from maef_api.main import app
 
 client = TestClient(app)
@@ -41,9 +42,10 @@ def test_path_traversal_rejected():
 
 
 import pytest
+from pydantic import ValidationError
+
 from maef_api import main
 from maef_api.registry import ModelProfileRegistry
-from pydantic import ValidationError
 
 PROFILE = """schema_version: maef.dev/v1alpha1
 id: {id}

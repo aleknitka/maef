@@ -1,5 +1,6 @@
 """Run a family's hidden-case grader against the collected deliverables in a locked-down, network-less container."""
 
+import contextlib
 import json
 import os
 import shutil
@@ -54,7 +55,7 @@ def run_grader(grader_source: str, cases: list[dict], artifacts_dir: Path) -> di
             work, grader = Path(tmp) / "work", Path(tmp) / "grader"
             for d in (Path(tmp), work, grader):
                 d.mkdir(exist_ok=True)
-                os.chmod(d, 0o755)
+                os.chmod(d, 0o755)  # noqa: S103  work/grader dirs must be traversable by the grader container's non-root user; no secrets inside
             stage_deliverables(artifacts_dir, work)
             (grader / "grade.py").write_text(grader_source, encoding="utf-8")
             (grader / "cases.json").write_text(json.dumps(cases), encoding="utf-8")
@@ -82,7 +83,7 @@ def run_grader(grader_source: str, cases: list[dict], artifacts_dir: Path) -> di
                 "--pids-limit",
                 "64",
                 "--tmpfs",
-                "/tmp",
+                "/tmp",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
                 "-v",
                 f"{work}:/work:{opts}",
                 "-v",
@@ -93,7 +94,7 @@ def run_grader(grader_source: str, cases: list[dict], artifacts_dir: Path) -> di
                 "/grader/grade.py",
             ]
             try:
-                done = subprocess.run(
+                done = subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
                     args, capture_output=True, timeout=TIMEOUT_SECONDS, check=False, stdin=subprocess.DEVNULL
                 )
             except subprocess.TimeoutExpired:
@@ -126,13 +127,11 @@ def parse_output(stdout: str, stderr: str, returncode: int, total: int) -> dict:
 
 
 def _rm(binary: str, runtime: str, name: str) -> None:
-    try:
-        subprocess.run(
+    with contextlib.suppress(OSError, subprocess.SubprocessError):
+        subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
             [binary, "rm", "-f", "-t", "0", name] if runtime == "podman" else [binary, "rm", "-f", name],
             capture_output=True,
             timeout=30,
             check=False,
             stdin=subprocess.DEVNULL,
         )
-    except (OSError, subprocess.SubprocessError):
-        pass

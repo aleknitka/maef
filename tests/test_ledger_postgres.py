@@ -3,6 +3,7 @@
 import threading
 
 import pytest
+
 from maef_api.ledger import Ledger
 from maef_api.models import Budget
 from test_ledger import definition

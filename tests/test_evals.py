@@ -4,6 +4,8 @@ from contextlib import contextmanager
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api import main
 from maef_api.adapters.base import ModelResponse
 from maef_api.adapters.decision import FakeDecisionAdapter
@@ -21,7 +23,6 @@ from maef_api.evals import (
 )
 from maef_api.registry import ROOT, ModelProfileRegistry
 from maef_api.worker import Worker
-from pydantic import ValidationError
 from test_decisions import GOOD, JEV_YAML, QUESTIONS
 from test_run_execution import definition
 

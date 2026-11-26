@@ -40,7 +40,8 @@ def render_prometheus(m: dict) -> str:
     metric(
         "maef_reasoning_tokens_total",
         "counter",
-        'Output tokens spent on reasoning. A subset of maef_tokens_used_total{kind="output"}; do not add them together.',
+        "Output tokens spent on reasoning. "
+        'A subset of maef_tokens_used_total{kind="output"}; do not add them together.',
         [("maef_reasoning_tokens_total", m.get("reasoning_tokens", 0))],
     )
     metric(

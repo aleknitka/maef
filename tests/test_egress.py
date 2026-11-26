@@ -3,12 +3,13 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
+from pydantic import ValidationError
+
 from maef_api.adapters.base import Message
 from maef_api.adapters.http import ModelHTTPError, post_json
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import Credentials
 from maef_api.egress import EgressDenied, EgressPolicy
-from pydantic import ValidationError
 from test_http_adapters import Fake, make_profile
 
 URL = "https://api.example.com/secret-path"

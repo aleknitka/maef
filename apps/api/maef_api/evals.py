@@ -7,6 +7,7 @@ answers.json artifact. Result text is only used to evaluate checks; reports carr
 never the text itself.
 """
 
+import contextlib
 import json
 import re
 from datetime import datetime
@@ -202,10 +203,8 @@ def _run_task(client: MaefClient, task: EvalTask, revision: str | None, timeout_
     reason = run.get("terminal_reason")
     if run["status"] not in TERMINAL_STATUSES:
         reason = "eval_timeout"
-        try:
+        with contextlib.suppress(MaefClientError):
             client.cancel(run_id)
-        except MaefClientError:
-            pass
     text, answers = "", None
     try:
         text = client.result_text(run_id) or ""
@@ -268,7 +267,10 @@ class Comparison(BaseModel):
     tasks: list[TaskComparison]
 
     def to_markdown(self) -> str:
-        label = lambda r: r or "working tree"
+
+        def label(r):
+            return r or "working tree"
+
         lines = [
             f"# Eval `{self.suite_id}`",
             "",
@@ -276,7 +278,8 @@ class Comparison(BaseModel):
             "|---|---|---|---|---|",
         ]
         lines += [
-            f"| {label(r.revision)} | {r.passed}/{r.total} | {r.pass_rate:.0%} | {r.total_tokens} | {r.mean_tokens:.0f} |"
+            f"| {label(r.revision)} | {r.passed}/{r.total} | {r.pass_rate:.0%} "
+            f"| {r.total_tokens} | {r.mean_tokens:.0f} |"
             for r in self.revisions
         ]
         header = "| task | " + " | ".join(label(r.revision) for r in self.revisions) + " |"

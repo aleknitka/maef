@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from maef_api.bench import report, runner
 from maef_api.bench.families import FAMILIES
 from maef_api.bench.families.base import STRAPLINE, Variant

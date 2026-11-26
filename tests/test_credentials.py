@@ -1,4 +1,5 @@
 import pytest
+
 from maef_api.adapters.anthropic import AnthropicAdapter
 from maef_api.adapters.base import Message
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter

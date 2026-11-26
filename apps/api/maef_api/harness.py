@@ -188,7 +188,10 @@ def execute(sink: RunSink, run: PreparedRun, adapter: ModelAdapter, clock=time.m
     records: list[dict] = []
     if run.record_transcript:
         records += [{"type": "system", "text": pinned.instructions}, {"type": "user", "text": run.instruction}]
-    elapsed = lambda: round(clock() - started, 3)
+
+    def elapsed():
+        return round(clock() - started, 3)
+
     try:
         sink.append("run.started", status="running")
         while True:

@@ -11,6 +11,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
 from maef_api import localsetup
 from maef_api.cli import main
 from maef_api.ledger import Ledger

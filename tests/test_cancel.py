@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
+
 from maef_api import main
 from maef_api.adapters.base import ModelResponse, ToolCall, ToolSpec
 from maef_api.channel import HttpChannel, LocalChannel

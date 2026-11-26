@@ -3,6 +3,7 @@
 Every file is read once; the same bytes are digested and used, so what ran is what was pinned.
 """
 
+import contextlib
 import hashlib
 import subprocess
 from collections.abc import Mapping
@@ -61,7 +62,7 @@ class PinnedDefinition(BaseModel):
 
 def _git(root: Path, *args: str) -> str | None:
     try:
-        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10, check=True)
+        out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, timeout=10, check=True)  # noqa: S603, S607  argv list, no shell; fixed 'git' executable and non-user-controlled arguments
     except (OSError, subprocess.SubprocessError):
         return None
     return out.stdout.strip()
@@ -139,10 +140,8 @@ class _GitSource:
         parts = [("agent.yaml", raw)]
         for name in names_for(agent)[1:]:
             data = None
-            try:
+            with contextlib.suppress(ResolveError):
                 data = self._read("agents", f"{agent_id}/{name}")
-            except ResolveError:
-                pass
             if data is None:
                 raise ResolveError(f"Agent file missing or outside the agent directory: {name}")
             parts.append((name, data))
@@ -232,7 +231,8 @@ class Definitions:
         problem = mcp_ref_problem(agent, manifests)
         if problem == "network_not_permitted":
             raise ResolveError(
-                "MCP server needs network access (allowlist or open) but the agent does not set permissions.network_open"
+                "MCP server needs network access (allowlist or open) "
+                "but the agent does not set permissions.network_open"
             )
         return manifests, raw
 

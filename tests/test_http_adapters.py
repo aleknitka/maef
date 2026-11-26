@@ -4,13 +4,14 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api.adapters.anthropic import AnthropicAdapter
 from maef_api.adapters.base import Message
 from maef_api.adapters.http import ModelHTTPError
 from maef_api.adapters.openai_compatible import OpenAICompatibleAdapter
 from maef_api.credentials import CredentialError, Credentials
 from maef_api.models import ModelEndpointProfile
-from pydantic import ValidationError
 
 
 def make_profile(kind, base_url, cred="none:local", extra_endpoint="", dialect=None):

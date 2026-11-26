@@ -5,6 +5,7 @@ storage, and the MAEF_RECORD_TRANSCRIPT switch on the worker. Stubs and tmp ledg
 import json
 
 import pytest
+
 from maef_api import harness
 from maef_api.adapters.base import ModelResponse, ToolCall, ToolSpec
 from maef_api.artifacts import ArtifactRejected

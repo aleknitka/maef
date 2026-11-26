@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import pytest
+
 from conftest import copy_research_analyst
 from maef_api.adapters.base import ModelResponse
 from maef_api.channel import LocalChannel

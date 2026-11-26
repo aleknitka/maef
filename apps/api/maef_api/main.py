@@ -343,7 +343,7 @@ def create_draft(body: DraftCreate):
     try:
         return drafts.create(body.agent_id, body.new_agent_id)
     except DraftRejected as exc:
-        raise _draft_error(exc)
+        raise _draft_error(exc) from exc
 
 
 @app.get("/api/v1/drafts", dependencies=[authoring_read, Depends(require_authoring)])
@@ -364,14 +364,16 @@ async def write_draft_file(draft_id: str, path: str, request: Request):
         chunks.append(chunk)
     try:
         text = b"".join(chunks).decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail={"code": "invalid_content", "message": "Body must be UTF-8 text."})
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400, detail={"code": "invalid_content", "message": "Body must be UTF-8 text."}
+        ) from exc
     try:
         await run_in_threadpool(drafts.write, draft_id, path, text)
-    except DraftNotFound:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail="Draft not found") from exc
     except DraftRejected as exc:
-        raise _draft_error(exc)
+        raise _draft_error(exc) from exc
     return {"path": path, "bytes": size}
 
 
@@ -379,30 +381,30 @@ async def write_draft_file(draft_id: str, path: str, request: Request):
 def review_draft(draft_id: str):
     try:
         return drafts.review(draft_id)
-    except DraftNotFound:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail="Draft not found") from exc
     except DraftRejected as exc:
-        raise _draft_error(exc)
+        raise _draft_error(exc) from exc
 
 
 @app.post("/api/v1/drafts/{draft_id}/publish", dependencies=[authoring_write, Depends(require_authoring)])
 def publish_draft(draft_id: str, body: DraftPublish):
     try:
         return {"draft_id": draft_id, "revision": drafts.publish(draft_id, body.message)}
-    except DraftNotFound:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail="Draft not found") from exc
     except DraftRejected as exc:
-        raise _draft_error(exc)
+        raise _draft_error(exc) from exc
 
 
 @app.delete("/api/v1/drafts/{draft_id}", dependencies=[authoring_write, Depends(require_authoring)])
 def discard_draft(draft_id: str):
     try:
         drafts.discard(draft_id)
-    except DraftNotFound:
-        raise HTTPException(status_code=404, detail="Draft not found")
+    except DraftNotFound as exc:
+        raise HTTPException(status_code=404, detail="Draft not found") from exc
     except DraftRejected as exc:
-        raise _draft_error(exc)
+        raise _draft_error(exc) from exc
     return {"discarded": draft_id}
 
 
@@ -410,8 +412,8 @@ def discard_draft(draft_id: str):
 def preview_run(request: RunRequest):
     try:
         return runs.preview(request)
-    except AgentNotFound:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    except AgentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Agent not found") from exc
 
 
 @app.get("/api/v1/runs", response_model=list[RunRecord], dependencies=[read_access])
@@ -497,10 +499,12 @@ async def stream_run_events(
 def cancel_run(run_id: str):
     try:
         return {"outcome": runs.cancel(run_id)}
-    except RunNotFound:
-        raise HTTPException(status_code=404, detail="Run not found")
-    except RunAlreadyTerminal:
-        raise HTTPException(status_code=409, detail={"code": "already_terminal", "message": "Run already finished."})
+    except RunNotFound as exc:
+        raise HTTPException(status_code=404, detail="Run not found") from exc
+    except RunAlreadyTerminal as exc:
+        raise HTTPException(
+            status_code=409, detail={"code": "already_terminal", "message": "Run already finished."}
+        ) from exc
 
 
 @app.get("/api/v1/runs/{run_id}/artifacts", response_model=list[ArtifactRef], dependencies=[read_access])
@@ -518,10 +522,10 @@ def get_artifact(digest: str):
         raise HTTPException(status_code=404, detail="Artifact not found")
     try:
         data = artifacts.read(ref)
-    except ArtifactNotFound:
-        raise HTTPException(status_code=404, detail="Artifact not found")
-    except ArtifactCorrupt:
-        raise HTTPException(status_code=500, detail="Artifact failed verification")
+    except ArtifactNotFound as exc:
+        raise HTTPException(status_code=404, detail="Artifact not found") from exc
+    except ArtifactCorrupt as exc:
+        raise HTTPException(status_code=500, detail="Artifact failed verification") from exc
     disposition = (
         f'attachment; filename="{ref.name}"'
         if ref.name.isascii()
@@ -543,13 +547,13 @@ def start_run(request: RunRequest, http: Request, principal: Principal = runs_wr
     try:
         record = runs.submit(request)
     except (ExecutionDisabled, UnsupportedDialect) as exc:
-        raise HTTPException(status_code=501, detail=str(exc))
-    except AgentNotFound:
-        raise HTTPException(status_code=404, detail="Agent not found")
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except AgentNotFound as exc:
+        raise HTTPException(status_code=404, detail="Agent not found") from exc
     except DefinitionConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AdmissionRejected as exc:
-        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
     ledger.audit(principal.name, "run.created", record.id, "created", _client_host(http))
     return {"run_id": record.id, "status": record.status}
 
@@ -559,15 +563,15 @@ def start_decision(request: DecisionRunRequest, http: Request, principal: Princi
     try:
         record = runs.submit_decision(request)
     except ExecutionDisabled as exc:
-        raise HTTPException(status_code=501, detail=str(exc))
-    except ProfileNotFound:
-        raise HTTPException(status_code=404, detail="Model profile not found")
+        raise HTTPException(status_code=501, detail=str(exc)) from exc
+    except ProfileNotFound as exc:
+        raise HTTPException(status_code=404, detail="Model profile not found") from exc
     except NotADecisionProfile as exc:
-        raise HTTPException(status_code=409, detail={"code": "not_a_decision_profile", "message": str(exc)})
+        raise HTTPException(status_code=409, detail={"code": "not_a_decision_profile", "message": str(exc)}) from exc
     except DefinitionConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AdmissionRejected as exc:
-        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message})
+        raise HTTPException(status_code=409, detail={"code": exc.code, "message": exc.message}) from exc
     ledger.audit(principal.name, "run.created", record.id, "created", _client_host(http))
     return {"run_id": record.id, "status": record.status}
 
@@ -646,7 +650,7 @@ def worker_heartbeat(run_id: str, body: HeartbeatRequest, worker_id: Annotated[s
             run_id, body.fencing_token, lease_seconds(), time.time(), worker_id=worker_id
         )
     except FencingError as exc:
-        raise _conflict("fencing", exc)
+        raise _conflict("fencing", exc) from exc
     return {"ok": True, "cancel_requested": cancel_requested}
 
 
@@ -657,11 +661,11 @@ def worker_events(run_id: str, body: EventRequest, worker_id: Annotated[str, Dep
             run_id, body.fencing_token, body.wseq, body.type, body.payload, body.status, worker_id=worker_id
         )
     except FencingError as exc:
-        raise _conflict("fencing", exc)
+        raise _conflict("fencing", exc) from exc
     except SequenceGap as exc:
-        raise _conflict("sequence_gap", exc)
+        raise _conflict("sequence_gap", exc) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return {"cancel_requested": cancel_requested}
 
 
@@ -677,7 +681,7 @@ def worker_finish(run_id: str, body: FinishRequest, worker_id: Annotated[str, De
             worker_id=worker_id,
         )
     except FencingError as exc:
-        raise _conflict("fencing", exc)
+        raise _conflict("fencing", exc) from exc
     return {"ok": True}
 
 
@@ -712,6 +716,8 @@ async def worker_artifact(
             worker_id=worker_id,
         )
     except FencingError as exc:
-        raise _conflict("fencing", exc)
+        raise _conflict("fencing", exc) from exc
     except ArtifactRejected as exc:
-        raise HTTPException(status_code=400 if exc.code == "digest_mismatch" else 413, detail={"code": exc.code})
+        raise HTTPException(
+            status_code=400 if exc.code == "digest_mismatch" else 413, detail={"code": exc.code}
+        ) from exc

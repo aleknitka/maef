@@ -9,6 +9,7 @@ import pytest
 import yaml
 from botocore.stub import Stubber
 from fastapi.testclient import TestClient
+
 from maef_api import main, otel
 from maef_api.adapters.base import Message, ModelResponse, ToolCall, token_count
 from maef_api.adapters.bedrock import BedrockAdapter

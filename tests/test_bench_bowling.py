@@ -4,6 +4,7 @@
 import json
 
 import pytest
+
 from maef_api.bench.families import FAMILIES
 from maef_api.bench.families.base import Variant
 from maef_api.bench.families.bowling import (

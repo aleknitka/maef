@@ -6,6 +6,7 @@ import json
 import textwrap
 
 import pytest
+
 from maef_api.bench import grade
 from maef_api.bench.families.bowling import Bowling, reference_score
 from maef_api.sandbox import detect_sandbox

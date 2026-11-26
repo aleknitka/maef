@@ -9,6 +9,7 @@ Image requirements: POSIX `sh`, `cat`, `mkdir` (used by put/get), and a `sleep` 
 `infinity` (GNU or busybox). Container output and file contents are never logged.
 """
 
+import contextlib
 import json
 import os
 import posixpath
@@ -153,7 +154,7 @@ class OciCliSandbox:
     def _run(
         self, args: list[str], *, timeout: float = _CLI_TIMEOUT, stdin: bytes | None = None
     ) -> subprocess.CompletedProcess:
-        return subprocess.run(
+        return subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
             [self._bin, *args],
             input=stdin,
             capture_output=True,
@@ -244,7 +245,7 @@ class OciCliSandbox:
             "--tmpfs",
             f"{WORKSPACE}:rw,size={profile.workspace_mb}m,mode=1777",
             "--tmpfs",
-            "/tmp:rw,size=16m,mode=1777",
+            "/tmp:rw,size=16m,mode=1777",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
             "--entrypoint",
             "sleep",
             profile.image,
@@ -263,7 +264,9 @@ class OciCliSandbox:
         return _OciSession(self, name, proxy=proxy, network=net)
 
     def _start_egress(self, net: str, proxy: str, run_id: str, spec: EgressSpec) -> str:
-        """Returns the proxy's IP on the internal network. Internal network (no route out) plus a proxy that is on the runtime's default network
+        """Returns the proxy's IP on the internal network.
+
+        Internal network (no route out) plus a proxy that is on the runtime's default network
         (for DNS and the way out) and on the internal network. The proxy starts on the default network
         because an internal network's DNS does not forward (podman: the network has DNS disabled so the
         proxy keeps the host's resolvers; clients reach the proxy by IP); it accepts clients only from the internal
@@ -328,7 +331,7 @@ class OciCliSandbox:
                     "--user",
                     "65534:65534",
                     "--tmpfs",
-                    "/tmp:rw,size=8m,mode=1777",
+                    "/tmp:rw,size=8m,mode=1777",  # noqa: S108  path is inside the container (tmpfs), not a host temp file
                     "--env",
                     f"MAEF_EGRESS_CONFIG={config}",
                     "--entrypoint",
@@ -369,19 +372,15 @@ class OciCliSandbox:
         if proxy:
             self._rm(proxy)
         if net:
-            try:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
                 self._run(["network", "rm", "-f", net])
-            except (OSError, subprocess.SubprocessError):
-                pass
 
     def _rm(self, name: str) -> None:
         """Remove without a stop grace period. Every MAEF container's PID 1 (`sleep infinity`, the proxy) ignores
         SIGTERM and holds no state worth flushing, so podman's default 10 s wait would only delay teardown.
         `docker rm -f` already kills immediately."""
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             self._run(["rm", "-f", "-t", "0", name] if self.runtime == "podman" else ["rm", "-f", name])
-        except (OSError, subprocess.SubprocessError):
-            pass
 
     def cleanup_orphans(self) -> int:
         """Remove every container labelled maef.run. Call at worker start; assumes this host's
@@ -439,7 +438,7 @@ class _OciSession:
             return ExecResult(-1, b"", b"", cancelled=True)
         cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, self.name, *argv]
         try:
-            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            popen = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
         except OSError:
             raise SandboxError("exec_failed") from None
         deadline = time.monotonic() + max(timeout, 0.1)
@@ -477,7 +476,7 @@ class _OciSession:
         # never appear in argv or `ps` output.
         cmd = [self._sb._bin, "exec", "-i", "-w", WORKSPACE, *(x for k in env for x in ("-e", k)), self.name, *argv]
         try:
-            popen = subprocess.Popen(
+            popen = subprocess.Popen(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
                 cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env={**os.environ, **env}
             )
         except OSError:
@@ -487,10 +486,8 @@ class _OciSession:
     def _kill_all(self) -> None:
         # Best effort: killing the CLI client leaves the exec'd process running in the container.
         # `kill -9 -1` reaches every process the user may signal except PID 1 (sleep), which is immune.
-        try:
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
             self._sb._run(["exec", self.name, "sh", "-c", "kill -9 -1"], timeout=10)
-        except (OSError, subprocess.SubprocessError):
-            pass
 
     def put(self, path: str, data: bytes) -> None:
         path = workspace_path(path)
@@ -567,18 +564,14 @@ class _OciProcess:
     def close(self) -> None:
         self._closed.set()
         for stream in (self._p.stdin, self._p.stdout):
-            try:
+            with contextlib.suppress(OSError, ValueError):
                 stream.close()
-            except (OSError, ValueError):
-                pass
         try:
             self._p.terminate()
             self._p.wait(timeout=2)
         except (OSError, subprocess.SubprocessError):
-            try:
+            with contextlib.suppress(OSError):
                 self._p.kill()
-            except OSError:
-                pass
 
 
 def detect_sandbox(

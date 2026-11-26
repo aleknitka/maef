@@ -12,6 +12,7 @@ import subprocess
 
 import pytest
 import yaml
+
 from maef_api.adapters.base import ModelResponse, ToolCall
 from maef_api.artifacts import LocalArtifactStore
 from maef_api.definitions import PinnedDefinition

@@ -1,4 +1,5 @@
 import pytest
+
 from maef_api.channel import LocalChannel
 from maef_api.leases import FencingError, SequenceGap
 from maef_api.ledger import Ledger

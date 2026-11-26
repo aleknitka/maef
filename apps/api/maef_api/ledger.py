@@ -187,7 +187,8 @@ class Ledger:
         the run is live. Raises UnknownRun, or AlreadyTerminal once the run has finished."""
         with self._transaction() as conn:
             row = conn.execute(
-                "SELECT status, cancel_requested FROM runs WHERE id=?" + self.d.row_lock, (run_id,)
+                "SELECT status, cancel_requested FROM runs WHERE id=?" + self.d.row_lock,
+                (run_id,),
             ).fetchone()
             if row is None:
                 raise UnknownRun(run_id)
@@ -226,7 +227,8 @@ class Ledger:
 
         with self._transaction() as conn:
             account = conn.execute(
-                "SELECT * FROM budget_accounts WHERE id=?" + self.d.row_lock, (account_id,)
+                "SELECT * FROM budget_accounts WHERE id=?" + self.d.row_lock,
+                (account_id,),
             ).fetchone()
             if account is None:
                 raise AdmissionError("no_account", f"Unknown budget account: {account_id}")
@@ -237,8 +239,10 @@ class Ledger:
                 "UPDATE budget_accounts SET reserved_tokens = reserved_tokens + ? WHERE id=?", (reserve, account_id)
             )
             conn.execute(
-                "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, definition_digest, profile_digest, "
-                f"effective_budget, reserved_tokens, created_at, task) VALUES (?, 'admitted', ?, ?, ?, ?, ?, ?, {self.d.jsonp}, ?, ?, ?)",
+                "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, "
+                "definition_digest, profile_digest, "
+                f"effective_budget, reserved_tokens, created_at, task) "
+                f"VALUES (?, 'admitted', ?, ?, ?, ?, ?, ?, {self.d.jsonp}, ?, ?, ?)",
                 (
                     run_id,
                     account_id,
@@ -277,7 +281,8 @@ class Ledger:
         profile_id = decision.profile.id
         with self._transaction() as conn:
             account = conn.execute(
-                "SELECT * FROM budget_accounts WHERE id=?" + self.d.row_lock, (account_id,)
+                "SELECT * FROM budget_accounts WHERE id=?" + self.d.row_lock,
+                (account_id,),
             ).fetchone()
             if account is None:
                 raise AdmissionError("no_account", f"Unknown budget account: {account_id}")
@@ -288,8 +293,10 @@ class Ledger:
                 "UPDATE budget_accounts SET reserved_tokens = reserved_tokens + ? WHERE id=?", (reserve, account_id)
             )
             conn.execute(
-                "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, definition_digest, profile_digest, "
-                f"effective_budget, reserved_tokens, created_at, task, kind) VALUES (?, 'admitted', ?, ?, NULL, 0, ?, ?, {self.d.jsonp}, ?, ?, ?, 'decision')",
+                "INSERT INTO runs (id, status, account_id, agent_id, git_rev, dirty, "
+                "definition_digest, profile_digest, "
+                f"effective_budget, reserved_tokens, created_at, task, kind) "
+                f"VALUES (?, 'admitted', ?, ?, NULL, 0, ?, ?, {self.d.jsonp}, ?, ?, ?, 'decision')",
                 (
                     run_id,
                     account_id,
@@ -391,7 +398,8 @@ class Ledger:
         """The earliest recorded ref for this digest, or None: only recorded digests may be served."""
         with self.connect() as conn:
             row = conn.execute(
-                f"SELECT digest, size, mime, name FROM run_artifacts WHERE digest=? ORDER BY {self.d.order_col} LIMIT 1",
+                f"SELECT digest, size, mime, name FROM run_artifacts WHERE digest=? "
+                f"ORDER BY {self.d.order_col} LIMIT 1",
                 (digest,),
             ).fetchone()
         return ArtifactRef(**dict(row)) if row else None
@@ -420,7 +428,8 @@ class Ledger:
     def list_api_tokens(self) -> "list[dict]":  # `list` is shadowed by Ledger.list
         with self.connect() as conn:
             rows = conn.execute(
-                f"SELECT id, name, scopes, created_at, revoked_at FROM api_tokens ORDER BY created_at, {self.d.order_col}"
+                f"SELECT id, name, scopes, created_at, revoked_at FROM api_tokens "
+                f"ORDER BY created_at, {self.d.order_col}"
             ).fetchall()
         return [{**dict(r), "scopes": [s for s in r["scopes"].split(",") if s]} for r in rows]
 
@@ -437,7 +446,8 @@ class Ledger:
     def register_worker_credential(self, worker_id: str, token_hash: str) -> None:
         with self._transaction() as conn:
             conn.execute(
-                "INSERT INTO worker_credentials (worker_id, token_hash, created_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
+                "INSERT INTO worker_credentials (worker_id, token_hash, created_at) VALUES (?, ?, ?) "
+                "ON CONFLICT DO NOTHING",
                 (worker_id, token_hash, now()),
             )
 
@@ -453,7 +463,8 @@ class Ledger:
     def list_worker_credentials(self) -> "list[dict]":
         with self.connect() as conn:
             rows = conn.execute(
-                f"SELECT worker_id, created_at, revoked_at FROM worker_credentials ORDER BY created_at, {self.d.order_col}"
+                f"SELECT worker_id, created_at, revoked_at FROM worker_credentials "
+                f"ORDER BY created_at, {self.d.order_col}"
             ).fetchall()
         return [dict(r) for r in rows]
 
@@ -500,7 +511,10 @@ class Ledger:
         """Aggregates for GET /api/v1/metrics, computed in SQL (events are never loaded into Python)."""
         d = self.d
         with self.connect() as conn:
-            one = lambda sql: conn.execute(sql).fetchone()
+
+            def one(sql):
+                return conn.execute(sql).fetchone()
+
             usage = one(
                 f"SELECT COALESCE(SUM({d.json_int('payload', 'input_tokens')}), 0) AS i, "
                 f"COALESCE(SUM({d.json_int('payload', 'output_tokens')}), 0) AS o, "

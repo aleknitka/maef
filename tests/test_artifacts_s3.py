@@ -7,6 +7,7 @@ import boto3
 import pytest
 from botocore.config import Config
 from botocore.stub import ANY, Stubber
+
 from maef_api import main
 from maef_api.artifacts import (
     ArtifactCorrupt,

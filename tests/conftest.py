@@ -1,3 +1,4 @@
+import contextlib
 import os
 import tempfile
 
@@ -19,6 +20,7 @@ os.environ["MAEF_API_TOKEN"] = TEST_ADMIN_TOKEN
 
 def _install_test_auth() -> None:
     from fastapi.testclient import TestClient
+
     from maef_api.auth import hash_token
     from maef_api.ledger import Ledger
 
@@ -314,10 +316,8 @@ def _wait_for_s3(server: S3Server, timeout: float = 90.0) -> None:
     while time.monotonic() < deadline:
         try:
             client = server.client()
-            try:
+            with contextlib.suppress(client.exceptions.BucketAlreadyOwnedByYou):
                 client.create_bucket(Bucket=server.bucket)
-            except client.exceptions.BucketAlreadyOwnedByYou:
-                pass
             return
         except Exception as e:  # noqa: BLE001 - any failure means "not ready yet"
             last = e

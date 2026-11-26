@@ -6,6 +6,8 @@ import json
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api.adapters.base import ModelResponse, ToolCall
 from maef_api.channel import LocalChannel
 from maef_api.credentials import Credentials
@@ -24,7 +26,6 @@ from maef_api.runs import Runs
 from maef_api.sandbox import MAX_LINE_BYTES, FakeSandbox, SandboxError
 from maef_api.tools import BuiltinTools, ToolResult
 from maef_api.worker import Worker
-from pydantic import ValidationError
 from test_api import PROFILE
 from test_run_execution import definition
 from test_sandbox_cli import RUN_ID as CLI_RUN_ID

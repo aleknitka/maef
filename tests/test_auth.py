@@ -8,6 +8,7 @@ import hashlib
 
 import pytest
 from fastapi.testclient import TestClient
+
 from maef_api import cli, main
 from maef_api.auth import (
     SCOPE_ADMIN,

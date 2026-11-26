@@ -27,7 +27,7 @@ SCOPES = (SCOPE_READ, SCOPE_RUNS, SCOPE_DECISIONS, SCOPE_AUTHORING, SCOPE_ADMIN)
 DEV_PRINCIPAL = "dev-unauthenticated"
 ANONYMOUS = "anonymous"
 
-MISSING_TOKEN_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."
+MISSING_TOKEN_HINT = "Set MAEF_API_TOKEN (create one with `maef admin token create`)."  # noqa: S105  user-facing hint text, not a secret
 
 
 class AuthError(ValueError):

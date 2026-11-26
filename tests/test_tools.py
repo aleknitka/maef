@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+
 from conftest import copy_research_analyst
 from maef_api.definitions import Definitions, ResolveError
 from maef_api.registry import AgentRegistry, ModelProfileRegistry

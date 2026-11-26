@@ -49,3 +49,14 @@ line-length = 120
 target-version = "py311"
 src = ["apps/api", "tests"]
 extend-exclude = [".claude", "apps/studio", "apps/tui", "docs/bench-runs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "BLE", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# tests assert on bind-all/denied addresses (S104) and group imports by section (E402)
+"tests/**" = ["E402", "S101", "S104", "S105", "S106", "S108", "S603", "S607"]
+# _self_check() is a manual assert-based check shipped beside the generator
+"apps/api/maef_api/bench/families/bowling.py" = ["S101"]
+# SQL text is joined only with constant dialect fragments (row_lock, jsonp, ...); every value is a bound parameter
+"apps/api/maef_api/ledger.py" = ["S608"]

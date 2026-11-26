@@ -22,10 +22,10 @@ def reference_score(rolls, pins, frames, strike_bonus, spare_bonus) -> int:
     open -> two balls, no fill. Pins reset whenever all pins are down (after a strike or a clear within fill balls).
     """
     if not isinstance(rolls, (list, tuple)):
-        raise ValueError("rolls must be a list")  # noqa: TRY004
+        raise ValueError("rolls must be a list")
     for r in rolls:
         if not isinstance(r, int) or isinstance(r, bool):
-            raise ValueError("rolls must be integers")  # noqa: TRY004
+            raise ValueError("rolls must be integers")
         if r < 0:
             raise ValueError("negative roll")
         if r > pins:
@@ -137,7 +137,7 @@ class Bowling:
     id = "bowling"
 
     def sample(self, seed: int, noise: int) -> Variant:
-        rng = random.Random(f"bowling:{seed}:{noise}")
+        rng = random.Random(f"bowling:{seed}:{noise}")  # noqa: S311  seeded generator for reproducible benchmark variants; not security-sensitive
         params, names = dict(CANONICAL), dict(CANONICAL_NAMES)
         if noise >= 1:
             params["pins"] = rng.randint(5, 15)
@@ -202,7 +202,7 @@ D3. `/workspace/out/NOTES.md`: your approach, your assumptions, and how to run t
     def hidden_cases(self, v: Variant) -> list[dict]:
         pins, frames, sb, pb = _p(v)
         args = (pins, frames, sb, pb)
-        rng = random.Random(f"bowling-cases:{v.seed}:{v.noise}")
+        rng = random.Random(f"bowling-cases:{v.seed}:{v.noise}")  # noqa: S311  seeded generator for reproducible benchmark variants; not security-sensitive
         cases: list[tuple[str, list[int]]] = []
         h = pins // 2
         cases.append(("gutter game", [0] * (2 * frames)))
@@ -238,7 +238,7 @@ D3. `/workspace/out/NOTES.md`: your approach, your assumptions, and how to run t
             ("invalid: open frame over pins", [pins - 1, 2] + [0] * (2 * frames - 2)),
             ("invalid: too few rolls", perfect[:-1]),
             ("invalid: too few, gutter", [0] * (2 * frames - 1)),
-            ("invalid: too many rolls", full + [0]),
+            ("invalid: too many rolls", [*full, 0]),
             ("invalid: extra after open last frame", [0] * (2 * frames) + [1]),
         ]
         for name, rolls in invalid:
@@ -315,7 +315,11 @@ def main():
         if c["expected"] != "ValueError" and type(got) is int and got == c["expected"]:
             result["passed"] += 1
         else:
-            fail(c, c["expected"], "no ValueError, returned " + repr(got) if c["expected"] == "ValueError" else repr(got))
+            fail(
+                c,
+                c["expected"],
+                "no ValueError, returned " + repr(got) if c["expected"] == "ValueError" else repr(got),
+            )
     return result
 
 
@@ -329,7 +333,10 @@ print(json.dumps(out))
 
 def _self_check() -> None:
     """Run manually: python -c 'from maef_api.bench.families.bowling import _self_check; _self_check()'."""
-    s = lambda r, *a: reference_score(r, *(a or (10, 10, 2, 1)))
+
+    def s(r, *a):
+        return reference_score(r, *(a or (10, 10, 2, 1)))
+
     assert s([0] * 20) == 0
     assert s([1] * 20) == 20
     assert s([10] * 12) == 300

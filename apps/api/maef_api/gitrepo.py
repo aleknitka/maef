@@ -27,8 +27,8 @@ def run_git(
     """Run `git -C root args...` and return stdout; GitError carries a short stderr message."""
     full_env = {**os.environ, **env} if env else None
     try:
-        proc = subprocess.run(
-            ["git", "-C", str(root), *args],
+        proc = subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+            ["git", "-C", str(root), *args],  # noqa: S607  fixed 'git' executable resolved from PATH by design
             capture_output=True,
             input=input,
             timeout=timeout,

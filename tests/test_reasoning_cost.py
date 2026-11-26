@@ -9,6 +9,8 @@ import json
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
 from maef_api import main, otel
 from maef_api.adapters.base import (
     Message,
@@ -25,7 +27,6 @@ from maef_api.harness import LedgerSink, PreparedRun, execute
 from maef_api.ledger import Ledger
 from maef_api.models import Budget
 from maef_api.tools import ToolResult
-from pydantic import ValidationError
 from test_http_adapters import Fake, make_profile
 from test_run_execution import definition
 

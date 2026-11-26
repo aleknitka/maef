@@ -8,6 +8,7 @@ published sha can be run at once with `RunRequest.agent_revision`. Discarding a 
 worktree but keeps the branch, so the published commit stays reachable.
 """
 
+import contextlib
 import os
 import re
 import secrets
@@ -390,10 +391,8 @@ class Drafts:
                     shutil.rmtree(tree, ignore_errors=True)
                     self._git("worktree", "prune")
             if draft.published is None:
-                try:
+                with contextlib.suppress(DraftRejected):  # branch may already be gone
                     self._git("branch", "-D", draft.branch)
-                except DraftRejected:
-                    pass  # already gone
             self._meta(draft_id).unlink(missing_ok=True)
 
 

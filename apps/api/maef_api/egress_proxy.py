@@ -13,6 +13,7 @@ headers or bodies. Configuration: JSON in the MAEF_EGRESS_CONFIG environment var
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import socket
@@ -193,10 +194,8 @@ class _Proxy:
         except (TimeoutError, OSError, asyncio.IncompleteReadError, asyncio.LimitOverrunError, ConnectionError):
             pass
         finally:
-            try:
+            with contextlib.suppress(OSError):
                 writer.close()
-            except OSError:
-                pass
 
     @staticmethod
     async def _reply(writer, status: int, reason: str) -> None:
@@ -323,10 +322,8 @@ class _Proxy:
         finally:
             self.used += moved[0]
             _log(host=shown, port=port, decision="allow", reason="ok", bytes=moved[0])
-            try:
+            with contextlib.suppress(OSError):
                 up_writer.close()
-            except OSError:
-                pass
 
     async def _pipe(self, src, dst, moved: list[int]) -> None:
         try:
@@ -387,7 +384,7 @@ async def _main(config: dict) -> None:
         idle_seconds=float(config.get("idle_seconds", DEFAULT_IDLE_SECONDS)),
         max_bytes=int(config.get("max_bytes", DEFAULT_MAX_BYTES)),
     )
-    bind = config.get("bind", "0.0.0.0")  # clients are filtered by source network
+    bind = config.get("bind", "0.0.0.0")  # clients are filtered by source network  # noqa: S104  in-container proxy default; clients are filtered by source CIDR
     server = await asyncio.start_server(proxy.handle, bind, int(config.get("port", PROXY_PORT)), limit=MAX_HEADER_BYTES)
     print(json.dumps({"event": "ready", "bind": bind}), flush=True)
     async with server:
@@ -400,10 +397,8 @@ def main() -> int:
     except (KeyError, ValueError):
         print(json.dumps({"event": "fatal", "reason": "bad_config"}), flush=True)
         return 2
-    try:
+    with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(_main(config))
-    except KeyboardInterrupt:
-        pass
     return 0
 
 

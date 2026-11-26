@@ -3,6 +3,7 @@
 import json
 
 import pytest
+
 from maef_api.bench import trace
 
 PASS_OK = {"exit_code": 0, "stdout": "", "stderr": "Ran 3 tests\n\nOK", "timed_out": False}

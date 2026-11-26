@@ -9,6 +9,7 @@ import subprocess
 import uuid
 
 import pytest
+
 from maef_api.registry import SandboxProfileRegistry
 from maef_api.sandbox import SandboxError, detect_sandbox
 

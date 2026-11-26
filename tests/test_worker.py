@@ -7,6 +7,7 @@ import time
 import pytest
 import uvicorn
 from fastapi.testclient import TestClient
+
 from maef_api import main
 from maef_api.adapters.base import ModelResponse
 from maef_api.auth import hash_token

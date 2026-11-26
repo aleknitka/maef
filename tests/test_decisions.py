@@ -9,6 +9,8 @@ import socket
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api import main
 from maef_api.adapters import http as http_mod
 from maef_api.adapters.decision import (
@@ -27,7 +29,6 @@ from maef_api.egress import EgressPolicy
 from maef_api.models import ModelEndpointProfile
 from maef_api.registry import ModelProfileRegistry
 from maef_api.worker import Worker
-from pydantic import ValidationError
 from test_cli import cli
 from test_gateway import call, text_of, wrapped
 from test_http_adapters import Fake

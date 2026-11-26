@@ -22,8 +22,8 @@ def _ts(value) -> float | None:
 
 def git_revision() -> str:
     try:
-        done = subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],
+        done = subprocess.run(  # noqa: S603  argv list, no shell; fixed container-runtime binary, no host shell
+            ["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"],  # noqa: S607  fixed 'git' executable resolved from PATH by design
             capture_output=True,
             text=True,
             timeout=10,

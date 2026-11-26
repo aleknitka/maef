@@ -7,6 +7,7 @@ script on PATH (see test_sandbox_cli.py).
 """
 
 import asyncio
+import contextlib
 import json
 import socket
 from ipaddress import ip_address
@@ -14,6 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from maef_api import egress_proxy as ep
 from maef_api.channel import LocalChannel
 from maef_api.definitions import ResolveError
@@ -22,7 +25,6 @@ from maef_api.ledger import Ledger
 from maef_api.lint import lint_repo
 from maef_api.sandbox import EGRESS_PROXY_IMAGE, EgressSpec, FakeSandbox, OciCliSandbox
 from maef_api.worker import Worker
-from pydantic import ValidationError
 from test_mcp import (
     ToolCallingAdapter,
     admit_mcp,
@@ -431,10 +433,9 @@ def test_clients_outside_the_internal_subnet_are_dropped_silently(net):
         await w.drain()
         return await asyncio.wait_for(r.read(), 5)
 
-    try:  # the proxy closes with the request unread, so the peer may see a reset rather than EOF
+    # the proxy closes with the request unread, so the peer may see a reset rather than EOF
+    with contextlib.suppress(ConnectionResetError):
         assert asyncio.run(main()) == b""
-    except ConnectionResetError:
-        pass
     assert net.lookups == [] and net.connects == []
 
 

@@ -519,7 +519,8 @@ def _admin(args) -> int:
         elif action == "list":
             for c in ledger.list_worker_credentials():
                 print(
-                    f"{c['worker_id']}\t{c['created_at']}\t{'revoked ' + c['revoked_at'] if c['revoked_at'] else 'active'}"
+                    f"{c['worker_id']}\t{c['created_at']}\t"
+                    f"{'revoked ' + c['revoked_at'] if c['revoked_at'] else 'active'}"
                 )
         else:
             count = ledger.revoke_worker(args.id)

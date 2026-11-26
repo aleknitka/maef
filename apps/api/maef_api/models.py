@@ -51,7 +51,8 @@ class _HttpEndpoint(BaseModel):
 
     @model_validator(mode="after")
     def _http_only_for_local(self):
-        # Plain http is only for loopback or an opted-in private network, so prompts and keys never cross the internet unencrypted.
+        # Plain http is only for loopback or an opted-in private network,
+        # so prompts and keys never cross the internet unencrypted.
         if self.base_url.startswith("http://") and not (self.is_loopback or self.allow_private_network):
             raise ValueError("http base_url requires a loopback host or allow_private_network; use https")
         return self
@@ -66,7 +67,7 @@ class OpenAICompatibleEndpoint(_HttpEndpoint):
 
     kind: Literal["openai-compatible"]
     # OpenAI's newer models reject max_tokens; many local servers only know max_tokens.
-    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    token_param: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"  # noqa: S105  request-parameter name, not a secret
     # Sent as top-level `reasoning_effort` when set (OpenAI and OpenRouter accept it).
     reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 

@@ -41,7 +41,7 @@ def post_json(
             policy.check(url, allow_loopback=allow_loopback, allow_private=allow_private)
         except EgressDenied as exc:
             raise ModelHTTPError(None, str(exc)) from None
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310  URL is operator-configured and passes the egress policy check
             url, data=data, method="POST", headers={"Content-Type": "application/json", **headers}
         )
         try:

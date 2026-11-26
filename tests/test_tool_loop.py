@@ -6,6 +6,7 @@ import boto3
 import pytest
 import yaml
 from botocore.stub import Stubber
+
 from maef_api.adapters.anthropic import AnthropicAdapter
 from maef_api.adapters.base import Message, ModelResponse, ToolCall, ToolSpec
 from maef_api.adapters.bedrock import BedrockAdapter

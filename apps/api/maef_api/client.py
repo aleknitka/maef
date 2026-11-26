@@ -123,7 +123,7 @@ class HttpTransport:
         elif json is not None:
             data = _dumps(json)
             hdrs["Content-Type"] = "application/json"
-        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=hdrs)
+        req = urllib.request.Request(self.base_url + path, data=data, method=method, headers=hdrs)  # noqa: S310  base_url is operator-configured, not user input
         try:
             with self._open(req, self.timeout) as resp:
                 return resp.status, dict(resp.headers), resp.read()
@@ -137,7 +137,7 @@ class HttpTransport:
 
     def stream(self, path, headers=None):
         hdrs = {"Accept": "text/event-stream", **self._auth, **(headers or {})}
-        req = urllib.request.Request(self.base_url + path, method="GET", headers=hdrs)
+        req = urllib.request.Request(self.base_url + path, method="GET", headers=hdrs)  # noqa: S310  base_url is operator-configured, not user input
         try:
             resp = self._open(req, min(self.timeout, 5.0))  # short reads keep wait() deadlines honest
         except urllib.error.HTTPError as exc:

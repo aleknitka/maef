@@ -4,6 +4,7 @@ import boto3
 import pytest
 from botocore.stub import Stubber
 from fastapi.testclient import TestClient
+
 from maef_api import main
 from maef_api.adapters.base import Message, ModelResponse
 from maef_api.adapters.bedrock import BedrockAdapter

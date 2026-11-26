@@ -133,7 +133,10 @@ def _lint_agent(
         out.append(
             Finding(
                 path=rel,
-                message="an MCP server needs open network (network: open or allowlist) but permissions.network_open is not set",
+                message=(
+                    "an MCP server needs open network (network: open or allowlist) "
+                    "but permissions.network_open is not set"
+                ),
             )
         )
     elif agent.permissions.network_open and not any(m.network != "none" for m in manifests):

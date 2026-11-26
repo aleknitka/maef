@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 import yaml
 from fastapi.testclient import TestClient
+
 from maef_api import main, otel
 from maef_api.adapters import http as http_mod
 from maef_api.adapters.base import ModelResponse, ToolCall, ToolSpec
@@ -131,7 +132,10 @@ def test_ids_are_deterministic_and_differ_between_runs(store):
     run = two_turn_run(store)
     first = otel.run_to_spans(run)
     again = otel.run_to_spans(store.get(run.id))
-    ids = lambda spans: [(s.trace_id, s.span_id, s.parent_id) for s in spans]
+
+    def ids(spans):
+        return [(s.trace_id, s.span_id, s.parent_id) for s in spans]
+
     assert ids(first) == ids(again)
     other = otel.run_to_spans(two_turn_run(store))
     assert other[0].trace_id != first[0].trace_id

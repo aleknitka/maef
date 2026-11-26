@@ -4,8 +4,9 @@ import re
 import shutil
 
 import pytest
-from conftest import copy_research_analyst
 from fastapi.testclient import TestClient
+
+from conftest import copy_research_analyst
 from maef_api import main
 from maef_api.cli import main as cli_main
 from maef_api.client import AsgiTransport, MaefClient

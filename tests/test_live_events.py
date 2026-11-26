@@ -6,6 +6,7 @@ import time
 
 import pytest
 from fastapi.testclient import TestClient
+
 from maef_api import main
 from maef_api.adapters.base import ModelResponse, ToolCall
 from maef_api.harness import LedgerSink, PreparedRun, execute

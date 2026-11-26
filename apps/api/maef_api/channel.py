@@ -112,7 +112,7 @@ class HttpChannel:
             self._policy.check(url, allow_loopback=self._allow_loopback, allow_private=self._allow_private)
         except EgressDenied as exc:
             raise ChannelError(str(exc)) from None
-        req = urllib.request.Request(
+        req = urllib.request.Request(  # noqa: S310  URL is operator-configured and passes the egress policy check
             url, data=data, method="POST", headers={**headers, "Authorization": f"Bearer {self._token.reveal()}"}
         )
         try:

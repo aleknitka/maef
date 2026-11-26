@@ -2,6 +2,7 @@ import json
 import time
 
 import pytest
+
 from maef_api import client as client_module
 from maef_api.client import HttpTransport, MaefClient, MaefClientError
 from maef_api.egress import EgressPolicy

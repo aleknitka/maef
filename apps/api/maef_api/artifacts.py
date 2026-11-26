@@ -7,6 +7,7 @@ digest checks and fencing are enforced in one place. Nothing here knows about SQ
 records refs through the `ArtifactLog` protocol.
 """
 
+import contextlib
 import hashlib
 import os
 import re
@@ -179,10 +180,8 @@ class LocalArtifactStore:
                 os.fsync(f.fileno())
             os.replace(tmp, path)
         except BaseException:
-            try:
+            with contextlib.suppress(OSError):
                 os.unlink(tmp)
-            except OSError:
-                pass
             raise
         return ref
 
